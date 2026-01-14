@@ -4,6 +4,7 @@
 
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import { Select } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { AgentProgressBanner } from './-agent-progress-banner'
 import { agentTypeLabel } from './-agent-config'
 import type { AgentSession } from './-agent-types'
@@ -36,6 +37,7 @@ interface TaskEditorProps {
   onSave: () => void
   onDelete: () => void
   onReview: () => void
+  onVerify: () => void
   onAssignToAgent: () => void
   onRunAgentTypeChange: (agentType: AgentType) => void
   onCancelAgent: () => void
@@ -60,6 +62,7 @@ export function TaskEditor({
   onSave,
   onDelete,
   onReview,
+  onVerify,
   onAssignToAgent,
   onRunAgentTypeChange,
   onCancelAgent,
@@ -88,28 +91,13 @@ export function TaskEditor({
             </div>
           )}
 
-          <div className="shrink-0 flex items-center gap-1">
-            <button
-              onClick={() => onModeChange('edit')}
-              className={`px-2 py-1 rounded text-[10px] font-vcr border cursor-pointer transition-colors ${
-                mode === 'edit'
-                  ? 'border-accent text-accent bg-panel-hover'
-                  : 'border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover'
-              }`}
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => onModeChange('preview')}
-              className={`px-2 py-1 rounded text-[10px] font-vcr border cursor-pointer transition-colors ${
-                mode === 'preview'
-                  ? 'border-accent text-accent bg-panel-hover'
-                  : 'border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover'
-              }`}
-            >
-              Preview
-            </button>
-          </div>
+          <Switch
+            size="sm"
+            checked={mode === 'preview'}
+            onChange={(e) => onModeChange(e.target.checked ? 'preview' : 'edit')}
+            offLabel="Edit"
+            onLabel="Preview"
+          />
 
           <button
             onClick={onSave}
@@ -126,9 +114,18 @@ export function TaskEditor({
             onClick={onReview}
             disabled={!!agentSession}
             className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Ask an AI agent to review and suggest edits to this task"
+            title="Review spec quality (clarity, completeness, actionability)"
           >
             Review
+          </button>
+
+          <button
+            onClick={onVerify}
+            disabled={!!agentSession}
+            className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            title="Verify completed items against codebase"
+          >
+            Verify
           </button>
 
           <div className="flex items-center gap-1">

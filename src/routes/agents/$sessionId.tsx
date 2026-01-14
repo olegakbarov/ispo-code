@@ -4,10 +4,120 @@
 
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState, useRef, useEffect } from 'react'
-import { Send, Square, RotateCcw, Trash2 } from 'lucide-react'
+import { Send, Square, RotateCcw, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react'
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
-import type { AgentOutputChunk, SessionStatus } from '@/lib/agent/types'
+import { SimpleErrorBoundary } from '@/components/ui/error-boundary'
+import { PromptDisplay } from '@/components/agents/prompt-display'
+import { ToolCall } from '@/components/agents/tool-call'
+import { ToolResult } from '@/components/agents/tool-result'
+import type { AgentOutputChunk, SessionStatus, ResumeHistoryEntry } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
+
+/** Todo item from TodoWrite tool calls */
+interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm?: string
+}
+
+/** Extract the latest todo list from output chunks */
+function extractTodos(output: AgentOutputChunk[]): TodoItem[] | null {
+  // Find the last TodoWrite tool call
+  for (let i = output.length - 1; i >= 0; i--) {
+    const chunk = output[i]
+    if (chunk.type !== 'tool_use') continue
+
+    try {
+      const parsed = JSON.parse(chunk.content)
+      if (parsed.name === 'TodoWrite' && parsed.input?.todos) {
+        return parsed.input.todos as TodoItem[]
+      }
+    } catch {
+      // Not valid JSON or not a TodoWrite call
+    }
+  }
+  return null
+}
+
+/** Progress display showing todo list with visual indicators */
+function ProgressDisplay({ todos }: { todos: TodoItem[] }) {
+  const completed = todos.filter(t => t.status === 'completed').length
+  const total = todos.length
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0
+
+  return (
+    <div className="space-y-2">
+      {/* Progress bar */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
+          <div
+            className="h-full bg-accent transition-all duration-300"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <span className="text-[10px] font-vcr text-text-muted">
+          {completed}/{total}
+        </span>
+      </div>
+
+      {/* Todo list */}
+      <div className="space-y-1">
+        {todos.map((todo, i) => (
+          <div key={i} className="flex items-start gap-1.5 text-[10px]">
+            {todo.status === 'completed' ? (
+              <CheckCircle2 className="w-3 h-3 text-green-500 mt-0.5 flex-shrink-0" />
+            ) : todo.status === 'in_progress' ? (
+              <Loader2 className="w-3 h-3 text-accent animate-spin mt-0.5 flex-shrink-0" />
+            ) : (
+              <Circle className="w-3 h-3 text-text-muted mt-0.5 flex-shrink-0" />
+            )}
+            <span className={
+              todo.status === 'completed' ? 'text-text-muted line-through' :
+              todo.status === 'in_progress' ? 'text-accent' :
+              'text-text-secondary'
+            }>
+              {todo.status === 'in_progress' ? (todo.activeForm ?? todo.content) : todo.content}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Resume history display */
+function ResumeHistory({ history }: { history: ResumeHistoryEntry[] }) {
+  if (!history || history.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="space-y-2">
+      {history.map((entry, i) => (
+        <div key={i} className="text-[10px] border-l-2 pl-2 py-1">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            {entry.success ? (
+              <CheckCircle2 className="w-3 h-3 text-green-500" />
+            ) : (
+              <Circle className="w-3 h-3 text-error" />
+            )}
+            <span className="text-text-muted">
+              {new Date(entry.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+          <div className="text-text-secondary truncate">
+            {entry.message.slice(0, 50)}{entry.message.length > 50 ? '...' : ''}
+          </div>
+          {entry.error && (
+            <div className="text-error mt-0.5 truncate">
+              {entry.error}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export const Route = createFileRoute('/agents/$sessionId')({
   component: AgentSessionPage,
@@ -31,16 +141,54 @@ function AgentSessionPage() {
 
   const [messageInput, setMessageInput] = useState('')
   const outputRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   // All output from session
   const allOutput = useMemo((): AgentOutputChunk[] => {
     return session?.output ?? []
   }, [session?.output])
 
+  // Extract todo list from output
+  const todos = useMemo(() => extractTodos(allOutput), [allOutput])
+
   // Auto-scroll to bottom
   useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight
+    const el = outputRef.current
+    const bottomEl = bottomRef.current
+    if (!el || !bottomEl) return
+
+    const scrollToBottom = () => {
+      el.scrollTop = el.scrollHeight
+      bottomEl.scrollIntoView({ block: 'end' })
+    }
+
+    let rafId = 0
+    let prevScrollHeight = -1
+    let stableFrames = 0
+    const maxFrames = 60 // ~1s
+    let frame = 0
+
+    const tick = () => {
+      frame++
+      scrollToBottom()
+
+      const nextScrollHeight = el.scrollHeight
+      if (nextScrollHeight === prevScrollHeight) {
+        stableFrames++
+      } else {
+        prevScrollHeight = nextScrollHeight
+        stableFrames = 0
+      }
+
+      if (stableFrames >= 2) return
+      if (frame >= maxFrames) return
+      rafId = requestAnimationFrame(tick)
+    }
+
+    rafId = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(rafId)
     }
   }, [sessionId, allOutput.length])
 
@@ -48,10 +196,14 @@ function AgentSessionPage() {
   const busyStatuses: SessionStatus[] = ['pending', 'running', 'working', 'waiting_approval', 'waiting_input']
   const isBusy = session?.status ? busyStatuses.includes(session.status) : false
   const needsApproval = session?.status === 'waiting_approval'
-  const isReadyForInput = session?.status === 'waiting_input' || session?.status === 'idle'
+  // Allow follow-ups for idle, waiting_input, OR completed sessions (resume support)
+  const isReadyForInput = session?.status === 'waiting_input' || session?.status === 'idle' || session?.status === 'completed'
   const isSdkAgent = session?.agentType === 'cerebras' || session?.agentType === 'opencode'
-  const canSendMessage = isReadyForInput && (isSdkAgent || session?.cliSessionId)
-  const isDone = session?.status === 'completed' || session?.status === 'failed' || session?.status === 'cancelled'
+  const canSendMessage = isReadyForInput && (isSdkAgent || Boolean(session?.cliSessionId))
+  const isDone = session?.status === 'failed' || session?.status === 'cancelled'
+
+  // Check if session is resumable
+  const isResumable = session?.resumable !== false && canSendMessage
 
   // Mutations
   const cancelMutation = trpc.agent.cancel.useMutation({
@@ -76,6 +228,9 @@ function AgentSessionPage() {
     onSuccess: () => {
       setMessageInput('')
       utils.agent.get.invalidate({ id: sessionId })
+    },
+    onError: (error) => {
+      console.error('Failed to send message:', error)
     },
   })
 
@@ -146,14 +301,17 @@ function AgentSessionPage() {
   return (
     <div className="flex h-full">
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Prompt banner - compact */}
-        <div className="px-3 py-1.5 border-b border-border/60 bg-panel/30">
-          <div className="text-xs text-text-secondary line-clamp-2">{session.prompt}</div>
-        </div>
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        {/* Prompt display - collapsible with plan/task links */}
+        <PromptDisplay
+          prompt={session.prompt}
+          planPath={session.planPath}
+          taskPath={session.taskPath}
+          isResumable={isResumable}
+        />
 
         {/* Output area */}
-        <div ref={outputRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div ref={outputRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
           {allOutput.length === 0 ? (
             <div className="text-center text-text-muted text-sm py-8">
               {isBusy ? 'Waiting for output...' : 'No output'}
@@ -161,6 +319,7 @@ function AgentSessionPage() {
           ) : (
             <OutputRenderer chunks={allOutput} />
           )}
+          <div ref={bottomRef} />
         </div>
 
         {/* Error display */}
@@ -297,6 +456,12 @@ function AgentSessionPage() {
             {session.completedAt && (
               <InfoRow label="Completed" value={new Date(session.completedAt).toLocaleString()} />
             )}
+            {session.resumeAttempts !== undefined && session.resumeAttempts > 0 && (
+              <InfoRow label="Resume attempts" value={String(session.resumeAttempts)} />
+            )}
+            {session.lastResumedAt && (
+              <InfoRow label="Last resumed" value={new Date(session.lastResumedAt).toLocaleString()} />
+            )}
           </Section>
 
           {tokens && (
@@ -312,6 +477,18 @@ function AgentSessionPage() {
             <InfoRow label="Text" value={String(allOutput.filter(c => c.type === 'text').length)} />
             <InfoRow label="Tool calls" value={String(allOutput.filter(c => c.type === 'tool_use').length)} />
           </Section>
+
+          {session.resumeHistory && session.resumeHistory.length > 0 && (
+            <Section title="Resume History">
+              <ResumeHistory history={session.resumeHistory} />
+            </Section>
+          )}
+
+          {todos && todos.length > 0 && (
+            <Section title="Progress">
+              <ProgressDisplay todos={todos} />
+            </Section>
+          )}
         </div>
       </div>
     </div>
@@ -403,7 +580,9 @@ function OutputRenderer({ chunks }: { chunks: AgentOutputChunk[] }) {
           const combinedText = group.chunks.map(c => c.content).join('')
           return (
             <div key={i} className="py-0.5">
-              <StreamingMarkdown content={combinedText} className="text-xs" />
+              <SimpleErrorBoundary>
+                <StreamingMarkdown content={combinedText} className="text-xs" />
+              </SimpleErrorBoundary>
             </div>
           )
         }
@@ -426,33 +605,18 @@ function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
       parsed = { name: 'unknown', input: content }
     }
 
-    const toolName = parsed.name || (metadata?.tool as string | undefined)
+    const toolName = parsed.name || (metadata?.tool as string | undefined) || 'unknown'
     const toolInput = parsed.input ?? parsed.args
 
-    return (
-      <div className="border-l-2 border-warning pl-2 py-0.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-vcr text-[10px] text-warning">TOOL</span>
-          <span className="text-xs text-text-primary">{toolName}</span>
-        </div>
-        {toolInput !== undefined && (
-          <pre className="mt-0.5 text-[10px] text-text-muted overflow-x-auto">
-            {typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput, null, 2)}
-          </pre>
-        )}
-      </div>
-    )
+    return <ToolCall toolName={toolName} toolInput={toolInput} metadata={metadata} />
   }
 
   if (type === 'tool_result') {
-    return (
-      <div className="border-l-2 border-accent-dim pl-2 py-0.5">
-        <div className="font-vcr text-[10px] text-accent-dim mb-0.5">RESULT</div>
-        <pre className="text-[10px] text-text-secondary overflow-x-auto whitespace-pre-wrap">
-          {content.length > 500 ? content.slice(0, 500) + '...' : content}
-        </pre>
-      </div>
-    )
+    // Determine success from metadata or content
+    const success = metadata?.success !== false && !content.startsWith('error:')
+    const toolName = metadata?.tool as string | undefined
+
+    return <ToolResult content={content} success={success} toolName={toolName} />
   }
 
   if (type === 'thinking') {
@@ -477,6 +641,15 @@ function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
     return (
       <div className="text-[10px] text-text-muted italic py-0.5">
         {content}
+      </div>
+    )
+  }
+
+  if (type === 'user_message') {
+    return (
+      <div className="border-l-2 border-accent pl-2 py-1.5 my-2">
+        <div className="font-vcr text-[10px] text-accent mb-0.5">USER</div>
+        <div className="text-xs text-text-primary whitespace-pre-wrap">{content}</div>
       </div>
     )
   }

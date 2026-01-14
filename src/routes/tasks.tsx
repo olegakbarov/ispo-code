@@ -69,7 +69,7 @@ function TasksPage() {
   const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('cerebras')
 
   // Agent type for "Run with Agent"
-  const [runAgentType, setRunAgentType] = useState<AgentType>('cerebras')
+  const [runAgentType, setRunAgentType] = useState<AgentType>('claude')
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -117,7 +117,7 @@ function TasksPage() {
     if (availableTypes.length === 0) return
     if (availableTypes.includes(runAgentType)) return
 
-    const preferred: AgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
+    const preferred: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode']
     const next = preferred.find((t) => availableTypes.includes(t)) ?? availableTypes[0]
     setRunAgentType(next)
   }, [availableTypes, runAgentType])
@@ -170,6 +170,18 @@ function TasksPage() {
         utils.tasks.get.invalidate({ path: selectedPath })
       }
       utils.tasks.list.invalidate()
+    },
+  })
+
+  const reviewWithAgentMutation = trpc.tasks.reviewWithAgent.useMutation({
+    onSuccess: () => {
+      utils.tasks.getActiveAgentSessions.invalidate()
+    },
+  })
+
+  const verifyWithAgentMutation = trpc.tasks.verifyWithAgent.useMutation({
+    onSuccess: () => {
+      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
@@ -256,7 +268,7 @@ function TasksPage() {
 
       navigate({
         to: '/tasks',
-        search: (prev) => ({ ...prev, path }),
+        search: (prev: { path?: string }) => ({ ...prev, path }),
       })
     },
     [dirty, navigate, selectedPath]
@@ -353,10 +365,35 @@ function TasksPage() {
     cancelAgentMutation.mutate({ id: activeSessionId })
   }, [activeSessionId, cancelAgentMutation])
 
-  const handleReview = useCallback(() => {
-    // TODO: Implement review modal with reviewWithAgent mutation
-    globalThis.alert('Review feature coming soon!')
-  }, [])
+  const handleReview = useCallback(async () => {
+    if (!selectedPath) return
+
+    try {
+      setSaveError(null)
+      await reviewWithAgentMutation.mutateAsync({
+        path: selectedPath,
+        agentType: runAgentType,
+      })
+    } catch (err) {
+      console.error('Failed to start review:', err)
+      setSaveError(err instanceof Error ? err.message : 'Failed to start review')
+    }
+  }, [selectedPath, runAgentType, reviewWithAgentMutation])
+
+  const handleVerify = useCallback(async () => {
+    if (!selectedPath) return
+
+    try {
+      setSaveError(null)
+      await verifyWithAgentMutation.mutateAsync({
+        path: selectedPath,
+        agentType: runAgentType,
+      })
+    } catch (err) {
+      console.error('Failed to start verification:', err)
+      setSaveError(err instanceof Error ? err.message : 'Failed to start verification')
+    }
+  }, [selectedPath, runAgentType, verifyWithAgentMutation])
 
   const editorTitle = selectedSummary?.title ?? (selectedPath ? selectedPath : 'Tasks')
   const progress = selectedSummary?.progress ?? null
@@ -382,16 +419,6 @@ function TasksPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-        <h1 className="font-vcr text-sm text-accent">Tasks</h1>
-        <button
-          onClick={openCreate}
-          className="px-2 py-1 rounded text-[10px] font-vcr bg-accent text-background cursor-pointer hover:opacity-90"
-        >
-          + New Task
-        </button>
-      </div>
-
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Task List */}
         <TaskList
@@ -403,6 +430,7 @@ function TasksPage() {
           activeAgentSessions={activeAgentSessions}
           onFilterChange={setFilter}
           onTaskSelect={selectTask}
+          onCreateClick={openCreate}
         />
 
         {/* Right: Editor/Preview */}
@@ -434,6 +462,7 @@ function TasksPage() {
               onSave={handleSave}
               onDelete={handleDelete}
               onReview={handleReview}
+              onVerify={handleVerify}
               onAssignToAgent={handleAssignToAgent}
               onRunAgentTypeChange={setRunAgentType}
               onCancelAgent={handleCancelAgent}
@@ -456,6 +485,7 @@ function TasksPage() {
         onUseAgentChange={setUseAgent}
         onAgentTypeChange={setCreateAgentType}
       />
+
     </div>
   )
 }

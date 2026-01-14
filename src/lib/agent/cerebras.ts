@@ -14,6 +14,7 @@ import { execSync } from "child_process"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { resolve } from "path"
 import type { AgentOutputChunk, CerebrasMessageData } from "./types"
+import { SecurityConfig } from "./security-config.js"
 
 // === Types ===
 
@@ -36,10 +37,10 @@ export interface CerebrasEvents {
 
 // Available Cerebras models
 export const CEREBRAS_MODELS = [
-  { id: "zai-glm-4.7", name: "GLM 4.7 (357B)", description: "Advanced reasoning with tool use" },
-  { id: "llama-3.3-70b", name: "Llama 3.3 70B", description: "Complex reasoning" },
-  { id: "qwen-3-32b", name: "Qwen 3 32B", description: "General-purpose" },
-  { id: "llama3.1-8b", name: "Llama 3.1 8B", description: "Speed-critical" },
+  { id: "zai-glm-4.7", name: "GLM 4.7 (357B)", description: "Advanced reasoning with tool use", contextLimit: 131072 },
+  { id: "llama-3.3-70b", name: "Llama 3.3 70B", description: "Complex reasoning", contextLimit: 131072 },
+  { id: "qwen-3-32b", name: "Qwen 3 32B", description: "General-purpose", contextLimit: 32768 },
+  { id: "llama3.1-8b", name: "Llama 3.1 8B", description: "Speed-critical", contextLimit: 131072 },
 ] as const
 
 const DEFAULT_MODEL = "zai-glm-4.7"
@@ -48,6 +49,11 @@ const DEFAULT_MODEL = "zai-glm-4.7"
 const MAX_RETRIES = 5
 const INITIAL_RETRY_DELAY_MS = 2000 // Start with 2 seconds
 const MAX_RETRY_DELAY_MS = 60000 // Cap at 60 seconds
+
+// Context window management
+const CONTEXT_WARNING_THRESHOLD = 0.85 // Warn at 85% capacity
+const CONTEXT_PRUNE_THRESHOLD = 0.90 // Prune at 90% capacity
+const MIN_MESSAGES_TO_KEEP = 4 // Keep at least system + 3 recent messages
 
 /**
  * Sleep for a given number of milliseconds
@@ -197,6 +203,92 @@ export class CerebrasAgent extends EventEmitter {
   }
 
   /**
+   * Estimate token count for a message (rough approximation)
+   * Uses ~4 chars per token for English text
+   */
+  private estimateTokens(message: Message): number {
+    if (!message.content) return 0
+    const text = typeof message.content === "string" ? message.content : ""
+    return Math.ceil(text.length / 4)
+  }
+
+  /**
+   * Estimate total tokens for all messages
+   */
+  private estimateTotalTokens(messages: Message[]): number {
+    return messages.reduce((sum, msg) => sum + this.estimateTokens(msg), 0)
+  }
+
+  /**
+   * Get the context limit for the current model
+   */
+  private getContextLimit(): number {
+    const modelInfo = CEREBRAS_MODELS.find(m => m.id === this.model)
+    return modelInfo?.contextLimit ?? 131072
+  }
+
+  /**
+   * Prune old messages to fit within context window
+   * Keeps system prompt and most recent messages
+   * Also enforces maximum message history limit for memory safety
+   */
+  private pruneMessages(): void {
+    const contextLimit = this.getContextLimit()
+    const currentTokens = this.estimateTotalTokens(this.messages)
+
+    // Check if we need to prune based on token count OR message count
+    const needsTokenPruning = currentTokens > contextLimit * CONTEXT_PRUNE_THRESHOLD
+    const needsCountPruning = this.messages.length > SecurityConfig.MAX_MESSAGE_HISTORY
+
+    if (!needsTokenPruning && !needsCountPruning) {
+      return // No pruning needed
+    }
+
+    // Find system prompt index
+    const systemIndex = this.messages.findIndex(m => m.role === "system")
+    const systemMsg = systemIndex >= 0 ? this.messages[systemIndex] : null
+
+    // Calculate how many messages to keep
+    // Use stricter limit between token-based and count-based pruning
+    const tokenBasedKeep = Math.floor(this.messages.length * 0.4)
+    const countBasedKeep = SecurityConfig.MAX_MESSAGE_HISTORY - (systemMsg ? 1 : 0)
+    const messagesToKeep = Math.max(
+      MIN_MESSAGES_TO_KEEP,
+      Math.min(tokenBasedKeep, countBasedKeep)
+    )
+
+    const recentMessages = this.messages.slice(-messagesToKeep)
+
+    // Rebuild message array
+    this.messages = []
+    if (systemMsg) {
+      this.messages.push(systemMsg)
+    }
+    this.messages.push(...recentMessages)
+
+    const newTokens = this.estimateTotalTokens(this.messages)
+    const reason = needsCountPruning ? "message limit" : "token limit"
+    this.emitOutput("system", `Pruned messages (${reason}): ${currentTokens} → ${newTokens} tokens, ${messagesToKeep} messages`)
+  }
+
+  /**
+   * Validate message history before resume
+   */
+  private validateMessages(): { valid: boolean; error?: string } {
+    if (!this.messages || this.messages.length === 0) {
+      return { valid: false, error: "No message history to resume from" }
+    }
+
+    // Check if we have at least a system prompt
+    const hasSystem = this.messages.some(m => m.role === "system")
+    if (!hasSystem) {
+      return { valid: false, error: "Missing system prompt in message history" }
+    }
+
+    return { valid: true }
+  }
+
+  /**
    * Execute a tool call
    */
   private executeTool(name: string, args: Record<string, unknown>): string {
@@ -276,6 +368,20 @@ export class CerebrasAgent extends EventEmitter {
         this.messages.push({ role: "system", content: this.systemPrompt })
       }
       this.messages.push({ role: "user", content: prompt })
+
+      // Check context window and prune if needed
+      const contextLimit = this.getContextLimit()
+      const currentTokens = this.estimateTotalTokens(this.messages)
+      const utilization = currentTokens / contextLimit
+
+      if (utilization > CONTEXT_WARNING_THRESHOLD) {
+        this.emitOutput("system", `Context window at ${Math.round(utilization * 100)}% capacity (${currentTokens}/${contextLimit} tokens)`)
+      }
+
+      if (utilization > CONTEXT_PRUNE_THRESHOLD) {
+        this.emitOutput("system", "Approaching context limit, pruning old messages...")
+        this.pruneMessages()
+      }
 
       // Agent loop - continue until no more tool calls
       let iterationCount = 0
@@ -424,6 +530,38 @@ export class CerebrasAgent extends EventEmitter {
   }
 
   /**
+   * Resume a session with a new message
+   * Validates message history and handles context window overflow
+   */
+  async resume(message: string): Promise<void> {
+    // Validate message history
+    const validation = this.validateMessages()
+    if (!validation.valid) {
+      const error = validation.error ?? "Cannot resume: invalid message history"
+      this.emitOutput("error", error)
+      this.emit("error", error)
+      return
+    }
+
+    // Check context window and prune if needed
+    const contextLimit = this.getContextLimit()
+    const currentTokens = this.estimateTotalTokens(this.messages)
+    const utilization = currentTokens / contextLimit
+
+    if (utilization > CONTEXT_WARNING_THRESHOLD) {
+      this.emitOutput("system", `Context window at ${Math.round(utilization * 100)}% capacity (${currentTokens}/${contextLimit} tokens)`)
+    }
+
+    if (utilization > CONTEXT_PRUNE_THRESHOLD) {
+      this.emitOutput("system", "Approaching context limit, pruning old messages...")
+      this.pruneMessages()
+    }
+
+    // Continue with the new message
+    await this.continue(message)
+  }
+
+  /**
    * Get current conversation state (for persistence/resume)
    */
   getMessages(): CerebrasMessageData[] {
@@ -450,6 +588,19 @@ export class CerebrasAgent extends EventEmitter {
    */
   getSessionId(): string {
     return this.sessionId
+  }
+
+  /**
+   * Get context window usage info
+   */
+  getContextUsage(): { used: number; limit: number; percent: number } {
+    const limit = this.getContextLimit()
+    const used = this.estimateTotalTokens(this.messages)
+    return {
+      used,
+      limit,
+      percent: Math.round((used / limit) * 100),
+    }
   }
 }
 

@@ -11,13 +11,20 @@ import {
   getGitRemotes,
   getCwdPrefix,
   getFileDiff,
+  getDiffForFiles,
   stageFiles,
   unstageFiles,
   commitChanges,
+  commitScopedChanges,
   checkoutBranch,
   discardChanges,
   createBranch,
   pushToRemote,
+  fetchFromRemote,
+  pullFromRemote,
+  deleteBranch,
+  hasMergeConflicts,
+  getConflictedFiles,
 } from "@/lib/agent/git-service"
 
 export const gitRouter = router({
@@ -55,6 +62,23 @@ export const gitRouter = router({
       return getFileDiff(ctx.workingDir, input.file, input.view)
     }),
 
+  /** Get diffs for multiple files */
+  diffFiles: procedure
+    .input(z.object({
+      files: z.array(z.string()).min(1),
+      view: z.enum(["auto", "staged", "working"]).optional().default("auto"),
+    }))
+    .query(({ ctx, input }) => {
+      return getDiffForFiles(ctx.workingDir, input.files, input.view)
+    }),
+
+  conflicts: procedure.query(({ ctx }) => {
+    return {
+      hasConflicts: hasMergeConflicts(ctx.workingDir),
+      conflictedFiles: getConflictedFiles(ctx.workingDir),
+    }
+  }),
+
   // === Mutations ===
 
   stage: procedure
@@ -73,6 +97,16 @@ export const gitRouter = router({
     .input(z.object({ message: z.string().min(1, "Commit message is required") }))
     .mutation(({ ctx, input }) => {
       return commitChanges(ctx.workingDir, input.message)
+    }),
+
+  /** Commit specific files (scoped commit) */
+  commitScoped: procedure
+    .input(z.object({
+      files: z.array(z.string()).min(1, "At least one file is required"),
+      message: z.string().min(1, "Commit message is required"),
+    }))
+    .mutation(({ ctx, input }) => {
+      return commitScopedChanges(ctx.workingDir, input.files, input.message)
     }),
 
   checkout: procedure
@@ -104,6 +138,43 @@ export const gitRouter = router({
         remote: input.remote,
         branch: input.branch,
         setUpstream: input.setUpstream,
+      })
+    }),
+
+  fetch: procedure
+    .input(z.object({
+      remote: z.string().optional(),
+      prune: z.boolean().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return fetchFromRemote(ctx.workingDir, {
+        remote: input.remote,
+        prune: input.prune,
+      })
+    }),
+
+  pull: procedure
+    .input(z.object({
+      remote: z.string().optional(),
+      branch: z.string().optional(),
+      rebase: z.boolean().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return pullFromRemote(ctx.workingDir, {
+        remote: input.remote,
+        branch: input.branch,
+        rebase: input.rebase,
+      })
+    }),
+
+  deleteBranch: procedure
+    .input(z.object({
+      branch: z.string().min(1),
+      force: z.boolean().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return deleteBranch(ctx.workingDir, input.branch, {
+        force: input.force,
       })
     }),
 })

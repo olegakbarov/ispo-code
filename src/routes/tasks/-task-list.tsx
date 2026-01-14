@@ -29,6 +29,7 @@ interface TaskListProps {
   activeAgentSessions: Record<string, ActiveAgentSession> | undefined
   onFilterChange: (filter: string) => void
   onTaskSelect: (path: string) => void
+  onCreateClick: () => void
 }
 
 export function TaskList({
@@ -40,17 +41,24 @@ export function TaskList({
   activeAgentSessions,
   onFilterChange,
   onTaskSelect,
+  onCreateClick,
 }: TaskListProps) {
   return (
     <div className="w-80 shrink-0 min-h-0 flex flex-col bg-panel">
-      <div className="p-2 border-b border-border">
+      <div className="p-2 border-b border-border flex items-center gap-2">
         <Input
           value={filter}
           onChange={(e) => onFilterChange(e.target.value)}
           placeholder="Filter tasks..."
           variant="sm"
-          className="bg-background border-t border-l border-border/60"
+          className="bg-background border-t border-l border-border/60 flex-1"
         />
+        <button
+          onClick={onCreateClick}
+          className="px-2 py-1 rounded text-[10px] font-vcr bg-accent text-background cursor-pointer hover:opacity-90 shrink-0"
+        >
+          + New Task
+        </button>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -70,6 +78,11 @@ export function TaskList({
               const showProgress = total > 0
               const agentSession = activeAgentSessions?.[t.path]
               const hasActiveAgent = !!agentSession
+
+              // Calculate percentages for progress bar
+              const donePercent = total > 0 ? (done / total) * 100 : 0
+              const inProgressPercent = total > 0 ? (inProgress / total) * 100 : 0
+
               return (
                 <button
                   key={t.path}
@@ -88,15 +101,34 @@ export function TaskList({
                     )}
                     <div className="text-xs font-vcr truncate flex-1">{t.title}</div>
                     {showProgress && (
-                      <div className="shrink-0 flex items-center gap-1 text-[10px] font-vcr">
+                      <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-vcr">
                         <span className="text-accent">{done}/{total}</span>
-                        {inProgress > 0 && (
-                          <span className="text-warning">~ {inProgress}</span>
-                        )}
+                        <span className="text-text-muted">
+                          {Math.round(donePercent)}%
+                        </span>
                       </div>
                     )}
                   </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2">
+
+                  {/* Progress bar */}
+                  {showProgress && (
+                    <div className="mt-1.5 h-1 bg-border/50 rounded-full overflow-hidden flex">
+                      {donePercent > 0 && (
+                        <div
+                          className="h-full bg-accent transition-all duration-300"
+                          style={{ width: `${donePercent}%` }}
+                        />
+                      )}
+                      {inProgressPercent > 0 && (
+                        <div
+                          className="h-full bg-warning transition-all duration-300"
+                          style={{ width: `${inProgressPercent}%` }}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-1 flex items-center justify-between gap-2">
                     <div className="text-[10px] text-text-muted truncate min-w-0">{t.path}</div>
                     <div className="shrink-0 flex items-center gap-1">
                       {hasActiveAgent && (

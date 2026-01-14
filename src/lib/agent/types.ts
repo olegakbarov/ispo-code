@@ -21,7 +21,7 @@ export type SessionStatus =
  * Output chunk from an agent
  */
 export interface AgentOutputChunk {
-  type: "text" | "tool_use" | "tool_result" | "system" | "error" | "thinking"
+  type: "text" | "tool_use" | "tool_result" | "system" | "error" | "thinking" | "user_message"
   content: string
   timestamp: string
   /** Serializable metadata - avoid using `unknown` for TanStack serialization */
@@ -33,6 +33,10 @@ export interface AgentOutputChunk {
  */
 export interface EditedFileInfo {
   path: string
+  /** Path relative to agent's working directory */
+  relativePath?: string
+  /** Path relative to git repository root */
+  repoRelativePath?: string
   operation: "create" | "edit" | "delete"
   timestamp: string
   toolUsed: string
@@ -190,11 +194,23 @@ export interface CerebrasMessageData {
 }
 
 /**
+ * Resume history entry for tracking session resumption attempts
+ */
+export interface ResumeHistoryEntry {
+  timestamp: string
+  message: string
+  success: boolean
+  error?: string
+}
+
+/**
  * Agent session data
  */
 export interface AgentSession {
   id: string
   prompt: string
+  /** Display title for sidebar (uses prompt if not set) */
+  title?: string
   status: SessionStatus
   startedAt: string
   completedAt?: string
@@ -217,6 +233,16 @@ export interface AgentSession {
   cerebrasMessages?: CerebrasMessageData[]
   /** Link to a task file if this session is executing a task */
   taskPath?: string
+  /** Link to a plan file if this session was created from a plan */
+  planPath?: string
+  /** Whether this session can be resumed */
+  resumable?: boolean
+  /** Timestamp of last resume attempt */
+  lastResumedAt?: string
+  /** Number of resume attempts */
+  resumeAttempts?: number
+  /** History of resume attempts */
+  resumeHistory?: ResumeHistoryEntry[]
 }
 
 /**
@@ -224,12 +250,16 @@ export interface AgentSession {
  */
 export interface SpawnAgentParams {
   prompt: string
+  /** Display title for sidebar (uses prompt if not set) */
+  title?: string
   workingDir?: string
   sessionId?: string
   agentType?: AgentType
   model?: string
   /** Link to a task file if this session is executing a task */
   taskPath?: string
+  /** Link to a plan file if this session was created from a plan */
+  planPath?: string
 }
 
 /**

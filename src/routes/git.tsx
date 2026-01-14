@@ -18,6 +18,7 @@ import {
   type GitStatus as DiffGitStatus,
 } from '@/components/git'
 import { trpc } from '@/lib/trpc-client'
+import { useTheme } from '@/components/theme'
 
 export const Route = createFileRoute('/git')({
   component: GitPage,
@@ -38,19 +39,15 @@ interface GitStatus extends DiffGitStatus {
   behind: number
 }
 
-// Helper to check if working tree is clean
-function isClean(status: GitStatus): boolean {
-  return status.staged.length === 0 && status.modified.length === 0 && status.untracked.length === 0
-}
-
 function GitPage() {
   const { data: workingDir } = trpc.system.workingDir.useQuery()
   const utils = trpc.useUtils()
+  const { theme } = useTheme()
 
   // Queries - only enabled when workingDir is set
   const statusQuery = trpc.git.status.useQuery(undefined, {
     enabled: !!workingDir,
-    refetchInterval: 5000, // Auto-refresh every 5s
+    refetchInterval: 2000, // Auto-refresh every 2s (faster for active development)
   })
   const branchesQuery = trpc.git.branches.useQuery(undefined, {
     enabled: !!workingDir,
@@ -72,21 +69,49 @@ function GitPage() {
 
   // Mutations
   const stageMutation = trpc.git.stage.useMutation({
-    onSuccess: () => utils.git.status.invalidate(),
+    onSuccess: () => {
+      utils.git.status.invalidate()
+      // Invalidate diff data after staging
+      if (activeFile) {
+        handleFetchDiff(activeFile, activeView).then(setDiffData).catch(() => setDiffData(null))
+      }
+    },
   })
   const unstageMutation = trpc.git.unstage.useMutation({
-    onSuccess: () => utils.git.status.invalidate(),
+    onSuccess: () => {
+      utils.git.status.invalidate()
+      // Invalidate diff data after unstaging
+      if (activeFile) {
+        handleFetchDiff(activeFile, activeView).then(setDiffData).catch(() => setDiffData(null))
+      }
+    },
   })
   const discardMutation = trpc.git.discard.useMutation({
-    onSuccess: () => utils.git.status.invalidate(),
+    onSuccess: () => {
+      utils.git.status.invalidate()
+      // Invalidate diff data after discarding
+      if (activeFile) {
+        handleFetchDiff(activeFile, activeView).then(setDiffData).catch(() => setDiffData(null))
+      }
+    },
   })
   const commitMutation = trpc.git.commit.useMutation({
-    onSuccess: () => utils.git.status.invalidate(),
+    onSuccess: () => {
+      utils.git.status.invalidate()
+      // Invalidate diff data after commit
+      if (activeFile) {
+        handleFetchDiff(activeFile, activeView).then(setDiffData).catch(() => setDiffData(null))
+      }
+    },
   })
   const checkoutMutation = trpc.git.checkout.useMutation({
     onSuccess: () => {
       utils.git.status.invalidate()
       utils.git.branches.invalidate()
+      // Invalidate diff data after checkout
+      if (activeFile) {
+        handleFetchDiff(activeFile, activeView).then(setDiffData).catch(() => setDiffData(null))
+      }
     },
   })
   const createBranchMutation = trpc.git.createBranch.useMutation({
@@ -132,9 +157,11 @@ function GitPage() {
 
   // File click - open in diff panel and fetch diff
   const handleFileClick = useCallback((file: string, view: GitDiffView) => {
-    if (!openFiles.includes(file)) {
-      setOpenFiles((prev) => [...prev, file])
-    }
+    // Prevent duplicate file opens
+    setOpenFiles((prev) => {
+      if (prev.includes(file)) return prev
+      return [...prev, file]
+    })
     setActiveFile(file)
     setActiveView(view)
     setFileViews((prev) => ({ ...prev, [file]: view }))
@@ -150,7 +177,7 @@ function GitPage() {
         setDiffData(null)
         setDiffLoading(false)
       })
-  }, [openFiles, handleFetchDiff])
+  }, [handleFetchDiff])
 
   // Diff panel handlers
   const handleSelectFile = useCallback((file: string) => {
@@ -167,18 +194,28 @@ function GitPage() {
   }, [fileViews, handleFetchDiff])
 
   const handleCloseFile = useCallback((file: string) => {
-    setOpenFiles((prev) => prev.filter((f) => f !== file))
-    if (activeFile === file) {
-      const remaining = openFiles.filter((f) => f !== file)
-      setActiveFile(remaining[remaining.length - 1] ?? null)
-      setDiffData(null)
-    }
-  }, [activeFile, openFiles])
+    setOpenFiles((prev) => {
+      const remaining = prev.filter((f) => f !== file)
+      // Update active file if closing the active one
+      if (activeFile === file) {
+        const nextFile = remaining[remaining.length - 1] ?? null
+        setActiveFile(nextFile)
+        setDiffData(null)
+        // Clean up file view for closed file
+        setFileViews((views) => {
+          const { [file]: _, ...rest } = views
+          return rest
+        })
+      }
+      return remaining
+    })
+  }, [activeFile])
 
   const handleCloseAll = useCallback(() => {
     setOpenFiles([])
     setActiveFile(null)
     setDiffData(null)
+    setFileViews({})
   }, [])
 
   const handleViewChange = useCallback((view: GitDiffView) => {
@@ -364,7 +401,7 @@ function GitPage() {
               diffData={diffData}
               diffLoading={diffLoading}
               availableAgentTypes={['cerebras', 'opencode']}
-              theme="dark"
+              theme={theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme}
               onSelectFile={handleSelectFile}
               onCloseFile={handleCloseFile}
               onCloseAll={handleCloseAll}

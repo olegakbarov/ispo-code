@@ -16,6 +16,7 @@ import type {
   EditedFileInfo,
   AgentType,
 } from "./types"
+import { calculateRelativePaths } from "../utils/path-utils"
 
 /**
  * Default context window limits by agent type
@@ -41,9 +42,11 @@ const CHARS_PER_TOKEN = 4
 export class MetadataAnalyzer {
   private metadata: AgentSessionMetadata
   private readonly agentType: AgentType
+  private readonly workingDir: string
 
-  constructor(agentType: AgentType, modelLimit?: number) {
+  constructor(agentType: AgentType, workingDir: string, modelLimit?: number) {
     this.agentType = agentType
+    this.workingDir = workingDir
     this.metadata = this.initializeMetadata(agentType, modelLimit)
   }
 
@@ -237,8 +240,16 @@ export class MetadataAnalyzer {
     }
 
     if (operation) {
+      // Calculate relative paths
+      const { relativePath, repoRelativePath } = calculateRelativePaths(
+        path,
+        this.workingDir
+      )
+
       const editInfo: EditedFileInfo = {
         path,
+        relativePath,
+        repoRelativePath: repoRelativePath || undefined,
         operation,
         timestamp,
         toolUsed: toolName,
@@ -359,5 +370,13 @@ export class MetadataAnalyzer {
       turns: this.metadata.turns ? [...this.metadata.turns] : undefined,
       taskPath: this.metadata.taskPath,
     }
+  }
+
+  /**
+   * Get list of files changed since session start
+   * Returns a copy of edited files array
+   */
+  getChangedFilesSinceStart(): EditedFileInfo[] {
+    return [...this.metadata.editedFiles]
   }
 }

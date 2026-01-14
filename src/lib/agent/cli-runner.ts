@@ -92,8 +92,99 @@ export function getAvailableAgentTypes(): AgentType[] {
   return types
 }
 
+function coerceString(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return undefined
+}
+
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== "string") return value
+  const trimmed = value.trim()
+  if (!trimmed) return value
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      return value
+    }
+  }
+  return value
+}
+
+function extractContentBlocks(content: unknown): { text: string[]; thinking: string[] } {
+  const text: string[] = []
+  const thinking: string[] = []
+
+  const pushValue = (value: unknown, isThinking: boolean) => {
+    const coerced = coerceString(value)
+    if (!coerced) return
+    if (isThinking) {
+      thinking.push(coerced)
+    } else {
+      text.push(coerced)
+    }
+  }
+
+  const handleBlock = (block: Record<string, unknown>) => {
+    const blockType = (coerceString(block.type) ?? "").toLowerCase()
+    const isThinking = blockType.includes("thinking") || blockType.includes("reasoning")
+    const contentValue = block.text ?? block.content ?? block.message ?? block.value ?? block.delta
+    pushValue(contentValue, isThinking)
+  }
+
+  if (typeof content === "string") {
+    text.push(content)
+    return { text, thinking }
+  }
+
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block && typeof block === "object") {
+        handleBlock(block as Record<string, unknown>)
+      }
+    }
+    return { text, thinking }
+  }
+
+  if (content && typeof content === "object") {
+    handleBlock(content as Record<string, unknown>)
+  }
+
+  return { text, thinking }
+}
+
+function hasCodexAuthHint(env: Record<string, string>): boolean {
+  if (env.OPENAI_API_KEY?.trim()) return true
+
+  const home = env.HOME ?? ""
+  const codexHome = env.CODEX_HOME ?? ""
+  const candidates = [
+    codexHome && join(codexHome, "config.json"),
+    codexHome && join(codexHome, "auth.json"),
+    codexHome && join(codexHome, "credentials.json"),
+    codexHome && join(codexHome, "token.json"),
+    home && join(home, ".codex", "config.json"),
+    home && join(home, ".codex", "auth.json"),
+    home && join(home, ".codex", "credentials.json"),
+    home && join(home, ".config", "codex", "config.json"),
+  ].filter(Boolean) as string[]
+
+  return candidates.some((candidate) => existsSync(candidate))
+}
+
+function getCodexAuthWarning(env: Record<string, string>): string | null {
+  if (hasCodexAuthHint(env)) return null
+  return "Codex CLI may require authentication. Set OPENAI_API_KEY or run `codex auth login`."
+}
+
 const MAX_PROMPT_BYTES_IN_ARGS = 100_000
 const STARTUP_OUTPUT_TIMEOUT_MS = 30_000
+const MAX_PROCESS_RUNTIME_MS = 60 * 60 * 1000 // 1 hour max runtime
+const MAX_OUTPUT_BUFFER_SIZE = 1_000_000 // 1MB max buffer to prevent overflow
 
 type PromptTransport = "args" | "stdin"
 
@@ -157,12 +248,15 @@ export class CLIAgentRunner extends EventEmitter {
       let settled = false
       let sawProcessOutput = false
       let startupTimer: ReturnType<typeof setTimeout> | null = null
+      let maxRuntimeTimer: ReturnType<typeof setTimeout> | null = null
 
       const settle = (fn: () => void) => {
         if (settled) return
         settled = true
         if (startupTimer) clearTimeout(startupTimer)
+        if (maxRuntimeTimer) clearTimeout(maxRuntimeTimer)
         startupTimer = null
+        maxRuntimeTimer = null
         fn()
       }
 
@@ -223,6 +317,13 @@ export class CLIAgentRunner extends EventEmitter {
           }
         }
 
+        if (agentType === "codex") {
+          const warning = getCodexAuthWarning(env)
+          if (warning) {
+            this.emitChunk("system", warning)
+          }
+        }
+
         console.log(`[CLIRunner] Spawning: ${command} ${args.join(" ")}`)
         console.log(`[CLIRunner] Working dir: ${workingDir}`)
 
@@ -234,6 +335,26 @@ export class CLIAgentRunner extends EventEmitter {
         })
 
         console.log(`[CLIRunner] Process spawned with PID: ${this.process.pid}`)
+
+        // Set maximum runtime timeout
+        maxRuntimeTimer = setTimeout(() => {
+          if (settled) return
+          if (!this.process) return
+          if (this.aborted) return
+
+          const msg =
+            `${agentType} agent exceeded maximum runtime of ${Math.round(MAX_PROCESS_RUNTIME_MS / 1000 / 60)} minutes. ` +
+            `Terminating to prevent resource exhaustion.`
+          this.abortReason = "timeout"
+          this.abortMessage = msg
+          this.aborted = true
+
+          try {
+            this.process.kill("SIGTERM")
+          } catch {
+            // Ignore
+          }
+        }, MAX_PROCESS_RUNTIME_MS)
 
         // If the child never produces output, fail fast with a clear error.
         startupTimer = setTimeout(() => {
@@ -448,6 +569,19 @@ export class CLIAgentRunner extends EventEmitter {
   private handleOutput(data: string, agentType: AgentType) {
     this.outputBuffer += data
 
+    // Prevent buffer overflow by limiting buffer size
+    if (this.outputBuffer.length > MAX_OUTPUT_BUFFER_SIZE) {
+      console.warn(
+        `[CLIRunner] Output buffer exceeded ${MAX_OUTPUT_BUFFER_SIZE} bytes, flushing partial line`
+      )
+      // Emit the buffered content as-is and reset
+      if (this.outputBuffer.trim()) {
+        this.emitChunk("text", this.outputBuffer)
+      }
+      this.outputBuffer = ""
+      return
+    }
+
     const lines = this.outputBuffer.split("\n")
     this.outputBuffer = lines.pop() ?? ""
 
@@ -586,42 +720,122 @@ export class CLIAgentRunner extends EventEmitter {
    */
   private parseCodexOutput(json: Record<string, unknown>) {
     const type = typeof json.type === "string" ? json.type : undefined
+    const status = typeof json.status === "string" ? json.status : undefined
+    const typeLower = type?.toLowerCase() ?? ""
 
     if (type && (type.includes("approval") || type.includes("permission"))) {
       this.emitWaitingApproval()
     }
-    const status = typeof json.status === "string" ? json.status : undefined
     if (status === "waiting_approval" || status === "approval_required") {
       this.emitWaitingApproval()
     }
+    if (status === "waiting_input" || status === "input_required") {
+      this.emitWaitingInput()
+    }
+
+    const sessionId = coerceString(
+      json.thread_id ?? json.session_id ?? json.sessionId ?? json.conversation_id ?? json.conversationId
+    )
+    if (sessionId && !this.cliSessionId) {
+      this.cliSessionId = sessionId
+      this.emit("session_id", sessionId)
+    }
 
     if (type === "thread.started") {
-      const threadId = json.thread_id as string | undefined
-      if (threadId) {
-        this.cliSessionId = threadId
-        this.emit("session_id", threadId)
-      }
       return
     }
 
-    if (type?.includes("error")) {
-      const msg = (json.message as string) ?? (json.error as string) ?? "Error"
-      this.reportedError ??= msg
-      this.emitChunk("error", msg)
+    const errorObj = json.error as Record<string, unknown> | undefined
+    const errorMsg =
+      (typeLower.includes("error")
+        ? coerceString(json.message ?? json.error)
+        : undefined) ??
+      coerceString(errorObj?.message ?? errorObj?.error)
+
+    if (errorMsg) {
+      this.reportedError ??= errorMsg
+      this.emitChunk("error", errorMsg)
       return
     }
 
-    if (type === "item.completed" || type === "item.started") {
-      const item = json.item as Record<string, unknown> | undefined
-      if (item) {
-        const itemType = item.type as string | undefined
-        const text = item.text as string | undefined
+    const item = json.item as Record<string, unknown> | undefined
+    if (item) {
+      const itemType = coerceString(item.type) ?? ""
+      const itemTypeLower = itemType.toLowerCase()
 
-        if (itemType === "agent_message" && text) {
-          this.emitChunk("text", text)
-        } else if (itemType === "reasoning" && text) {
-          this.emitChunk("thinking", text)
+      if (
+        itemTypeLower === "tool_call" ||
+        itemTypeLower === "function_call" ||
+        itemTypeLower === "tool"
+      ) {
+        const toolName = coerceString(item.name ?? item.tool ?? item.tool_name)
+        if (toolName) {
+          const input = parseMaybeJson(item.arguments ?? item.args ?? item.input)
+          this.emitChunk("tool_use", JSON.stringify({ name: toolName, input }), { tool: toolName })
+          return
         }
+      }
+
+      if (itemTypeLower === "tool_result" || itemTypeLower === "tool_output") {
+        const result = coerceString(item.output ?? item.result ?? item.content)
+        if (result) {
+          this.emitChunk("tool_result", result)
+          return
+        }
+      }
+
+      const { text, thinking } = extractContentBlocks(item.content)
+      if (text.length || thinking.length) {
+        for (const chunk of text) {
+          this.emitChunk("text", chunk)
+        }
+        for (const chunk of thinking) {
+          this.emitChunk("thinking", chunk)
+        }
+        return
+      }
+
+      const itemText = coerceString(item.text ?? item.message ?? item.content)
+      if (itemText) {
+        if (itemTypeLower.includes("reasoning") || itemTypeLower.includes("thinking")) {
+          this.emitChunk("thinking", itemText)
+        } else {
+          this.emitChunk("text", itemText)
+        }
+        return
+      }
+    }
+
+    if (typeLower.includes("output_text") || typeLower.includes("message") || typeLower.includes("text")) {
+      const text = coerceString(json.delta ?? json.text ?? json.output_text ?? json.content ?? json.message)
+      if (text && !typeLower.includes("completed")) {
+        this.emitChunk("text", text)
+        return
+      }
+    }
+
+    if (typeLower.includes("thinking") || typeLower.includes("reasoning")) {
+      const thinking = coerceString(
+        json.delta ?? json.text ?? json.content ?? json.message ?? json.thinking ?? json.reasoning
+      )
+      if (thinking && !typeLower.includes("completed")) {
+        this.emitChunk("thinking", thinking)
+        return
+      }
+    }
+
+    const toolName = coerceString(json.name ?? json.tool ?? json.tool_name)
+    if (toolName && (typeLower.includes("tool") || typeLower.includes("function"))) {
+      const input = parseMaybeJson(json.arguments ?? json.args ?? json.input)
+      this.emitChunk("tool_use", JSON.stringify({ name: toolName, input }), { tool: toolName })
+      return
+    }
+
+    if (typeLower.includes("tool_result") || typeLower.includes("tool_output")) {
+      const result = coerceString(json.output ?? json.result ?? json.content)
+      if (result) {
+        this.emitChunk("tool_result", result)
+        return
       }
     }
   }

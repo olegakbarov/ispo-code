@@ -6,6 +6,38 @@
 @variant light (&:where(.light, .light *));
 
 @font-face {
+  font-family: "Berkeley Mono";
+  src: url("/fonts/BerkeleyMono-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("/fonts/BerkeleyMono-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("/fonts/BerkeleyMono-Italic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("/fonts/BerkeleyMono-BoldItalic.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
   font-family: "VCR";
   src: url("/vcr.ttf") format("truetype");
   font-weight: normal;
@@ -23,27 +55,32 @@
 body {
   @apply m-0 bg-background text-foreground;
   font-family:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Berkeley Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-code {
+code,
+pre,
+kbd,
+samp,
+.font-mono {
   font-family:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    "Berkeley Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace !important;
 }
 
 ::selection {
-  background-color: oklch(0.6 0.17 280 / 0.3);
+  background-color: oklch(0.6 0.17 var(--brand-hue) / 0.3);
   color: inherit;
 }
 
 .dark ::selection {
-  background-color: oklch(0.65 0.18 280 / 0.4);
+  background-color: oklch(0.65 0.18 var(--brand-hue) / 0.4);
 }
 
 @theme inline {
+  --font-mono: "Berkeley Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -84,11 +121,19 @@ code {
   --color-error: var(--destructive);
   --color-warning: oklch(0.75 0.15 85);
   --color-info: oklch(0.7 0.15 230);
-  --color-accent-dim: oklch(0.55 0.15 280);
+  --color-accent-dim: oklch(0.55 0.15 var(--brand-hue));
+
+  /* Tool category colors */
+  --tool-file-ops: oklch(0.65 0.18 160);
+  --tool-search: oklch(0.70 0.15 220);
+  --tool-execution: oklch(0.75 0.15 85);
+  --tool-other: oklch(0.65 0.15 var(--brand-hue));
 }
 
 /* Dark theme is default */
 :root {
+  /* Brand hue - dynamically set via JavaScript */
+  --brand-hue: 220;
   --radius: 0.625rem;
   --background: oklch(0 0 0);
   --foreground: oklch(0.985 0 0);
@@ -96,7 +141,7 @@ code {
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.08 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.65 0.2 280);
+  --primary: oklch(0.65 0.2 var(--brand-hue));
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.18 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -104,14 +149,14 @@ code {
   --muted-foreground: oklch(0.65 0 0);
   --muted-foreground-subtle: oklch(0.5 0 0);
   --muted-foreground-faint: oklch(0.35 0 0);
-  --accent: oklch(0.65 0.2 280);
+  --accent: oklch(0.65 0.2 var(--brand-hue));
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.96 0 0);
   --border: oklch(0.18 0 0);
   --input: oklch(0.12 0 0);
-  --ring: oklch(0.65 0.2 280);
-  --chart-1: oklch(0.65 0.2 280);
+  --ring: oklch(0.65 0.2 var(--brand-hue));
+  --chart-1: oklch(0.65 0.2 var(--brand-hue));
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
@@ -125,7 +170,7 @@ code {
   --card-foreground: oklch(0.15 0 0);
   --popover: oklch(0.96 0 0);
   --popover-foreground: oklch(0.15 0 0);
-  --primary: oklch(0.55 0.22 280);
+  --primary: oklch(0.55 0.22 var(--brand-hue));
   --primary-foreground: oklch(0.98 0 0);
   --secondary: oklch(0.94 0 0);
   --secondary-foreground: oklch(0.25 0 0);
@@ -133,14 +178,14 @@ code {
   --muted-foreground: oklch(0.45 0 0);
   --muted-foreground-subtle: oklch(0.55 0 0);
   --muted-foreground-faint: oklch(0.7 0 0);
-  --accent: oklch(0.55 0.22 280);
+  --accent: oklch(0.55 0.22 var(--brand-hue));
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(0.88 0 0);
   --input: oklch(0.96 0 0);
-  --ring: oklch(0.55 0.22 280);
-  --chart-1: oklch(0.55 0.22 280);
+  --ring: oklch(0.55 0.22 var(--brand-hue));
+  --chart-1: oklch(0.55 0.22 var(--brand-hue));
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
@@ -225,10 +270,10 @@ code {
 /* Pulse glow animation */
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 5px oklch(0.65 0.2 280 / 0.5);
+    box-shadow: 0 0 5px oklch(0.65 0.2 var(--brand-hue) / 0.5);
   }
   50% {
-    box-shadow: 0 0 20px oklch(0.65 0.2 280 / 0.8);
+    box-shadow: 0 0 20px oklch(0.65 0.2 var(--brand-hue) / 0.8);
   }
 }
 
@@ -325,9 +370,24 @@ code {
 }
 
 .chunk-thinking {
-  color: oklch(0.7 0.15 280);
-  background: oklch(0.7 0.15 280 / 0.1);
+  color: oklch(0.7 0.15 var(--brand-hue));
+  background: oklch(0.7 0.15 var(--brand-hue) / 0.1);
   font-style: italic;
+}
+
+/* Hue slider styling */
+input[type="range"].hue-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 0;
+}
+
+input[type="range"].hue-slider::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  border: none;
+  background: transparent;
 }
 
 /* Auto-growing textarea wrapper */

@@ -1,21 +1,40 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
+import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
+import { QueryClient } from '@tanstack/react-query'
 import { routeTree } from './routeTree.gen'
 
 export function createRouter() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 5000,
+        refetchOnWindowFocus: false,
+      },
+    },
+  })
+
   const router = createTanStackRouter({
     routeTree,
+    defaultPreload: 'intent',
+    context: { queryClient },
+  })
+
+  setupRouterSsrQueryIntegration({
+    router,
+    queryClient,
+    wrapQueryClient: false, // We provide our own QueryClientProvider in TRPCProvider
   })
 
   return router
 }
 
-let routerInstance: ReturnType<typeof createRouter> | undefined
+// SSR requires a fresh router per request - no singleton caching
+export function getRouter() {
+  return createRouter()
+}
 
-export async function getRouter() {
-  if (!routerInstance) {
-    routerInstance = createRouter()
-  }
-  return routerInstance
+export interface RouterContext {
+  queryClient: QueryClient
 }
 
 declare module '@tanstack/react-router' {

@@ -10,6 +10,20 @@ import { createTask, deleteTask, getTask, listTasks, saveTask } from "@/lib/agen
 import { getAgentManager } from "@/lib/agent/manager"
 
 /**
+ * Extract task title from markdown content.
+ * Looks for first H1 heading (# Title) or returns filename-based fallback.
+ */
+function extractTaskTitle(content: string, taskPath: string): string {
+  const h1Match = content.match(/^#\s+(.+)$/m)
+  if (h1Match) {
+    return h1Match[1].trim()
+  }
+  // Fallback: use filename without extension
+  const filename = taskPath.split("/").pop() ?? taskPath
+  return filename.replace(/\.md$/, "").replace(/-/g, " ")
+}
+
+/**
  * System prompt for task expansion agent.
  * The agent receives the user's prompt and generates a detailed task plan.
  */
@@ -126,40 +140,110 @@ Begin executing the task plan now.`
 }
 
 /**
- * System prompt for task review agent.
- * The agent receives a task plan and suggests improvements as a complete rewrite.
+ * System prompt for spec review agent.
+ * Reviews the quality of the task specification itself (not the codebase).
  */
-function buildTaskReviewPrompt(params: {
+function buildTaskSpecReviewPrompt(params: {
   taskPath: string
   taskContent: string
   workingDir: string
-  instructions?: string
 }): string {
-  const userInstructions = params.instructions?.trim()
-    ? `\n## Additional Review Instructions\n${params.instructions.trim()}\n`
-    : ""
-
-  return `You are a senior engineering lead. Your job is to review a markdown task plan and suggest improvements.
+  return `You are a senior engineering lead reviewing a TASK SPECIFICATION. Your job is to assess the quality of this spec and suggest improvements.
 
 ## Context
 
 - Working directory: ${params.workingDir}
 - Task file path: ${params.taskPath}
 
-## What to review for
+## Current Task Content
 
-- Clarity and correctness of the plan
-- Missing steps, edge cases, or tests
-- Good scoping (explicit in/out of scope)
-- Concrete file paths and actionable checklist items
-- Consistent formatting (headings, bullet lists, checkboxes)
+${params.taskContent}
+
+## Review Criteria
+
+Evaluate this spec against these criteria:
+
+1. **Clarity** - Is each item unambiguous? Could someone else understand exactly what to do?
+2. **Completeness** - Are there missing steps? Edge cases not considered?
+3. **Actionability** - Can each checkbox item be completed in a single work session?
+4. **Scope** - Is the scope well-defined? Are boundaries clear?
+5. **Dependencies** - Are prerequisites and dependencies documented?
+6. **Testability** - Can success be objectively measured?
+
+## What to Look For
+
+- Vague language ("improve", "clean up", "handle better")
+- Missing error handling or edge cases
+- Steps that are too large and should be broken down
+- Unclear success criteria
+- Missing context that an implementer would need
+- Assumptions that should be made explicit
+
+## Output
+
+Provide a brief review with:
+1. Overall assessment (1-2 sentences)
+2. Specific issues found (bulleted list)
+3. Suggested improvements (bulleted list)
+
+Keep feedback constructive and actionable. Focus on the top 3-5 most impactful issues.`
+}
+
+/**
+ * System prompt for task verification agent.
+ * The agent can use tools to verify that completed items are actually done.
+ */
+function buildTaskVerifyPrompt(params: {
+  taskPath: string
+  taskContent: string
+  workingDir: string
+  instructions?: string
+}): string {
+  const userInstructions = params.instructions?.trim()
+    ? `\n## Additional Verification Instructions\n${params.instructions.trim()}\n`
+    : ""
+
+  return `You are a senior engineering lead performing a VERIFICATION REVIEW. Your job is to verify that completed items (\`- [x]\`) are truly finished and identify any issues.
+
+## Context
+
+- Working directory: ${params.workingDir}
+- Task file path: ${params.taskPath}
+
+## Your Mission
+
+**VERIFY** each completed checkbox item by actually checking the codebase:
+
+1. **For code changes**: Read the referenced files and verify the code exists and looks correct
+2. **For tests**: Run the test suite to verify tests pass (use \`npm test\`, \`bun test\`, etc.)
+3. **For file creation**: Verify the files exist using glob/read
+4. **For bug fixes**: Check that the fix is in place and makes sense
+5. **For refactors**: Verify the new structure is correct
+
+## Verification Process
+
+For EACH completed item (\`- [x]\`):
+1. Determine what evidence would prove it's done
+2. Use tools to check for that evidence:
+   - \`read\` - Read files to verify code changes
+   - \`glob\` - Find files by pattern
+   - \`grep\` - Search for code patterns
+   - \`bash\` - Run tests or other verification commands
+3. Mark your finding in the output
+
+## What to Check
+
+- **Completed items are ACTUALLY done** - not just checked off
+- **Code quality** - no obvious bugs, edge cases handled
+- **Tests pass** - if tests are mentioned, run them
+- **Files exist** - if files are referenced, verify they exist
+- **Missing steps** - anything that should have been done but wasn't
 
 ## Constraints
 
-- Do NOT run tools or commands.
-- Do NOT modify any files directly.
-- Only propose edits to the task markdown content.
-- Keep the intent of the task the same; improve wording, structure, and completeness.
+- Do NOT modify any source files directly (only propose changes to the task doc)
+- Keep the intent of the task the same
+- Be thorough but efficient
 ${userInstructions}
 
 ## Current Task Content
@@ -168,14 +252,28 @@ ${userInstructions}
 ${params.taskContent}
 --- TASK_END ---
 
-## Output Format (important)
+## Output Format (CRITICAL)
 
-Return ONLY the updated markdown file contents between these exact markers:
+After verifying, return the UPDATED task document with:
+1. Verification notes added as sub-items under completed items
+2. Uncheck (\`- [ ]\`) any items that aren't actually done
+3. Add a "## Verification Results" section at the end
+
+Return the updated markdown between these exact markers:
 
 ===TASK_REVIEW_OUTPUT_START===
-[full markdown content]
+[full markdown content with verification notes]
 ===TASK_REVIEW_OUTPUT_END===
-`
+
+Example of verification annotation:
+\`\`\`
+- [x] Add error handling to API endpoint
+  - ✓ Verified: Error handling added in \`src/api/handler.ts:45\`
+- [ ] Fix login bug  ← unchecked because not actually fixed
+  - ✗ Not found: Expected fix in \`src/auth/login.ts\` but code unchanged
+\`\`\`
+
+Now begin verification. Read files, run tests, and verify each completed item.`
 }
 
 export const tasksRouter = router({
@@ -237,6 +335,7 @@ export const tasksRouter = router({
       try {
         session = await manager.spawn({
           prompt,
+          title: `${input.title} (plan)`,
           workingDir: ctx.workingDir,
           agentType: input.agentType,
           taskPath, // Link session to task for UI tracking
@@ -292,9 +391,13 @@ export const tasksRouter = router({
         workingDir: ctx.workingDir,
       })
 
+      // Extract title for sidebar display
+      const taskTitle = extractTaskTitle(task.content, input.path)
+
       // Spawn the agent to execute the task
       const session = await manager.spawn({
         prompt,
+        title: `${taskTitle} (run)`,
         workingDir: ctx.workingDir,
         agentType: input.agentType,
         taskPath: input.path, // Link session to task
@@ -308,33 +411,69 @@ export const tasksRouter = router({
     }),
 
   /**
-   * Review an existing task with an agent and propose improvements.
-   * The agent returns a rewritten task plan; user can apply/reject in UI.
+   * Review the quality of a task spec (clarity, completeness, actionability).
+   * Spawns an independent agent session for spec review.
    */
   reviewWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
       agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
-      /** Model for opencode in format "provider/model" (e.g., "anthropic/claude-sonnet-4-20250514") */
-      model: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const manager = getAgentManager()
+
+      const task = getTask(ctx.workingDir, input.path)
+      const prompt = buildTaskSpecReviewPrompt({
+        taskPath: input.path,
+        taskContent: task.content,
+        workingDir: ctx.workingDir,
+      })
+
+      const taskTitle = extractTaskTitle(task.content, input.path)
+
+      const session = await manager.spawn({
+        prompt,
+        title: `${taskTitle} (review)`,
+        workingDir: ctx.workingDir,
+        agentType: input.agentType,
+        taskPath: input.path,
+      })
+
+      return {
+        path: input.path,
+        sessionId: session.id,
+        status: session.status,
+      }
+    }),
+
+  /**
+   * Verify completed items against the codebase.
+   * Spawns an agent that reads files, runs tests, and checks if items are actually done.
+   */
+  verifyWithAgent: procedure
+    .input(z.object({
+      path: z.string().min(1),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
       instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const manager = getAgentManager()
 
       const task = getTask(ctx.workingDir, input.path)
-      const prompt = buildTaskReviewPrompt({
+      const prompt = buildTaskVerifyPrompt({
         taskPath: input.path,
         taskContent: task.content,
         workingDir: ctx.workingDir,
         instructions: input.instructions,
       })
 
+      const taskTitle = extractTaskTitle(task.content, input.path)
+
       const session = await manager.spawn({
         prompt,
+        title: `${taskTitle} (verify)`,
         workingDir: ctx.workingDir,
         agentType: input.agentType,
-        model: input.agentType === "opencode" ? input.model : undefined,
         taskPath: input.path,
       })
 

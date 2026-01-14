@@ -10,7 +10,7 @@
 
 import { EventEmitter } from "events"
 import { randomBytes } from "crypto"
-import type { AgentSession, AgentOutputChunk, SpawnAgentParams, SessionStatus, AgentType } from "./types"
+import type { AgentSession, AgentOutputChunk, SpawnAgentParams, SessionStatus, AgentType, ResumeHistoryEntry } from "./types"
 import { getSessionStore } from "./session-store"
 import { CerebrasAgent } from "./cerebras"
 import { OpencodeAgent } from "./opencode"
@@ -28,6 +28,31 @@ interface RunningAgent {
   abort: () => void
   analyzer: MetadataAnalyzer
   sendApproval?: (approved: boolean) => boolean
+}
+
+/**
+ * Determine if a session is resumable based on its state
+ */
+function isSessionResumable(session: AgentSession): boolean {
+  // Cancelled sessions cannot be resumed
+  if (session.status === "cancelled") {
+    return false
+  }
+
+  // CLI agents require a cliSessionId for resume
+  const isCliAgent = session.agentType === "claude" || session.agentType === "codex"
+  if (isCliAgent && !session.cliSessionId) {
+    return false
+  }
+
+  // SDK agents (cerebras, opencode) are always resumable if completed/idle
+  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "opencode"
+  if (isSdkAgent) {
+    return session.status === "completed" || session.status === "idle"
+  }
+
+  // CLI agents are resumable if they have a session ID
+  return !!session.cliSessionId
 }
 
 export class AgentManager extends EventEmitter<AgentManagerEvents> {
@@ -59,6 +84,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     const session: AgentSession = {
       id: sessionId,
       prompt: params.prompt,
+      title: params.title,
       status: "pending",
       startedAt: new Date().toISOString(),
       workingDir,
@@ -66,6 +92,9 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       agentType,
       model: params.model,
       taskPath: params.taskPath,
+      resumable: true, // New sessions are resumable by default
+      resumeAttempts: 0,
+      resumeHistory: [],
     }
 
     store.createSession(session)
@@ -84,44 +113,87 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
    *
    * For CLI agents, this uses the stored `cliSessionId` to run the CLI in resume mode.
    * For SDK agents, this starts a new run and appends output to the same session.
+   *
+   * @param sessionId - The session ID to resume
+   * @param message - The follow-up message to send
+   * @returns Result object with success status and optional error message
    */
   async sendMessage(sessionId: string, message: string): Promise<{ success: boolean; error?: string }> {
     const store = getSessionStore()
     const session = store.getSession(sessionId)
-    if (!session) return { success: false, error: "Session not found" }
 
+    // Check if session exists
+    if (!session) {
+      return { success: false, error: "Session not found" }
+    }
+
+    // Check if session is currently running
     if (this.agents.has(sessionId)) {
       return { success: false, error: "Session is currently running" }
     }
 
+    // Check concurrency limit
     if (this.agents.size >= this.maxConcurrent) {
       return { success: false, error: `Maximum concurrent agents (${this.maxConcurrent}) reached` }
     }
 
+    // Validate message
     const trimmed = message.trim()
-    if (!trimmed) return { success: false, error: "Message is required" }
-
-    const agentType = session.agentType ?? "cerebras"
-
-    // CLI agents require a session id to resume.
-    if ((agentType === "claude" || agentType === "codex") && !session.cliSessionId) {
-      return { success: false, error: "This session cannot be resumed (missing cliSessionId)" }
+    if (!trimmed) {
+      return { success: false, error: "Message is required" }
     }
 
+    // Check if session can be resumed
+    const canResume = isSessionResumable(session)
+    if (!canResume) {
+      if (session.status === "cancelled") {
+        return { success: false, error: "Cannot resume cancelled session" }
+      }
+      if (!session.cliSessionId && (session.agentType === "claude" || session.agentType === "codex")) {
+        return { success: false, error: "This session cannot be resumed (missing cliSessionId)" }
+      }
+      return { success: false, error: "This session cannot be resumed" }
+    }
+
+    const agentType = session.agentType ?? "cerebras"
     const timestamp = new Date().toISOString()
+
+    // Track resume attempt
+    const resumeHistoryEntry: ResumeHistoryEntry = {
+      timestamp,
+      message: trimmed,
+      success: false, // Will be updated on completion
+    }
+
+    // Update session with new message and resume tracking
     const messages = [
       ...(session.messages ?? []),
       { role: "user" as const, content: trimmed, timestamp },
     ]
+
+    // Add user message to output for rendering
+    store.appendOutput(sessionId, {
+      type: "user_message",
+      content: trimmed,
+      timestamp,
+    })
 
     store.updateSession(sessionId, {
       status: "running",
       error: undefined,
       completedAt: undefined,
       messages,
+      lastResumedAt: timestamp,
+      resumeAttempts: (session.resumeAttempts ?? 0) + 1,
+      resumeHistory: [
+        ...(session.resumeHistory ?? []),
+        resumeHistoryEntry,
+      ],
     })
+
     this.emit("status", { sessionId, status: "running" })
 
+    // Run the agent with resume flag
     this.runAgent(sessionId, trimmed, session.workingDir, agentType, session.model, {
       isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras",
       cliSessionId: session.cliSessionId,
@@ -170,7 +242,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
   ): Promise<void> {
     const store = getSessionStore()
     const session = store.getSession(sessionId)
-    const analyzer = new MetadataAnalyzer(agentType)
+    const analyzer = new MetadataAnalyzer(agentType, workingDir)
     const isResume = options?.isResume ?? false
     const shouldMarkComplete = Boolean(session?.taskPath)
 
@@ -289,8 +361,23 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
         const metadata = analyzer.getMetadata()
 
         this.agents.delete(sessionId)
+
+        // Update resume history entry on successful completion
+        const currentSession = store.getSession(sessionId)
+        const updatedResumeHistory = currentSession?.resumeHistory?.map((entry, idx) => {
+          if (idx === (currentSession.resumeHistory?.length ?? 1) - 1) {
+            return { ...entry, success: true }
+          }
+          return entry
+        })
+
         const sessionUpdates = getSessionUpdatesOnComplete ? getSessionUpdatesOnComplete() : {}
-        store.updateSession(sessionId, { tokensUsed: data.tokensUsed, metadata, ...sessionUpdates })
+        store.updateSession(sessionId, {
+          tokensUsed: data.tokensUsed,
+          metadata,
+          resumeHistory: updatedResumeHistory,
+          ...sessionUpdates,
+        })
         const finalStatus: SessionStatus = shouldMarkComplete ? "completed" : "idle"
         store.updateStatus(sessionId, finalStatus)
         store.flushOutput(sessionId)
@@ -300,8 +387,21 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       agentEmitter.on("error", (error: string) => {
         const metadata = analyzer.getMetadata()
 
+        // Update resume history entry on error
+        const currentSession = store.getSession(sessionId)
+        const updatedResumeHistory = currentSession?.resumeHistory?.map((entry, idx) => {
+          if (idx === (currentSession.resumeHistory?.length ?? 1) - 1) {
+            return { ...entry, success: false, error }
+          }
+          return entry
+        })
+
         this.agents.delete(sessionId)
-        store.updateSession(sessionId, { error, metadata })
+        store.updateSession(sessionId, {
+          error,
+          metadata,
+          resumeHistory: updatedResumeHistory,
+        })
         store.updateStatus(sessionId, "failed")
         store.flushOutput(sessionId)
         this.emit("error", { sessionId, error })
@@ -315,8 +415,21 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       const error = (err as Error).message
       const metadata = analyzer.getMetadata()
 
+      // Update resume history entry on error
+      const currentSession = store.getSession(sessionId)
+      const updatedResumeHistory = currentSession?.resumeHistory?.map((entry, idx) => {
+        if (idx === (currentSession.resumeHistory?.length ?? 1) - 1) {
+          return { ...entry, success: false, error }
+        }
+        return entry
+      })
+
       this.agents.delete(sessionId)
-      store.updateSession(sessionId, { error, metadata })
+      store.updateSession(sessionId, {
+        error,
+        metadata,
+        resumeHistory: updatedResumeHistory,
+      })
       store.updateStatus(sessionId, "failed")
       store.flushOutput(sessionId)
       this.emit("error", { sessionId, error })

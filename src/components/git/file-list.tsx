@@ -2,7 +2,7 @@
  * FileList - Tabbed list of changed files with selection
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 
 // Local type definition - matches git service types
@@ -38,7 +38,26 @@ export function FileList({
     if (untracked.length > 0) return 'untracked'
     return 'staged'
   }
-  const [activeTab, setActiveTab] = useState<Tab>(getDefaultTab)
+  const [activeTab, setActiveTab] = useState<Tab>(getDefaultTab())
+
+  // Update active tab when files change and current tab is empty
+  useEffect(() => {
+    const currentFiles = getCurrentFiles()
+    if (currentFiles.length === 0) {
+      setActiveTab(getDefaultTab())
+    }
+  }, [staged.length, modified.length, untracked.length])
+
+  const getCurrentFiles = (): string[] => {
+    switch (activeTab) {
+      case 'staged':
+        return staged.map((f) => f.file)
+      case 'modified':
+        return modified.map((f) => f.file)
+      case 'untracked':
+        return untracked
+    }
+  }
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: 'staged', label: 'Staged', count: staged.length },
@@ -70,17 +89,6 @@ export function FileList({
       const newSelection = new Set(selectedFiles)
       currentFiles.forEach((f) => newSelection.add(f))
       onSelectionChange(newSelection)
-    }
-  }
-
-  const getCurrentFiles = (): string[] => {
-    switch (activeTab) {
-      case 'staged':
-        return staged.map((f) => f.file)
-      case 'modified':
-        return modified.map((f) => f.file)
-      case 'untracked':
-        return untracked
     }
   }
 
@@ -187,8 +195,8 @@ function FileRow({ file, status, selected, onToggle, onClick }: FileRowProps) {
     added: 'text-primary',
     modified: 'text-chart-4',
     deleted: 'text-destructive',
-    renamed: 'text-purple-400',
-    copied: 'text-blue-400',
+    renamed: 'text-chart-5',
+    copied: 'text-chart-2',
   }
 
   const statusLabels: Record<GitFileStatus['status'], string> = {
@@ -245,7 +253,7 @@ function UntrackedFileRow({ file, selected, onToggle, onClick }: UntrackedFileRo
         onClick={(e) => e.stopPropagation()}
         size="sm"
       />
-      <span className="font-vcr text-[10px] w-3 text-blue-400">?</span>
+      <span className="font-vcr text-[10px] w-3 text-chart-2">?</span>
       <span
         className="flex-1 text-xs text-foreground truncate cursor-pointer hover:text-primary"
         onClick={onClick}

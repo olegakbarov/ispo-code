@@ -2,7 +2,7 @@
  * CommitForm - Commit message input and submit button
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface CommitFormProps {
   hasStagedChanges: boolean
@@ -14,6 +14,14 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
   const [isCommitting, setIsCommitting] = useState(false)
   const [lastCommit, setLastCommit] = useState<{ hash: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (lastCommit) {
+      const timer = setTimeout(() => setLastCommit(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [lastCommit])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,12 +50,12 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
   const canSubmit = message.trim().length > 0 && hasStagedChanges && !isCommitting
 
   return (
-    <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-border bg-panel">
+    <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-border bg-card">
       <div className="mb-1 flex items-center justify-between">
-        <label className="font-vcr text-[10px] text-text-muted">Commit Message</label>
+        <label className="font-vcr text-[10px] text-muted-foreground">Commit Message</label>
         <span
           className={`font-vcr text-[10px] ${
-            isOverLimit ? 'text-warning' : 'text-text-muted'
+            isOverLimit ? 'text-chart-4' : 'text-muted-foreground'
           }`}
         >
           {charCount}/72
@@ -64,17 +72,17 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
         }
         disabled={!hasStagedChanges || isCommitting}
         rows={2}
-        className="w-full px-2 py-1.5 bg-background border border-border rounded text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full px-2 py-1.5 bg-background border border-border rounded text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-none disabled:opacity-50 disabled:cursor-not-allowed"
       />
 
       {/* Error message */}
       {error && (
-        <div className="mt-1 text-[10px] text-error font-vcr">{error}</div>
+        <div className="mt-1 text-[10px] text-destructive font-vcr">{error}</div>
       )}
 
       {/* Success message */}
       {lastCommit && (
-        <div className="mt-1 text-[10px] text-accent font-vcr">
+        <div className="mt-1 text-[10px] text-primary font-vcr">
           Committed: {lastCommit.hash}
         </div>
       )}
@@ -83,7 +91,7 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
         <button
           type="submit"
           disabled={!canSubmit}
-          className="px-3 py-1 bg-accent text-background font-vcr text-[10px] rounded cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1 bg-primary text-primary-foreground font-vcr text-[10px] rounded cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isCommitting ? 'Committing...' : 'Commit'}
         </button>

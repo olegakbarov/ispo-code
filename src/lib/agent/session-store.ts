@@ -1,7 +1,9 @@
-import { writeFileSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "fs"
+import { writeFileSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync, copyFileSync } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import type { AgentSession, AgentOutputChunk, SessionStatus } from "./types.js"
+import { safeValidateSessionsData } from "./session-schema.js"
+import { SecurityConfig } from "./security-config.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = join(__dirname, "..", "..", "data")
@@ -39,9 +41,36 @@ class SessionStore {
     if (!existsSync(SESSIONS_FILE)) {
       return { sessions: [] }
     }
+
     try {
-      return JSON.parse(readFileSync(SESSIONS_FILE, "utf-8"))
-    } catch {
+      const raw = readFileSync(SESSIONS_FILE, "utf-8")
+      const parsed = JSON.parse(raw)
+
+      // Validate the data structure
+      const validation = safeValidateSessionsData(parsed)
+
+      if (!validation.success || !validation.data) {
+        console.error(
+          `[SessionStore] Invalid session data detected: ${validation.error}`,
+        )
+
+        // Create backup of corrupted file
+        const backupPath = SESSIONS_FILE + `.corrupted.${Date.now()}.json`
+        try {
+          copyFileSync(SESSIONS_FILE, backupPath)
+          console.log(`[SessionStore] Backed up corrupted data to ${backupPath}`)
+        } catch (backupErr) {
+          console.error(`[SessionStore] Failed to create backup:`, backupErr)
+        }
+
+        // Return empty sessions to recover gracefully
+        console.log(`[SessionStore] Resetting to empty sessions`)
+        return { sessions: [] }
+      }
+
+      return validation.data
+    } catch (err) {
+      console.error(`[SessionStore] Failed to load sessions:`, err)
       return { sessions: [] }
     }
   }
@@ -111,7 +140,63 @@ class SessionStore {
   }
 
   /**
-   * Append output to session with concurrent-safe buffering
+   * Calculate total size of output in bytes
+   */
+  private calculateOutputSize(output: AgentOutputChunk[]): number {
+    return output.reduce((total, chunk) => {
+      const chunkSize = Buffer.byteLength(chunk.content, 'utf-8')
+      const metadataSize = chunk.metadata ? Buffer.byteLength(JSON.stringify(chunk.metadata), 'utf-8') : 0
+      return total + chunkSize + metadataSize
+    }, 0)
+  }
+
+  /**
+   * Prune old output chunks to keep within size limits
+   */
+  private pruneOutputIfNeeded(session: AgentSession): void {
+    const currentSize = this.calculateOutputSize(session.output)
+
+    if (currentSize <= SecurityConfig.MAX_OUTPUT_SIZE_BYTES) {
+      return // No pruning needed
+    }
+
+    // Keep the most recent chunks that fit within the limit
+    // Use a sliding window approach - keep last 60% of allowed size
+    const targetSize = Math.floor(SecurityConfig.MAX_OUTPUT_SIZE_BYTES * 0.6)
+    let accumulatedSize = 0
+    let keepFromIndex = session.output.length
+
+    // Scan backwards to find where to cut
+    for (let i = session.output.length - 1; i >= 0; i--) {
+      const chunk = session.output[i]
+      const chunkSize = Buffer.byteLength(chunk.content, 'utf-8')
+      accumulatedSize += chunkSize
+
+      if (accumulatedSize > targetSize) {
+        keepFromIndex = i + 1
+        break
+      }
+    }
+
+    const removedCount = keepFromIndex
+    if (removedCount > 0) {
+      session.output = session.output.slice(keepFromIndex)
+
+      // Add a marker chunk to indicate truncation
+      session.output.unshift({
+        type: "system",
+        content: `[Output truncated: removed ${removedCount} older chunks to stay within ${Math.floor(SecurityConfig.MAX_OUTPUT_SIZE_BYTES / 1024 / 1024)}MB limit]`,
+        timestamp: new Date().toISOString(),
+      })
+
+      console.log(
+        `[SessionStore] Pruned ${removedCount} output chunks from session ${session.id} (${Math.floor(currentSize / 1024)}KB -> ${Math.floor(this.calculateOutputSize(session.output) / 1024)}KB)`
+      )
+    }
+  }
+
+  /**
+   * Append output to session with concurrent-safe buffering and size limits
    * Uses per-session flush promises to prevent race conditions
    */
   appendOutput(sessionId: string, chunk: AgentOutputChunk): void {
@@ -124,6 +209,9 @@ class SessionStore {
     const session = this.data.sessions.find((s) => s.id === sessionId)
     if (session) {
       session.output.push(chunk)
+
+      // Prune output if it exceeds size limits
+      this.pruneOutputIfNeeded(session)
     }
 
     buffer.push(chunk)
@@ -139,7 +227,7 @@ class SessionStore {
     }
 
     // Flush every 10 chunks
-    if (buffer.length >= 10) {
+    if (buffer.length >= SecurityConfig.FLUSH_CHUNK_THRESHOLD) {
       void this.flushOutput(sessionId)
     }
   }

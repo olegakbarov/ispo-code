@@ -5,6 +5,8 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs"
 import { execSync } from "child_process"
 import { glob as globLib } from "glob"
+import { validatePath } from "./path-validator.js"
+import { SecurityConfig } from "./security-config.js"
 
 // === Tool Types ===
 
@@ -30,7 +32,9 @@ export interface ToolDefinition {
  */
 export function read(args: { path: string; offset?: number; limit?: number }, cwd: string): ToolResult {
   try {
-    const fullPath = args.path.startsWith("/") ? args.path : `${cwd}/${args.path}`
+    // Validate path to prevent path traversal
+    const fullPath = validatePath(args.path, cwd)
+
     if (!existsSync(fullPath)) {
       return { success: false, content: `error: file not found: ${args.path}` }
     }
@@ -56,7 +60,8 @@ export function read(args: { path: string; offset?: number; limit?: number }, cw
  */
 export function write(args: { path: string; content: string }, cwd: string): ToolResult {
   try {
-    const fullPath = args.path.startsWith("/") ? args.path : `${cwd}/${args.path}`
+    // Validate path to prevent path traversal
+    const fullPath = validatePath(args.path, cwd)
     writeFileSync(fullPath, args.content, "utf-8")
     return { success: true, content: "ok" }
   } catch (err) {
@@ -74,7 +79,9 @@ export function edit(args: {
   all?: boolean
 }, cwd: string): ToolResult {
   try {
-    const fullPath = args.path.startsWith("/") ? args.path : `${cwd}/${args.path}`
+    // Validate path to prevent path traversal
+    const fullPath = validatePath(args.path, cwd)
+
     if (!existsSync(fullPath)) {
       return { success: false, content: `error: file not found: ${args.path}` }
     }
@@ -110,27 +117,30 @@ export function edit(args: {
 export async function glob(args: { pat: string; path?: string }, cwd: string): Promise<ToolResult> {
   try {
     const basePath = args.path ?? cwd
-    const fullBasePath = basePath.startsWith("/") ? basePath : `${cwd}/${basePath}`
+    // Validate base path to prevent path traversal
+    const fullBasePath = validatePath(basePath, cwd)
     const pattern = `${fullBasePath}/${args.pat}`.replace("//", "/")
 
     const files = await globLib(pattern, { nodir: false })
 
+    // Validate all returned files are within working directory
+    const validFiles = files.filter((f) => {
+      try {
+        validatePath(f, cwd)
+        return statSync(f).isFile()
+      } catch {
+        return false
+      }
+    })
+
     // Sort by mtime (most recent first)
-    const sorted = files
-      .filter((f) => {
-        try {
-          return statSync(f).isFile()
-        } catch {
-          return false
-        }
-      })
-      .sort((a, b) => {
-        try {
-          return statSync(b).mtimeMs - statSync(a).mtimeMs
-        } catch {
-          return 0
-        }
-      })
+    const sorted = validFiles.sort((a, b) => {
+      try {
+        return statSync(b).mtimeMs - statSync(a).mtimeMs
+      } catch {
+        return 0
+      }
+    })
 
     return { success: true, content: sorted.join("\n") || "none" }
   } catch (err) {
@@ -144,7 +154,8 @@ export async function glob(args: { pat: string; path?: string }, cwd: string): P
 export async function grep(args: { pat: string; path?: string }, cwd: string): Promise<ToolResult> {
   try {
     const basePath = args.path ?? cwd
-    const fullBasePath = basePath.startsWith("/") ? basePath : `${cwd}/${basePath}`
+    // Validate base path to prevent path traversal
+    const fullBasePath = validatePath(basePath, cwd)
     const pattern = new RegExp(args.pat)
     const hits: string[] = []
 
@@ -152,19 +163,22 @@ export async function grep(args: { pat: string; path?: string }, cwd: string): P
 
     for (const filepath of files) {
       try {
+        // Validate each file is within working directory
+        validatePath(filepath, cwd)
+
         const content = readFileSync(filepath, "utf-8")
         const lines = content.split("\n")
 
         for (let i = 0; i < lines.length; i++) {
           if (pattern.test(lines[i])) {
             hits.push(`${filepath}:${i + 1}:${lines[i].trim()}`)
-            if (hits.length >= 50) break
+            if (hits.length >= SecurityConfig.GREP_MAX_RESULTS) break
           }
         }
 
-        if (hits.length >= 50) break
+        if (hits.length >= SecurityConfig.GREP_MAX_RESULTS) break
       } catch {
-        // Skip unreadable files
+        // Skip unreadable files or files outside working directory
       }
     }
 
@@ -175,16 +189,31 @@ export async function grep(args: { pat: string; path?: string }, cwd: string): P
 }
 
 /**
- * Run shell command
+ * Run shell command with security checks
  */
 export function bash(args: { cmd: string; timeout?: number }, cwd: string): ToolResult {
   try {
+    // Security check: block dangerous commands
+    if (SecurityConfig.ENABLE_COMMAND_SANDBOXING) {
+      const cmdLower = args.cmd.toLowerCase().trim()
+
+      for (const dangerousCmd of SecurityConfig.DANGEROUS_COMMANDS) {
+        if (cmdLower.includes(dangerousCmd.toLowerCase())) {
+          console.warn(`[Security] Blocked dangerous command: ${args.cmd}`)
+          return {
+            success: false,
+            content: `error: command blocked for security reasons: contains "${dangerousCmd}"`,
+          }
+        }
+      }
+    }
+
     const result = execSync(args.cmd, {
       cwd,
       encoding: "utf-8",
-      timeout: args.timeout ?? 30000,
+      timeout: args.timeout ?? SecurityConfig.BASH_DEFAULT_TIMEOUT_MS,
       stdio: ["pipe", "pipe", "pipe"],
-      maxBuffer: 10 * 1024 * 1024, // 10MB
+      maxBuffer: SecurityConfig.MAX_BASH_OUTPUT_BUFFER,
     })
 
     return { success: true, content: result.trim() || "(empty)" }
@@ -201,7 +230,8 @@ export function bash(args: { cmd: string; timeout?: number }, cwd: string): Tool
 export function ls(args: { path?: string }, cwd: string): ToolResult {
   try {
     const dirPath = args.path ?? cwd
-    const fullPath = dirPath.startsWith("/") ? dirPath : `${cwd}/${dirPath}`
+    // Validate path to prevent path traversal
+    const fullPath = validatePath(dirPath, cwd)
 
     if (!existsSync(fullPath)) {
       return { success: false, content: `error: directory not found: ${dirPath}` }

@@ -1,12 +1,13 @@
 import {
   Outlet,
-  createRootRoute,
+  createRootRouteWithContext,
   HeadContent,
   Scripts,
   Link,
 } from '@tanstack/react-router'
-import { useState } from 'react'
-import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus, Map } from 'lucide-react'
+import type { RouterContext } from '@/router'
+import { useState, useEffect } from 'react'
+import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus, Map, ChevronRight, Settings } from 'lucide-react'
 import appCss from '../styles.css?url'
 import { ThemeProvider, ThemeScript, useTheme } from '@/components/theme'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -14,6 +15,10 @@ import { TRPCProvider } from '@/components/providers'
 import { trpc } from '@/lib/trpc-client'
 import { statusColors, getStatusLabel } from '@/lib/agent/status'
 import type { AgentSession, SessionStatus } from '@/lib/agent/types'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
+import { FolderPicker } from '@/components/ui/folder-picker'
+import { useWorkingDirStore } from '@/lib/stores/working-dir'
+import { useSettingsStore, applyBrandHue } from '@/lib/stores/settings'
 
 // Agent type icons
 function ClaudeIcon({ className }: { className?: string }) {
@@ -40,7 +45,7 @@ function CerebrasIcon({ className }: { className?: string }) {
   )
 }
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -55,6 +60,13 @@ export const Route = createRootRoute({
 })
 
 function RootDocument() {
+  const brandHue = useSettingsStore((s) => s.brandHue)
+
+  // Apply brand hue to CSS on mount and when it changes
+  useEffect(() => {
+    applyBrandHue(brandHue)
+  }, [brandHue])
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -65,12 +77,42 @@ function RootDocument() {
         <TRPCProvider>
           <ThemeProvider>
             <TooltipProvider>
-              <div className="flex h-screen overflow-hidden">
-                <Sidebar />
-                <main className="flex-1 overflow-auto bg-background">
-                  <Outlet />
-                </main>
-              </div>
+              <ErrorBoundary
+                name="App"
+                fallback={(error) => (
+                  <div className="flex items-center justify-center h-screen bg-background">
+                    <div className="max-w-2xl p-8 border border-red-500 bg-red-50 dark:bg-red-950 rounded-lg">
+                      <h1 className="text-2xl font-bold text-red-700 dark:text-red-300 mb-4">
+                        Application Error
+                      </h1>
+                      <p className="text-red-600 dark:text-red-400 mb-4">
+                        An unexpected error occurred in the application.
+                        Please try refreshing the page.
+                      </p>
+                      <details className="text-sm text-red-600 dark:text-red-400">
+                        <summary className="cursor-pointer font-semibold">Error details</summary>
+                        <pre className="mt-2 p-3 bg-red-100 dark:bg-red-900 rounded overflow-x-auto">
+                          {error.toString()}
+                          {error.stack && `\n\n${error.stack}`}
+                        </pre>
+                      </details>
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                      >
+                        Reload Page
+                      </button>
+                    </div>
+                  </div>
+                )}
+              >
+                <div className="flex h-screen overflow-hidden">
+                  <Sidebar />
+                  <main className="flex-1 overflow-auto bg-background">
+                    <Outlet />
+                  </main>
+                </div>
+              </ErrorBoundary>
             </TooltipProvider>
           </ThemeProvider>
         </TRPCProvider>
@@ -127,6 +169,7 @@ function Sidebar() {
         <NavLink to="/tasks" icon={<ListTodo className="w-4 h-4" />}>Tasks</NavLink>
         <NavLink to="/git" icon={<GitBranch className="w-4 h-4" />}>Git</NavLink>
         <NavLink to="/map" icon={<Map className="w-4 h-4" />}>Map</NavLink>
+        <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
       </nav>
 
       <div className="flex-1 overflow-y-auto">
@@ -246,10 +289,10 @@ function AgentSessionLink({
 }) {
   const [isHovered, setIsHovered] = useState(false)
 
-  // Truncate prompt for display
-  const displayPrompt = session.prompt.length > 30
-    ? session.prompt.slice(0, 27) + '...'
-    : session.prompt
+  // Use title if available, otherwise truncate prompt for display
+  const displayText = session.title
+    ? (session.title.length > 30 ? session.title.slice(0, 27) + '...' : session.title)
+    : (session.prompt.length > 30 ? session.prompt.slice(0, 27) + '...' : session.prompt)
 
   return (
     <Link
@@ -264,7 +307,7 @@ function AgentSessionLink({
     >
       <StatusDot status={session.status} />
       <AgentTypeIcon type={session.agentType ?? 'opencode'} className="w-3 h-3 shrink-0" />
-      <span className="truncate flex-1">{displayPrompt}</span>
+      <span className="truncate flex-1">{displayText}</span>
       {isHovered && (
         <button
           onClick={(e) => onDelete(session.id, e)}
@@ -279,29 +322,42 @@ function AgentSessionLink({
 }
 
 /**
- * Project indicator - shows current working directory (server's cwd)
+ * Project indicator - shows current working directory
+ * Click to open folder picker and change working directory
  */
 function ProjectIndicator() {
-  const { data: workingDir, isLoading } = trpc.system.workingDir.useQuery()
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const { workingDir: selectedDir } = useWorkingDirStore()
+  const { data: serverDir, isLoading } = trpc.system.workingDir.useQuery()
+
+  // Use selected dir from store, or fall back to server default
+  const effectiveDir = selectedDir ?? serverDir
 
   // Get display name (last part of path)
-  const displayName = workingDir
-    ? workingDir.split('/').filter(Boolean).pop() || workingDir
+  const displayName = effectiveDir
+    ? effectiveDir.split('/').filter(Boolean).pop() || effectiveDir
     : isLoading ? 'Loading...' : 'No project'
 
   return (
-    <div className="px-3 py-2 border-b border-border">
-      <div className="flex items-center gap-2">
-        <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
-        <span className="flex-1 min-w-0 text-xs font-vcr truncate text-foreground">
-          {displayName}
-        </span>
-      </div>
-      {workingDir && (
-        <div className="mt-1 text-[10px] text-muted-foreground truncate" title={workingDir}>
-          {workingDir}
+    <>
+      <button
+        onClick={() => setPickerOpen(true)}
+        className="w-full px-3 py-2 border-b border-border text-left hover:bg-secondary/50 transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
+          <span className="flex-1 min-w-0 text-xs font-vcr truncate text-foreground">
+            {displayName}
+          </span>
+          <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
         </div>
-      )}
-    </div>
+        {effectiveDir && (
+          <div className="mt-1 text-[10px] text-muted-foreground truncate" title={effectiveDir}>
+            {effectiveDir}
+          </div>
+        )}
+      </button>
+      <FolderPicker open={pickerOpen} onOpenChange={setPickerOpen} />
+    </>
   )
 }

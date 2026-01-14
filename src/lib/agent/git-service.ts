@@ -70,7 +70,8 @@ function execGit(
  * Sanitize error messages to prevent information disclosure
  */
 function sanitizeError(message: string): string {
-  let sanitized = message.replace(/\/[\w\-./]+/g, (match) => {
+  // Handle paths with spaces, parentheses, and special characters
+  let sanitized = message.replace(/\/[^\s:]+/g, (match) => {
     const parts = match.split('/')
     return parts[parts.length - 1] || match
   })
@@ -239,14 +240,15 @@ export function getRecentCommits(
   }
 
   try {
-    const log = execGit(`log -n ${limit} --format="%h|||%B|||%an|||%ar|||END"`, cwd)
-    return log.split("|||END\n").filter(Boolean).map((entry) => {
-      const [hash, message, author, date] = entry.split("|||")
+    // Use NUL byte delimiter to avoid collision with commit messages
+    const log = execGit(`log -n ${limit} --format="%h%x00%B%x00%an%x00%ar%x00"`, cwd, { trim: false })
+    return log.split("\x00\n").filter(Boolean).map((entry) => {
+      const [hash, message, author, date] = entry.split("\x00")
       return {
-        hash: hash.trim(),
-        message: message.trim(),
-        author: author.trim(),
-        date: date.trim()
+        hash: (hash || '').trim(),
+        message: (message || '').trim(),
+        author: (author || '').trim(),
+        date: (date || '').trim()
       }
     })
   } catch {
@@ -297,6 +299,10 @@ export function getCwdPrefix(cwd: string): string {
   const root = getGitRoot(cwd)
   if (!root) return ""
   const relPath = relative(root, cwd)
+  // Validate that cwd is within repo
+  if (relPath.startsWith('..') || relPath.startsWith('/')) {
+    throw new Error('Working directory is outside repository root')
+  }
   if (!relPath || relPath === ".") return ""
   return relPath.replace(/\\/g, "/")
 }
@@ -312,6 +318,19 @@ export function stageFiles(cwd: string, files: string[]): { success: boolean; er
   }
   if (files.length === 0) {
     return { success: false, error: "No files specified" }
+  }
+
+  // Validate that all files are in git status (staged, modified, or untracked)
+  const status = getGitStatus(cwd)
+  const validFiles = new Set([
+    ...status.staged.map(f => f.file),
+    ...status.modified.map(f => f.file),
+    ...status.untracked
+  ])
+
+  const invalidFiles = files.filter(f => !validFiles.has(f))
+  if (invalidFiles.length > 0) {
+    return { success: false, error: `Files not in git status: ${invalidFiles.join(', ')}` }
   }
 
   const result = runGit(["add", "--", ...files], cwd)
@@ -332,6 +351,15 @@ export function unstageFiles(cwd: string, files: string[]): { success: boolean; 
   }
   if (files.length === 0) {
     return { success: false, error: "No files specified" }
+  }
+
+  // Validate that all files are actually staged
+  const status = getGitStatus(cwd)
+  const stagedFiles = new Set(status.staged.map(f => f.file))
+
+  const notStagedFiles = files.filter(f => !stagedFiles.has(f))
+  if (notStagedFiles.length > 0) {
+    return { success: false, error: `Files not staged: ${notStagedFiles.join(', ')}` }
   }
 
   const result = runGit(["restore", "--staged", "--", ...files], cwd)
@@ -357,7 +385,7 @@ export function commitChanges(cwd: string, message: string): { success: boolean;
   const tmpFile = join(tmpdir(), `commit-msg-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`)
 
   try {
-    writeFileSync(tmpFile, message, "utf-8")
+    writeFileSync(tmpFile, message, { encoding: "utf-8", mode: 0o600 })
     const result = runGit(["commit", "-F", tmpFile], cwd)
 
     if (!result.ok) {
@@ -380,9 +408,85 @@ export function commitChanges(cwd: string, message: string): { success: boolean;
 }
 
 /**
+ * Get diffs for multiple files
+ */
+export function getDiffForFiles(
+  cwd: string,
+  files: string[],
+  view: GitDiffView = "auto"
+): Record<string, FileDiff> {
+  const result: Record<string, FileDiff> = {}
+
+  for (const file of files) {
+    result[file] = getFileDiff(cwd, file, view)
+  }
+
+  return result
+}
+
+/**
+ * Commit changes with specific files (scoped commit)
+ */
+export function commitScopedChanges(
+  cwd: string,
+  files: string[],
+  message: string
+): { success: boolean; hash?: string; error?: string } {
+  if (!isGitRepo(cwd)) {
+    return { success: false, error: "Not a git repository" }
+  }
+  if (!message.trim()) {
+    return { success: false, error: "Commit message is required" }
+  }
+  if (files.length === 0) {
+    return { success: false, error: "At least one file must be specified" }
+  }
+
+  const repoRoot = execGit("rev-parse --show-toplevel", cwd)
+
+  // Validate all file paths
+  for (const file of files) {
+    if (!isPathSafe(repoRoot, file)) {
+      return { success: false, error: `Invalid file path: ${file}` }
+    }
+  }
+
+  const tmpFile = join(tmpdir(), `commit-msg-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`)
+
+  try {
+    // Stage only the specified files
+    const stageResult = runGit(["add", ...files], cwd)
+    if (!stageResult.ok) {
+      return { success: false, error: sanitizeError(stageResult.stderr || stageResult.stdout) }
+    }
+
+    // Commit the staged files
+    writeFileSync(tmpFile, message, { encoding: "utf-8", mode: 0o600 })
+    const commitResult = runGit(["commit", "-F", tmpFile], cwd)
+
+    if (!commitResult.ok) {
+      return { success: false, error: sanitizeError(commitResult.stderr || commitResult.stdout) }
+    }
+
+    const hashResult = runGit(["rev-parse", "--short", "HEAD"], cwd)
+    const hash = hashResult.ok ? hashResult.stdout.trim() : undefined
+
+    return { success: true, hash }
+  } catch (error) {
+    return { success: false, error: sanitizeError((error as Error).message) }
+  } finally {
+    try {
+      unlinkSync(tmpFile)
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
  * Checkout a branch
  */
-export function checkoutBranch(cwd: string, branch: string): { success: boolean; error?: string } {
+export function checkoutBranch(cwd: string, branch: string): { success: boolean; error?: string; hasUncommittedChanges?: boolean } {
   if (!isGitRepo(cwd)) {
     return { success: false, error: "Not a git repository" }
   }
@@ -393,24 +497,39 @@ export function checkoutBranch(cwd: string, branch: string): { success: boolean;
     return { success: false, error: "Invalid branch name" }
   }
 
+  // Check for uncommitted changes that might be lost
+  const status = getGitStatus(cwd)
+  const hasUncommittedChanges = status.staged.length > 0 || status.modified.length > 0 || status.untracked.length > 0
+
   const result = runGit(["checkout", branch], cwd)
 
   if (!result.ok) {
-    return { success: false, error: sanitizeError(result.stderr || result.stdout) }
+    return { success: false, error: sanitizeError(result.stderr || result.stdout), hasUncommittedChanges }
   }
 
-  return { success: true }
+  return { success: true, hasUncommittedChanges }
 }
 
 /**
  * Discard changes in working directory (destructive!)
+ *
+ * WARNING: This permanently discards uncommitted changes!
  */
-export function discardChanges(cwd: string, files: string[]): { success: boolean; error?: string } {
+export function discardChanges(cwd: string, files: string[]): { success: boolean; error?: string; warning?: string } {
   if (!isGitRepo(cwd)) {
     return { success: false, error: "Not a git repository" }
   }
   if (files.length === 0) {
     return { success: false, error: "No files specified" }
+  }
+
+  // Validate that files exist in modified list
+  const status = getGitStatus(cwd)
+  const modifiedFiles = new Set(status.modified.map(f => f.file))
+
+  const notModifiedFiles = files.filter(f => !modifiedFiles.has(f))
+  if (notModifiedFiles.length > 0) {
+    return { success: false, error: `Files not modified: ${notModifiedFiles.join(', ')}` }
   }
 
   const result = runGit(["restore", "--", ...files], cwd)
@@ -419,7 +538,7 @@ export function discardChanges(cwd: string, files: string[]): { success: boolean
     return { success: false, error: sanitizeError(result.stderr || result.stdout) }
   }
 
-  return { success: true }
+  return { success: true, warning: 'Changes discarded permanently' }
 }
 
 /**
@@ -528,14 +647,7 @@ export function getFileDiff(
   const repoRoot = getGitRoot(cwd) ?? cwd
 
   if (!isPathSafe(repoRoot, file)) {
-    return {
-      file,
-      oldContent: "",
-      newContent: "",
-      isNew: false,
-      isDeleted: false,
-      isBinary: false,
-    }
+    throw new Error(`Path traversal detected: ${file}`)
   }
 
   const safeExec = (cmd: string) => {
@@ -565,21 +677,23 @@ export function getFileDiff(
   const useStagedVersion =
     view === "staged" ? hasStaged : view === "working" ? false : hasStaged
 
-  // Check if file is binary
-  try {
-    const isBinaryCheck = execGit(`diff --no-ext-diff --no-textconv --numstat HEAD -- "${file}"`, cwd)
-    if (isBinaryCheck.startsWith("-\t-\t")) {
-      return {
-        file,
-        oldContent: "",
-        newContent: "",
-        isNew: false,
-        isDeleted: false,
-        isBinary: true,
+  // Check if file is binary - only for files that exist in HEAD or index
+  if (!isUntracked) {
+    try {
+      const isBinaryCheck = execGit(`diff --no-ext-diff --no-textconv --numstat HEAD -- "${file}"`, cwd)
+      if (isBinaryCheck.startsWith("-\t-\t")) {
+        return {
+          file,
+          oldContent: "",
+          newContent: "",
+          isNew: false,
+          isDeleted: false,
+          isBinary: true,
+        }
       }
+    } catch {
+      // File might not exist in HEAD, that's okay
     }
-  } catch {
-    // File might not exist in HEAD
   }
 
   let oldContent = ""
@@ -632,5 +746,157 @@ export function getStagedDiff(workingDir: string, filePath: string): string {
     })
   } catch {
     return ""
+  }
+}
+
+// === Additional Git Operations ===
+
+/**
+ * Fetch from remote
+ */
+export function fetchFromRemote(
+  cwd: string,
+  options?: { remote?: string; prune?: boolean }
+): { success: boolean; output: string; error?: string } {
+  if (!isGitRepo(cwd)) {
+    return { success: false, output: "", error: "Not a git repository" }
+  }
+
+  const remotesInfo = getGitRemotes(cwd)
+  if (remotesInfo.remotes.length === 0) {
+    return { success: false, output: "", error: "No git remotes configured." }
+  }
+
+  const remote = options?.remote?.trim() || remotesInfo.defaultRemote || remotesInfo.remotes[0]
+  if (!remote) {
+    return { success: false, output: "", error: "No git remotes configured." }
+  }
+
+  const args = ["fetch", remote]
+  if (options?.prune) {
+    args.push("--prune")
+  }
+
+  const result = runGit(args, cwd)
+
+  const output = `${result.stdout}${result.stderr}`.trim()
+  if (!result.ok) {
+    return {
+      success: false,
+      output,
+      error: output || `git ${args.join(" ")} failed (exit code ${result.code})`,
+    }
+  }
+
+  return { success: true, output: output || "Fetch completed." }
+}
+
+/**
+ * Pull from remote (fetch + merge)
+ */
+export function pullFromRemote(
+  cwd: string,
+  options?: { remote?: string; branch?: string; rebase?: boolean }
+): { success: boolean; output: string; error?: string } {
+  if (!isGitRepo(cwd)) {
+    return { success: false, output: "", error: "Not a git repository" }
+  }
+
+  const remotesInfo = getGitRemotes(cwd)
+  if (remotesInfo.remotes.length === 0) {
+    return { success: false, output: "", error: "No git remotes configured." }
+  }
+
+  const remote = options?.remote?.trim() || remotesInfo.defaultRemote || remotesInfo.remotes[0]
+  if (!remote) {
+    return { success: false, output: "", error: "No git remotes configured." }
+  }
+
+  const args = ["pull"]
+  if (options?.rebase) {
+    args.push("--rebase")
+  }
+  args.push(remote)
+  if (options?.branch) {
+    args.push(options.branch)
+  }
+
+  const result = runGit(args, cwd)
+
+  const output = `${result.stdout}${result.stderr}`.trim()
+  if (!result.ok) {
+    return {
+      success: false,
+      output,
+      error: output || `git ${args.join(" ")} failed (exit code ${result.code})`,
+    }
+  }
+
+  return { success: true, output: output || "Pull completed." }
+}
+
+/**
+ * Delete a branch
+ */
+export function deleteBranch(
+  cwd: string,
+  branch: string,
+  options?: { force?: boolean }
+): { success: boolean; error?: string } {
+  if (!isGitRepo(cwd)) {
+    return { success: false, error: "Not a git repository" }
+  }
+  if (!branch.trim()) {
+    return { success: false, error: "Branch name is required" }
+  }
+  if (!isValidBranchName(branch)) {
+    return { success: false, error: "Invalid branch name" }
+  }
+
+  // Prevent deleting current branch
+  const currentBranch = execGit("branch --show-current", cwd) || "HEAD"
+  if (branch === currentBranch) {
+    return { success: false, error: "Cannot delete the currently checked out branch" }
+  }
+
+  const args = ["branch", options?.force ? "-D" : "-d", branch]
+  const result = runGit(args, cwd)
+
+  if (!result.ok) {
+    return { success: false, error: sanitizeError(result.stderr || result.stdout) }
+  }
+
+  return { success: true }
+}
+
+/**
+ * Check for merge conflicts
+ */
+export function hasMergeConflicts(cwd: string): boolean {
+  if (!isGitRepo(cwd)) {
+    return false
+  }
+
+  try {
+    const conflicted = execGit("diff --name-only --diff-filter=U", cwd)
+    return conflicted.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get list of conflicted files
+ */
+export function getConflictedFiles(cwd: string): string[] {
+  if (!isGitRepo(cwd)) {
+    return []
+  }
+
+  try {
+    const conflicted = execGit("diff --name-only --diff-filter=U", cwd)
+    return conflicted.split("\n").filter(Boolean)
+  } catch {
+    return []
   }
 }
