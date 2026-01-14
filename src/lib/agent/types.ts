@@ -1,7 +1,7 @@
 /**
  * Agent types supported by the system
  */
-export type AgentType = "claude" | "codex" | "opencode" | "cerebras"
+export type AgentType = "claude" | "codex" | "opencode" | "cerebras" | "gemini"
 
 /**
  * Agent session status
@@ -194,6 +194,14 @@ export interface CerebrasMessageData {
 }
 
 /**
+ * Serializable Gemini message format for session storage (Vercel AI SDK CoreMessage)
+ */
+export interface GeminiMessageData {
+  role: "system" | "user" | "assistant" | "tool"
+  content: string | Array<{ type: string; text?: string; toolCallId?: string; toolName?: string; args?: unknown; result?: unknown }>
+}
+
+/**
  * Resume history entry for tracking session resumption attempts
  */
 export interface ResumeHistoryEntry {
@@ -215,6 +223,10 @@ export interface AgentSession {
   startedAt: string
   completedAt?: string
   workingDir: string
+  /** Git worktree path for isolated session changes */
+  worktreePath?: string
+  /** Git worktree branch name (agentz/session-{sessionId}) */
+  worktreeBranch?: string
   output: AgentOutputChunk[]
   error?: string
   agentType?: AgentType
@@ -231,6 +243,8 @@ export interface AgentSession {
   messages?: ConversationMessage[]
   /** Raw Cerebras messages for conversation resumption */
   cerebrasMessages?: CerebrasMessageData[]
+  /** Raw Gemini messages for conversation resumption (Vercel AI SDK format) */
+  geminiMessages?: GeminiMessageData[]
   /** Link to a task file if this session is executing a task */
   taskPath?: string
   /** Link to a plan file if this session was created from a plan */

@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs"
 import { resolve } from "path"
 import type { AgentOutputChunk, CerebrasMessageData } from "./types"
 import { SecurityConfig } from "./security-config.js"
+import { validatePath } from "./path-validator.js"
 
 // === Types ===
 
@@ -295,9 +296,10 @@ export class CerebrasAgent extends EventEmitter {
     try {
       switch (name) {
         case "read_file": {
-          const path = this.resolvePath(args.path as string)
+          // Validate path to prevent path traversal
+          const path = validatePath(args.path as string, this.workingDir)
           if (!existsSync(path)) {
-            return `Error: File not found: ${path}`
+            return `Error: File not found: ${args.path}`
           }
           const content = readFileSync(path, "utf-8")
           return content.length > 50000
@@ -306,10 +308,11 @@ export class CerebrasAgent extends EventEmitter {
         }
 
         case "write_file": {
-          const path = this.resolvePath(args.path as string)
+          // Validate path to prevent path traversal
+          const path = validatePath(args.path as string, this.workingDir)
           const content = args.content as string
           writeFileSync(path, content, "utf-8")
-          return `Successfully wrote ${content.length} bytes to ${path}`
+          return `Successfully wrote ${content.length} bytes to ${args.path}`
         }
 
         case "exec_command": {

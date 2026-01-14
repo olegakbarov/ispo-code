@@ -17,7 +17,15 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
   const [commitMessage, setCommitMessage] = useState("")
   const utils = trpc.useUtils()
 
+  // Fetch session to check for worktree info
+  const { data: session } = trpc.agent.get.useQuery(
+    { id: sessionId },
+    { enabled: isExpanded }
+  )
+
   // Git status query
+  // NOTE: When worktree isolation is enabled, pass sessionId via tRPC context
+  // to automatically scope git operations to the session's worktree
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     enabled: isExpanded,
     refetchInterval: isExpanded ? 3000 : false,
@@ -88,11 +96,27 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
       {/* Expanded content */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-3">
+          {/* Loading state */}
+          {!gitStatus && (
+            <div className="flex items-center gap-2 text-[10px] font-vcr text-muted-foreground">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              loading git status...
+            </div>
+          )}
+
           {/* Branch and status */}
+          {gitStatus && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="font-vcr text-muted-foreground text-[10px]">Branch</span>
-              <span className="font-mono text-foreground/70">{gitStatus.branch || "HEAD"}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-foreground/70">{gitStatus.branch || "HEAD"}</span>
+                {session?.worktreePath && (
+                  <span className="text-[8px] font-vcr text-primary bg-primary/10 px-1 py-0.5 rounded">
+                    WT
+                  </span>
+                )}
+              </div>
             </div>
             {gitStatus.staged.length > 0 && (
               <div className="flex items-center justify-between text-xs">
@@ -113,6 +137,7 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
               </div>
             )}
           </div>
+          )}
 
           {/* File list */}
           {changedFiles.length > 0 && (

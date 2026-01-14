@@ -16,6 +16,8 @@ import { CerebrasAgent } from "./cerebras"
 import { OpencodeAgent } from "./opencode"
 import { CLIAgentRunner, getAvailableAgentTypes } from "./cli-runner"
 import { MetadataAnalyzer } from "./metadata-analyzer"
+import { createWorktree, deleteWorktree, isWorktreeIsolationEnabled } from "./git-worktree"
+import { getGitRoot } from "./git-service"
 
 type AgentManagerEvents = {
   output: [{ sessionId: string; chunk: AgentOutputChunk }]
@@ -39,10 +41,9 @@ function isSessionResumable(session: AgentSession): boolean {
     return false
   }
 
-  // Explicitly marked as non-resumable (e.g., Codex needs_follow_up: false)
-  if (session.resumable === false) {
-    return false
-  }
+  // Note: We don't block based on session.resumable === false
+  // Let users try to resume even if Codex reported needs_follow_up: false
+  // The CLI will reject if it truly can't resume
 
   // CLI agents require a cliSessionId for resume
   const isCliAgent = session.agentType === "claude" || session.agentType === "codex"
@@ -86,6 +87,27 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     const workingDir = params.workingDir ?? process.cwd()
     const agentType = params.agentType ?? "cerebras" // Default to Cerebras
 
+    // Create worktree if isolation is enabled and we're in a git repo
+    let worktreePath: string | undefined
+    let worktreeBranch: string | undefined
+
+    if (isWorktreeIsolationEnabled()) {
+      const repoRoot = getGitRoot(workingDir)
+      if (repoRoot) {
+        const worktreeInfo = createWorktree({ sessionId, repoRoot })
+        if (worktreeInfo) {
+          worktreePath = worktreeInfo.path
+          worktreeBranch = worktreeInfo.branch
+          console.log(`[AgentManager] Created worktree for session ${sessionId} at ${worktreePath}`)
+        } else {
+          console.warn(`[AgentManager] Failed to create worktree for session ${sessionId}, using standard workingDir`)
+        }
+      }
+    }
+
+    // Use worktree path as working directory if available
+    const effectiveWorkingDir = worktreePath ?? workingDir
+
     const session: AgentSession = {
       id: sessionId,
       prompt: params.prompt,
@@ -93,6 +115,8 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       status: "pending",
       startedAt: new Date().toISOString(),
       workingDir,
+      worktreePath,
+      worktreeBranch,
       output: [],
       agentType,
       model: params.model,
@@ -107,8 +131,8 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     store.updateSession(sessionId, { status: "running" })
     this.emit("status", { sessionId, status: "running" })
 
-    // Run the appropriate agent based on type
-    this.runAgent(sessionId, params.prompt, workingDir, agentType, params.model, { isResume: false })
+    // Run the appropriate agent based on type, using worktree path if available
+    this.runAgent(sessionId, params.prompt, effectiveWorkingDir, agentType, params.model, { isResume: false })
 
     return session
   }
@@ -154,9 +178,6 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       if (session.status === "cancelled") {
         return { success: false, error: "Cannot resume cancelled session" }
       }
-      if (session.resumable === false) {
-        return { success: false, error: "Session marked as non-resumable (agent reported task complete)" }
-      }
       if (!session.cliSessionId && (session.agentType === "claude" || session.agentType === "codex")) {
         return { success: false, error: "This session cannot be resumed (missing cliSessionId)" }
       }
@@ -201,8 +222,9 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
     this.emit("status", { sessionId, status: "running" })
 
-    // Run the agent with resume flag
-    this.runAgent(sessionId, trimmed, session.workingDir, agentType, session.model, {
+    // Run the agent with resume flag, using worktree path if available
+    const effectiveWorkingDir = session.worktreePath ?? session.workingDir
+    this.runAgent(sessionId, trimmed, effectiveWorkingDir, agentType, session.model, {
       isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras",
       cliSessionId: session.cliSessionId,
     })
@@ -502,12 +524,25 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
   }
 
   delete(sessionId: string): boolean {
+    const store = getSessionStore()
+    const session = store.getSession(sessionId)
+
     // Cancel if running first
     if (this.agents.has(sessionId)) {
       this.cancel(sessionId)
     }
+
+    // Cleanup worktree if it exists
+    if (session?.worktreePath && session?.worktreeBranch) {
+      console.log(`[AgentManager] Cleaning up worktree for session ${sessionId}`)
+      deleteWorktree(session.worktreePath, {
+        branch: session.worktreeBranch,
+        force: true,
+      })
+    }
+
     // Delete from store
-    return getSessionStore().deleteSession(sessionId)
+    return store.deleteSession(sessionId)
   }
 
   /**

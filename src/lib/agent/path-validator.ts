@@ -10,7 +10,9 @@ import { resolve, relative, normalize, sep } from "path"
  * Validate that a file path is within the allowed working directory
  *
  * @param filePath - The file path to validate (absolute or relative)
- * @param workingDir - The working directory to restrict access to
+ * @param workingDir - The working directory to restrict access to (or worktree path if provided)
+ * @param options - Optional validation options
+ * @param options.worktreePath - Worktree path to use as working directory (overrides workingDir)
  * @returns The normalized absolute path if valid
  * @throws Error if path traversal is detected
  *
@@ -24,11 +26,22 @@ import { resolve, relative, normalize, sep } from "path"
  * validatePath('../../../etc/passwd', '/project') // throws
  * validatePath('/etc/passwd', '/project') // throws
  * validatePath('src/../../../etc/passwd', '/project') // throws
+ *
+ * // Worktree isolation
+ * validatePath('src/index.ts', '/project', { worktreePath: '/project/.agentz/worktrees/abc123' })
+ * // -> '/project/.agentz/worktrees/abc123/src/index.ts'
  * ```
  */
-export function validatePath(filePath: string, workingDir: string): string {
+export function validatePath(
+  filePath: string,
+  workingDir: string,
+  options?: { worktreePath?: string }
+): string {
+  // Use worktree path if provided, otherwise use working directory
+  const effectiveWorkingDir = options?.worktreePath ?? workingDir
+
   // Normalize both paths to handle . and .. segments
-  const normalizedWorkingDir = normalize(resolve(workingDir))
+  const normalizedWorkingDir = normalize(resolve(effectiveWorkingDir))
   const normalizedPath = normalize(resolve(normalizedWorkingDir, filePath))
 
   // Calculate relative path from working dir to target

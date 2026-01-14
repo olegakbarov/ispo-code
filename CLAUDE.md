@@ -45,3 +45,69 @@ npm run start        # Preview production build
 | OpenCode | Embedded | Varies  | SDK installed        |
 | Claude   | CLI      | 200K    | claude CLI installed |
 | Codex    | CLI      | 128K    | codex CLI installed  |
+
+## Worktree Isolation
+
+**Feature**: `ENABLE_WORKTREE_ISOLATION=true` - Isolate concurrent agent sessions via git worktrees
+
+### Overview
+
+When enabled, each agent session runs in an isolated git worktree on a unique branch (`agentz/session-{id}`). This prevents:
+- Concurrent agents conflicting on same files
+- Mixed commits across sessions
+- Cross-session contamination
+
+### Architecture
+
+**Session Lifecycle**:
+1. **Spawn**: Creates `.agentz/worktrees/{sessionId}` on new branch
+2. **Execution**: All agent file operations scoped to worktree
+3. **Cleanup**: Deletes worktree and branch on session deletion
+
+**Path Isolation**:
+- All tools (read/write/edit) constrained to worktree via `validatePath()`
+- Shell commands (`exec_command`) execute in worktree `cwd`
+- Git operations automatically scoped to worktree context
+
+**UI Integration**:
+- Sidebar shows "WT" badge when session uses worktree
+- Git status displays worktree branch name
+- Commit operations scoped to session files
+
+### Usage
+
+```bash
+# Enable worktree isolation
+export ENABLE_WORKTREE_ISOLATION=true
+
+# Start server
+npm run dev
+```
+
+**Session-specific git operations** (via tRPC):
+- Server automatically resolves `X-Session-Id` header to worktree path
+- Git status, diffs, commits scoped to session worktree
+
+### Implementation
+
+**Key Files**:
+- `src/lib/agent/git-worktree.ts` - Worktree lifecycle management
+- `src/lib/agent/manager.ts` - Integrates worktree creation/cleanup
+- `src/lib/agent/path-validator.ts` - Enforces worktree boundaries
+- `src/routes/api/trpc/$.ts` - Resolves sessionId to worktree path
+
+**Session Model**:
+```ts
+interface AgentSession {
+  worktreePath?: string       // .agentz/worktrees/{sessionId}
+  worktreeBranch?: string     // agentz/session-{sessionId}
+  // ...
+}
+```
+
+### Considerations
+
+- **Disk Space**: Each worktree is full working copy (~repo size)
+- **Cleanup**: Orphaned worktrees removed on server restart
+- **Merging**: Manual merge from `agentz/session-*` branches to main
+- **Performance**: Worktree creation adds ~1-2s to session spawn
