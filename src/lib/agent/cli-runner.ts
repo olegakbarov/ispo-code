@@ -181,6 +181,32 @@ function getCodexAuthWarning(env: Record<string, string>): string | null {
   return "Codex CLI may require authentication. Set OPENAI_API_KEY or run `codex auth login`."
 }
 
+function resolveCodexHome(env: Record<string, string>, workingDir: string): string | null {
+  if (env.CODEX_HOME) return env.CODEX_HOME
+
+  const home = env.HOME ?? ""
+  if (home) {
+    const homeCodex = join(home, ".codex")
+    const authCandidates = [
+      join(homeCodex, "config.json"),
+      join(homeCodex, "auth.json"),
+      join(homeCodex, "credentials.json"),
+      join(homeCodex, "token.json"),
+    ]
+    if (authCandidates.some((candidate) => existsSync(candidate))) {
+      return homeCodex
+    }
+  }
+
+  const projectCodex = join(workingDir, "data", "codex")
+  try {
+    mkdirSync(projectCodex, { recursive: true })
+  } catch {
+    return null
+  }
+  return projectCodex
+}
+
 const MAX_PROMPT_BYTES_IN_ARGS = 100_000
 const STARTUP_OUTPUT_TIMEOUT_MS = 30_000
 const MAX_PROCESS_RUNTIME_MS = 60 * 60 * 1000 // 1 hour max runtime
@@ -278,13 +304,10 @@ export class CLIAgentRunner extends EventEmitter {
         const env: Record<string, string> = { ...(process.env as Record<string, string>), FORCE_COLOR: "0" }
 
         // Codex CLI writes session state under CODEX_HOME
-        if (agentType === "codex" && !env.CODEX_HOME) {
-          const codexHome = join(process.cwd(), "data", "codex")
-          try {
-            mkdirSync(codexHome, { recursive: true })
+        if (agentType === "codex") {
+          const codexHome = resolveCodexHome(env, workingDir)
+          if (codexHome) {
             env.CODEX_HOME = codexHome
-          } catch {
-            // Let Codex fall back to defaults
           }
         }
 
@@ -743,6 +766,17 @@ export class CLIAgentRunner extends EventEmitter {
 
     if (type === "thread.started") {
       return
+    }
+
+    // Codex returns needs_follow_up to indicate if session can accept more input
+    if (typeof json.needs_follow_up === "boolean") {
+      this.emit("resumable", json.needs_follow_up)
+      if (!json.needs_follow_up) {
+        const msg = "Session cannot be resumed (Codex reports needs_follow_up: false)"
+        this.reportedError ??= msg
+        this.emitChunk("error", msg)
+        return
+      }
     }
 
     const errorObj = json.error as Record<string, unknown> | undefined

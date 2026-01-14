@@ -37,7 +37,7 @@ function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-2">
+      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border h-12 px-4 flex items-center">
         <div className="flex items-center gap-2">
           <Settings className="w-4 h-4 text-primary" />
           <h1 className="text-sm font-bold">Settings</h1>

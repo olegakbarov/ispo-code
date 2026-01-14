@@ -39,6 +39,11 @@ function isSessionResumable(session: AgentSession): boolean {
     return false
   }
 
+  // Explicitly marked as non-resumable (e.g., Codex needs_follow_up: false)
+  if (session.resumable === false) {
+    return false
+  }
+
   // CLI agents require a cliSessionId for resume
   const isCliAgent = session.agentType === "claude" || session.agentType === "codex"
   if (isCliAgent && !session.cliSessionId) {
@@ -148,6 +153,9 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     if (!canResume) {
       if (session.status === "cancelled") {
         return { success: false, error: "Cannot resume cancelled session" }
+      }
+      if (session.resumable === false) {
+        return { success: false, error: "Session marked as non-resumable (agent reported task complete)" }
       }
       if (!session.cliSessionId && (session.agentType === "claude" || session.agentType === "codex")) {
         return { success: false, error: "This session cannot be resumed (missing cliSessionId)" }
@@ -293,6 +301,9 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
           cliRunner.on("waiting_input", () => {
             store.updateStatus(sessionId, "waiting_input")
             this.emit("status", { sessionId, status: "waiting_input" })
+          })
+          cliRunner.on("resumable", (isResumable: boolean) => {
+            store.updateSession(sessionId, { resumable: isResumable })
           })
 
           const runnerWrapper = Object.assign(new EventEmitter(), {

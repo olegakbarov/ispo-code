@@ -21,70 +21,49 @@ function buildTaskExpansionPrompt(params: {
   taskPath: string
   workingDir: string
 }): string {
-  return `You are a task planning assistant. Your job is to convert a brief task description into a detailed, actionable task plan.
+  return `Task planning agent. Convert brief description into concise, actionable plan.
 
-## Your Task
-
-The user wants to accomplish: "${params.title}"
+## Task
+"${params.title}"
 
 ## Instructions
+1. Explore codebase for context
+2. Write plan to: ${params.taskPath}
 
-1. First, explore the codebase to understand the project structure and relevant files
-2. Create a detailed markdown task plan with:
-   - Clear problem statement
-   - Scope and constraints
-   - Step-by-step implementation checklist with GFM checkboxes
-   - Key files to modify
-   - Testing approach
-   - Success criteria
-
-3. Write the task plan to: ${params.taskPath}
-
-## Output Format
-
-Write a markdown file with this structure:
+## Format
 
 \`\`\`markdown
 # ${params.title}
 
 ## Problem Statement
-[Clear description of what needs to be done and why]
+What & why (2-3 sentences max)
 
 ## Scope
-- What's included
-- What's NOT included (out of scope)
+**In:** bullet list
+**Out:** bullet list
 
 ## Implementation Plan
 
-### Phase 1: [Name]
-- [ ] Step 1 description
-- [ ] Step 2 description
-
-### Phase 2: [Name]
-- [ ] Step 3 description
-- [ ] Step 4 description
+### Phase: [Name]
+- [ ] Action (one clear step, no elaboration)
+- [ ] Action
 
 ## Key Files
-- \`path/to/file1.ts\` - [why it needs changes]
-- \`path/to/file2.ts\` - [why it needs changes]
-
-## Testing
-- [ ] Test case 1
-- [ ] Test case 2
+- \`path/file.ts\` - changes needed
 
 ## Success Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
+- [ ] Measurable outcome
 \`\`\`
 
-## Important
+## Rules (CRITICAL)
+- **BE CONCISE** - Follow CLAUDE.md style: sacrifice grammar for concision
+- Use fragments, not full sentences
+- No marketing language or filler
+- Each checkbox: one action, no elaboration
+- Specific file paths, no vague terms
+- Working dir: ${params.workingDir}
 
-- Use GFM checkboxes (- [ ]) for all actionable items
-- Be specific about file paths and code changes
-- Keep the plan realistic and achievable
-- Focus on the working directory: ${params.workingDir}
-
-Now explore the codebase and write the detailed task plan.`
+Explore codebase, write terse plan.`
 }
 
 /**
@@ -136,7 +115,12 @@ function buildTaskSpecReviewPrompt(params: {
   taskPath: string
   taskContent: string
   workingDir: string
+  instructions?: string
 }): string {
+  const userInstructions = params.instructions?.trim()
+    ? `\n## Additional Review Instructions\n${params.instructions.trim()}\n`
+    : ""
+
   return `You are a senior engineering lead reviewing a TASK SPECIFICATION. Your job is to assess the quality of this spec and suggest improvements.
 
 ## Context
@@ -167,7 +151,7 @@ Evaluate this spec against these criteria:
 - Unclear success criteria
 - Missing context that an implementer would need
 - Assumptions that should be made explicit
-
+${userInstructions}
 ## Output
 
 Provide a brief review with:
@@ -330,6 +314,7 @@ export const tasksRouter = router({
         streamServerUrl,
         daemonNonce,
         taskPath,
+        title: `Plan: ${input.title}`,
       })
 
       return {
@@ -380,6 +365,7 @@ export const tasksRouter = router({
         streamServerUrl,
         daemonNonce,
         taskPath: input.path,
+        title: `Run: ${task.title}`,
       })
 
       return {
@@ -397,6 +383,7 @@ export const tasksRouter = router({
     .input(z.object({
       path: z.string().min(1),
       agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
+      instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const task = getTask(ctx.workingDir, input.path)
@@ -404,6 +391,7 @@ export const tasksRouter = router({
         taskPath: input.path,
         taskContent: task.content,
         workingDir: ctx.workingDir,
+        instructions: input.instructions,
       })
 
       const sessionId = randomBytes(6).toString("hex")
@@ -419,6 +407,7 @@ export const tasksRouter = router({
         streamServerUrl,
         daemonNonce,
         taskPath: input.path,
+        title: `Review: ${task.title}`,
       })
 
       return {
@@ -460,6 +449,7 @@ export const tasksRouter = router({
         streamServerUrl,
         daemonNonce,
         taskPath: input.path,
+        title: `Verify: ${task.title}`,
       })
 
       return {

@@ -45,7 +45,7 @@ export function TaskList({
 }: TaskListProps) {
   return (
     <div className="w-80 shrink-0 min-h-0 flex flex-col bg-panel">
-      <div className="p-2 border-b border-border flex items-center gap-2">
+      <div className="h-12 px-3 border-b border-border flex items-center gap-2">
         <Input
           value={filter}
           onChange={(e) => onFilterChange(e.target.value)}

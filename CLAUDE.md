@@ -26,8 +26,6 @@ A full-stack multi-agent control panel for spawning and managing AI coding agent
 - `src/lib/agent/tools.ts` - Tool framework (read, write, edit, bash, glob, grep)
 - `src/routes/__root.tsx` - Root layout with sidebar navigation
 
-For detailed architecture, module guides, and navigation instructions, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md).
-
 ## Quick Commands
 
 ```bash

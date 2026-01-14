@@ -6,10 +6,13 @@
  */
 
 import { spawn, ChildProcess } from "child_process"
-import { join } from "path"
+import { join, dirname } from "path"
+import { fileURLToPath } from "url"
 import { randomBytes } from "crypto"
 import type { DaemonConfig } from "./agent-daemon"
 import { getDaemonRegistry, type DaemonRecord } from "./daemon-registry"
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export interface SpawnedDaemon {
   sessionId: string
@@ -30,11 +33,17 @@ export class ProcessMonitor {
   spawnDaemon(config: DaemonConfig): SpawnedDaemon {
     const daemonNonce = config.daemonNonce || randomBytes(16).toString("hex")
     const spawnConfig: DaemonConfig = { ...config, daemonNonce }
-    const daemonScript = join(process.cwd(), "dist", "daemon", "agent-daemon.js")
     const configJson = JSON.stringify(spawnConfig)
 
+    // Use tsx in development mode to run TypeScript directly
+    const isDev = process.env.NODE_ENV !== "production"
+    const command = isDev ? "tsx" : "node"
+    const daemonScript = isDev
+      ? join(__dirname, "agent-daemon.ts")
+      : join(process.cwd(), "dist", "daemon", "agent-daemon.js")
+
     // Spawn detached process
-    const child: ChildProcess = spawn("node", [daemonScript, `--config=${configJson}`], {
+    const child: ChildProcess = spawn(command, [daemonScript, `--config=${configJson}`], {
       detached: true,
       stdio: "ignore", // Don't pipe stdio - daemon writes to streams
       cwd: spawnConfig.workingDir,

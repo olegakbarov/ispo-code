@@ -27,6 +27,8 @@ export interface SessionCreatedEvent {
   workingDir: string
   model?: string
   taskPath?: string
+  /** Display title for sidebar (e.g., "Review: Task Name") */
+  title?: string
   timestamp: string
 }
 

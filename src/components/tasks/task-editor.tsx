@@ -77,8 +77,8 @@ export function TaskEditor({
         />
       )}
 
-      <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur px-3 py-2">
-        <div className="flex items-center gap-3">
+      <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur min-h-12 px-3 py-2">
+        <div className="flex items-center gap-3 w-full">
           <div className="min-w-0 flex-1">
             <div className="font-vcr text-xs text-text-secondary truncate">{title}</div>
             <div className="text-[10px] text-text-muted truncate">{path}</div>

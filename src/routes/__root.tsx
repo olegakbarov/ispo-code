@@ -5,16 +5,17 @@ import {
   Scripts,
   Link,
 } from '@tanstack/react-router'
+import '@/lib/client/browser-logger'
+import '@/lib/server/setup-server-logging'
 import type { RouterContext } from '@/router'
 import { useState, useEffect } from 'react'
-import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus, Map, ChevronRight, Settings } from 'lucide-react'
+import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus, ChevronRight, Settings, Play, Eye, ShieldCheck, FileText } from 'lucide-react'
 import appCss from '../styles.css?url'
 import { ThemeProvider, ThemeScript, useTheme } from '@/components/theme'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TRPCProvider } from '@/components/providers'
 import { trpc } from '@/lib/trpc-client'
-import { statusColors, getStatusLabel } from '@/lib/agent/status'
-import type { AgentSession, SessionStatus } from '@/lib/agent/types'
+import type { AgentSession } from '@/lib/agent/types'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { FolderPicker } from '@/components/ui/folder-picker'
 import { useWorkingDirStore } from '@/lib/stores/working-dir'
@@ -130,7 +131,7 @@ function Sidebar() {
 
   // Fetch sessions from server
   const { data: sessions = [] } = trpc.agent.list.useQuery(undefined, {
-    refetchInterval: 3000, // Poll every 3s for status updates
+    refetchInterval: 3000,
   })
 
   // Delete mutation
@@ -147,7 +148,7 @@ function Sidebar() {
   const sessionCount = sessions.length
 
   return (
-    <aside className="w-56 bg-card flex flex-col border-r border-border">
+    <aside className="w-[268px] bg-card flex flex-col border-r border-border">
       <header className="h-12 flex items-center gap-2 px-3 border-b border-border">
         <Cpu className="w-5 h-5 text-primary" />
         <h1 className="font-vcr text-sm text-primary">Agentz</h1>
@@ -162,14 +163,9 @@ function Sidebar() {
         </button>
       </header>
 
-      {/* Project Selector */}
-      <ProjectIndicator />
-
       <nav className="divide-y divide-border/40">
         <NavLink to="/tasks" icon={<ListTodo className="w-4 h-4" />}>Tasks</NavLink>
         <NavLink to="/git" icon={<GitBranch className="w-4 h-4" />}>Git</NavLink>
-        <NavLink to="/map" icon={<Map className="w-4 h-4" />}>Map</NavLink>
-        <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
       </nav>
 
       <div className="flex-1 overflow-y-auto">
@@ -193,12 +189,10 @@ function Sidebar() {
 
           {agentsExpanded && (
             <div className="relative">
-              <div aria-hidden className="pointer-events-none absolute left-5 top-0 bottom-0 w-px bg-border/40" />
-
               {/* New Agent Button */}
               <Link
                 to="/"
-                className="w-full flex items-center gap-2 pr-3 pl-8 py-2 text-xs font-vcr text-primary hover:bg-secondary border-t border-border/30 cursor-pointer transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-vcr text-primary hover:bg-secondary cursor-pointer transition-colors"
               >
                 <Plus className="w-3 h-3" />
                 <span>New Agent</span>
@@ -206,7 +200,7 @@ function Sidebar() {
 
               {/* Agent Sessions */}
               {sessions.length > 0 ? (
-                <div className="border-t border-border/30">
+                <div>
                   {sessions.map((session) => (
                     <AgentSessionLink
                       key={session.id}
@@ -216,8 +210,8 @@ function Sidebar() {
                   ))}
                 </div>
               ) : (
-                <div className="pr-3 pl-8 py-3 text-xs text-muted-foreground border-t border-border/30">
-                  No active sessions
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  No sessions
                 </div>
               )}
             </div>
@@ -225,10 +219,12 @@ function Sidebar() {
         </div>
       </div>
 
-      <footer className="px-3 py-2 border-t border-border">
-        <p className="font-vcr text-[9px] text-muted-foreground-faint text-center">
-          v0.1.0
-        </p>
+      <footer className="border-t border-border">
+        {/* Project Selector */}
+        <ProjectIndicator />
+
+        {/* Settings Link */}
+        <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
       </footer>
     </aside>
   )
@@ -250,18 +246,6 @@ function NavLink({ to, icon, children }: { to: string; icon?: React.ReactNode; c
 }
 
 /**
- * Status indicator dot
- */
-function StatusDot({ status }: { status: SessionStatus }) {
-  return (
-    <span
-      className={`w-2 h-2 rounded-full shrink-0 ${statusColors[status]}`}
-      title={getStatusLabel(status)}
-    />
-  )
-}
-
-/**
  * Agent type icon component
  */
 function AgentTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -278,7 +262,23 @@ function AgentTypeIcon({ type, className }: { type: string; className?: string }
 }
 
 /**
- * Agent session link with status and delete button
+ * Extract action type from title (e.g., "Run: Task Name" -> "run")
+ */
+function getActionFromTitle(title?: string): string | null {
+  if (!title) return null
+  const match = title.match(/^(Plan|Run|Review|Verify):/i)
+  return match ? match[1].toLowerCase() : null
+}
+
+const actionStyles: Record<string, { color: string; icon: React.ReactNode }> = {
+  plan: { color: 'text-purple-400', icon: <FileText className="w-2.5 h-2.5" /> },
+  run: { color: 'text-blue-400', icon: <Play className="w-2.5 h-2.5" /> },
+  review: { color: 'text-amber-400', icon: <Eye className="w-2.5 h-2.5" /> },
+  verify: { color: 'text-emerald-400', icon: <ShieldCheck className="w-2.5 h-2.5" /> },
+}
+
+/**
+ * Agent session link - compact with status border and action badge
  */
 function AgentSessionLink({
   session,
@@ -289,32 +289,48 @@ function AgentSessionLink({
 }) {
   const [isHovered, setIsHovered] = useState(false)
 
-  // Use title if available, otherwise truncate prompt for display
+  // Extract action and clean display text
+  const action = getActionFromTitle(session.title)
   const displayText = session.title
-    ? (session.title.length > 30 ? session.title.slice(0, 27) + '...' : session.title)
-    : (session.prompt.length > 30 ? session.prompt.slice(0, 27) + '...' : session.prompt)
+    ? session.title.replace(/^(Plan|Run|Review|Verify):\s*/i, '')
+    : session.prompt
+
+  // Status-based left border color
+  const statusBorderColor = {
+    pending: 'border-l-yellow-500',
+    running: 'border-l-blue-500',
+    working: 'border-l-blue-500',
+    idle: 'border-l-gray-400',
+    waiting_approval: 'border-l-amber-500',
+    waiting_input: 'border-l-purple-500',
+    completed: 'border-l-emerald-500',
+    failed: 'border-l-red-500',
+    cancelled: 'border-l-gray-500',
+  }[session.status] || 'border-l-gray-500'
 
   return (
     <Link
       to="/agents/$sessionId"
       params={{ sessionId: session.id }}
-      className="group relative flex items-center gap-2 pr-3 pl-8 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
-      activeProps={{
-        className: 'bg-primary/10 text-foreground border-l-2 border-primary pl-[30px]',
-      }}
+      className={`group relative flex items-center gap-1.5 px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors border-l-2 ${statusBorderColor}`}
+      activeProps={{ className: 'bg-primary/10 text-foreground' }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <StatusDot status={session.status} />
-      <AgentTypeIcon type={session.agentType ?? 'opencode'} className="w-3 h-3 shrink-0" />
-      <span className="truncate flex-1">{displayText}</span>
+      {action && actionStyles[action] && (
+        <span className={`shrink-0 ${actionStyles[action].color}`} title={action}>
+          {actionStyles[action].icon}
+        </span>
+      )}
+      <AgentTypeIcon type={session.agentType ?? 'opencode'} className="w-3 h-3 shrink-0 opacity-50" />
+      <span className="truncate flex-1" title={displayText}>{displayText}</span>
       {isHovered && (
         <button
           onClick={(e) => onDelete(session.id, e)}
-          className="absolute right-2 p-1 text-muted-foreground hover:text-error hover:bg-error/10 rounded transition-colors"
-          title="Delete session"
+          className="absolute right-1 p-0.5 text-muted-foreground hover:text-error rounded transition-colors"
+          title="Delete"
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-2.5 h-2.5" />
         </button>
       )}
     </Link>
@@ -342,7 +358,7 @@ function ProjectIndicator() {
     <>
       <button
         onClick={() => setPickerOpen(true)}
-        className="w-full px-3 py-2 border-b border-border text-left hover:bg-secondary/50 transition-colors cursor-pointer"
+        className="w-full px-3 py-2 text-left hover:bg-secondary/50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-2">
           <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />

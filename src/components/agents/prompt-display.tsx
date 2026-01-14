@@ -27,7 +27,7 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable }: Promp
     : prompt
 
   return (
-    <div className="px-3 py-2 border-b border-border/60 bg-panel/30">
+    <div className="min-h-12 px-3 py-2 border-b border-border/60 bg-panel/30 flex items-center">
       <div className="flex items-start gap-2">
         {/* Expand/collapse button */}
         {shouldCollapse && (

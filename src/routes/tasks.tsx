@@ -10,6 +10,7 @@ import type { AgentType } from '@/lib/agent/types'
 import { TaskList, type TaskSummary } from '@/components/tasks/task-list'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { CreateTaskModal } from '@/components/tasks/create-task-modal'
+import { ReviewModal } from '@/components/tasks/review-modal'
 import type { PlannerAgentType } from '@/components/tasks/agent-config'
 import type { AgentSession } from '@/components/tasks/agent-types'
 import { trpc } from '@/lib/trpc-client'
@@ -70,6 +71,10 @@ function TasksPage() {
 
   // Agent type for "Run with Agent"
   const [runAgentType, setRunAgentType] = useState<AgentType>('claude')
+
+  // Review/Verify modal state
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [reviewMode, setReviewMode] = useState<'review' | 'verify'>('review')
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -365,35 +370,61 @@ function TasksPage() {
     cancelAgentMutation.mutate({ id: activeSessionId })
   }, [activeSessionId, cancelAgentMutation])
 
-  const handleReview = useCallback(async () => {
+  const handleReview = useCallback(() => {
+    setReviewMode('review')
+    setReviewModalOpen(true)
+  }, [])
+
+  const handleVerify = useCallback(() => {
+    setReviewMode('verify')
+    setReviewModalOpen(true)
+  }, [])
+
+  const handleStartReview = useCallback(async (agentType: AgentType, instructions?: string) => {
     if (!selectedPath) return
 
     try {
       setSaveError(null)
-      await reviewWithAgentMutation.mutateAsync({
-        path: selectedPath,
-        agentType: runAgentType,
+      const result = await (reviewMode === 'review'
+        ? reviewWithAgentMutation.mutateAsync({
+            path: selectedPath,
+            agentType,
+            instructions,
+          })
+        : verifyWithAgentMutation.mutateAsync({
+            path: selectedPath,
+            agentType,
+            instructions,
+          }))
+
+      // Optimistically set the session in cache before navigating
+      // This prevents "Session not found" while daemon initializes
+      const taskTitle = selectedSummary?.title ?? selectedPath
+      utils.agent.get.setData({ id: result.sessionId }, {
+        id: result.sessionId,
+        prompt: `${reviewMode === 'review' ? 'Review' : 'Verify'}: ${taskTitle}`,
+        title: `${reviewMode === 'review' ? 'Review' : 'Verify'}: ${taskTitle}`,
+        status: 'pending',
+        startedAt: new Date().toISOString(),
+        workingDir: workingDir ?? '',
+        output: [],
+        agentType,
+        taskPath: selectedPath,
+        resumable: true,
       })
+
+      // Navigate to the new agent session
+      navigate({ to: '/agents/$sessionId', params: { sessionId: result.sessionId } })
     } catch (err) {
       console.error('Failed to start review:', err)
       setSaveError(err instanceof Error ? err.message : 'Failed to start review')
+      throw err // Re-throw so modal can handle it
     }
-  }, [selectedPath, runAgentType, reviewWithAgentMutation])
+  }, [selectedPath, reviewMode, reviewWithAgentMutation, verifyWithAgentMutation, navigate, utils, selectedSummary, workingDir])
 
-  const handleVerify = useCallback(async () => {
-    if (!selectedPath) return
-
-    try {
-      setSaveError(null)
-      await verifyWithAgentMutation.mutateAsync({
-        path: selectedPath,
-        agentType: runAgentType,
-      })
-    } catch (err) {
-      console.error('Failed to start verification:', err)
-      setSaveError(err instanceof Error ? err.message : 'Failed to start verification')
-    }
-  }, [selectedPath, runAgentType, verifyWithAgentMutation])
+  const handleCloseReviewModal = useCallback(() => {
+    setReviewModalOpen(false)
+  }, [])
 
   const editorTitle = selectedSummary?.title ?? (selectedPath ? selectedPath : 'Tasks')
   const progress = selectedSummary?.progress ?? null
@@ -402,7 +433,7 @@ function TasksPage() {
   if (!workingDir) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+        <div className="h-12 px-3 border-b border-border flex items-center justify-between">
           <h1 className="font-vcr text-sm text-accent">Tasks</h1>
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -484,6 +515,16 @@ function TasksPage() {
         onTitleChange={setNewTitle}
         onUseAgentChange={setUseAgent}
         onAgentTypeChange={setCreateAgentType}
+      />
+
+      <ReviewModal
+        isOpen={reviewModalOpen}
+        mode={reviewMode}
+        taskTitle={editorTitle}
+        agentType={runAgentType}
+        availableTypes={availableTypes}
+        onClose={handleCloseReviewModal}
+        onStart={handleStartReview}
       />
 
     </div>

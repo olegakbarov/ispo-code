@@ -90,6 +90,7 @@ function reconstructSessionFromStreams(
   return {
     id: sessionId,
     prompt: createdEvent.prompt,
+    title: createdEvent.title,
     status,
     startedAt: createdEvent.timestamp,
     completedAt: latestEvent?.type === "session_completed" || latestEvent?.type === "session_failed"

@@ -26,6 +26,8 @@ export interface DaemonConfig {
   daemonNonce: string
   model?: string
   taskPath?: string
+  /** Display title for sidebar (e.g., "Review: Task Name") */
+  title?: string
   streamServerUrl?: string
   isResume?: boolean
   cliSessionId?: string
@@ -55,7 +57,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, isResume, cliSessionId } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, isResume, cliSessionId } =
       this.config
     const { daemonNonce } = this.config
 
@@ -76,11 +78,22 @@ export class AgentDaemon {
             workingDir,
             model,
             taskPath,
+            title,
           })
         )
       }
 
-      // 2. Publish status change to running
+      // 2. Publish the user message to output stream
+      await this.publisher.publishSession(
+        sessionId,
+        createSessionEvent.output({
+          type: "user_message",
+          content: prompt,
+          timestamp: new Date().toISOString(),
+        })
+      )
+
+      // 3. Publish status change to running
       await this.publisher.publishSession(sessionId, createSessionEvent.statusChange("running"))
       await this.publisher.publishRegistry(
         createRegistryEvent.updated({
@@ -89,16 +102,16 @@ export class AgentDaemon {
         })
       )
 
-      // 3. Create and wire up the agent
+      // 4. Create and wire up the agent
       const agent = await this.createAgent(agentType, workingDir, model, cliSessionId)
 
       // Wire up event handlers
       this.setupAgentHandlers(agent, sessionId)
 
-      // 4. Run the agent
+      // 5. Run the agent
       await agent.run(prompt)
 
-      // 5. Publish completion
+      // 6. Publish completion
       const metadata = this.analyzer.getMetadata()
       await this.publisher.publishRegistry(
         createRegistryEvent.completed({
