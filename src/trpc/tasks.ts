@@ -5,23 +5,12 @@
  */
 
 import { z } from "zod"
+import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
 import { createTask, deleteTask, getTask, listTasks, saveTask } from "@/lib/agent/task-service"
-import { getAgentManager } from "@/lib/agent/manager"
-
-/**
- * Extract task title from markdown content.
- * Looks for first H1 heading (# Title) or returns filename-based fallback.
- */
-function extractTaskTitle(content: string, taskPath: string): string {
-  const h1Match = content.match(/^#\s+(.+)$/m)
-  if (h1Match) {
-    return h1Match[1].trim()
-  }
-  // Fallback: use filename without extension
-  const filename = taskPath.split("/").pop() ?? taskPath
-  return filename.replace(/\.md$/, "").replace(/-/g, " ")
-}
+import { getProcessMonitor } from "@/daemon/process-monitor"
+import { getStreamServerUrl } from "@/streams/server"
+import type { SessionStatus } from "@/lib/agent/types"
 
 /**
  * System prompt for task expansion agent.
@@ -315,8 +304,6 @@ export const tasksRouter = router({
       agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const manager = getAgentManager()
-
       // Create the task file first with placeholder content
       const { path: taskPath } = createTask(ctx.workingDir, {
         title: input.title,
@@ -330,31 +317,25 @@ export const tasksRouter = router({
         workingDir: ctx.workingDir,
       })
 
-      // Spawn the agent to expand the task
-      let session: Awaited<ReturnType<typeof manager.spawn>>
-      try {
-        session = await manager.spawn({
-          prompt,
-          title: `${input.title} (plan)`,
-          workingDir: ctx.workingDir,
-          agentType: input.agentType,
-          taskPath, // Link session to task for UI tracking
-        })
-      } catch (err) {
-        // Keep the task file, but annotate it so users aren't left with a forever-placeholder.
-        const message = err instanceof Error ? err.message : String(err)
-        try {
-          saveTask(ctx.workingDir, taskPath, `# ${input.title}\n\n_Error generating task plan:_ ${message}\n`)
-        } catch {
-          // Ignore secondary failures; original error will be surfaced to client.
-        }
-        throw err
-      }
+      const sessionId = randomBytes(6).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
+
+      const monitor = getProcessMonitor()
+      monitor.spawnDaemon({
+        sessionId,
+        agentType: input.agentType,
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
+        taskPath,
+      })
 
       return {
         path: taskPath,
-        sessionId: session.id,
-        status: session.status,
+        sessionId,
+        status: "pending" as SessionStatus,
       }
     }),
 
@@ -379,34 +360,32 @@ export const tasksRouter = router({
       agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const manager = getAgentManager()
-
-      // Get the task content
       const task = getTask(ctx.workingDir, input.path)
-
-      // Build the execution prompt
       const prompt = buildTaskExecutionPrompt({
         taskPath: input.path,
         taskContent: task.content,
         workingDir: ctx.workingDir,
       })
 
-      // Extract title for sidebar display
-      const taskTitle = extractTaskTitle(task.content, input.path)
+      const sessionId = randomBytes(6).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
 
-      // Spawn the agent to execute the task
-      const session = await manager.spawn({
-        prompt,
-        title: `${taskTitle} (run)`,
-        workingDir: ctx.workingDir,
+      const monitor = getProcessMonitor()
+      monitor.spawnDaemon({
+        sessionId,
         agentType: input.agentType,
-        taskPath: input.path, // Link session to task
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
+        taskPath: input.path,
       })
 
       return {
         path: input.path,
-        sessionId: session.id,
-        status: session.status,
+        sessionId,
+        status: "pending" as SessionStatus,
       }
     }),
 
@@ -420,8 +399,6 @@ export const tasksRouter = router({
       agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const manager = getAgentManager()
-
       const task = getTask(ctx.workingDir, input.path)
       const prompt = buildTaskSpecReviewPrompt({
         taskPath: input.path,
@@ -429,20 +406,25 @@ export const tasksRouter = router({
         workingDir: ctx.workingDir,
       })
 
-      const taskTitle = extractTaskTitle(task.content, input.path)
+      const sessionId = randomBytes(6).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
 
-      const session = await manager.spawn({
-        prompt,
-        title: `${taskTitle} (review)`,
-        workingDir: ctx.workingDir,
+      const monitor = getProcessMonitor()
+      monitor.spawnDaemon({
+        sessionId,
         agentType: input.agentType,
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
         taskPath: input.path,
       })
 
       return {
         path: input.path,
-        sessionId: session.id,
-        status: session.status,
+        sessionId,
+        status: "pending" as SessionStatus,
       }
     }),
 
@@ -457,8 +439,6 @@ export const tasksRouter = router({
       instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const manager = getAgentManager()
-
       const task = getTask(ctx.workingDir, input.path)
       const prompt = buildTaskVerifyPrompt({
         taskPath: input.path,
@@ -467,20 +447,25 @@ export const tasksRouter = router({
         instructions: input.instructions,
       })
 
-      const taskTitle = extractTaskTitle(task.content, input.path)
+      const sessionId = randomBytes(6).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
 
-      const session = await manager.spawn({
-        prompt,
-        title: `${taskTitle} (verify)`,
-        workingDir: ctx.workingDir,
+      const monitor = getProcessMonitor()
+      monitor.spawnDaemon({
+        sessionId,
         agentType: input.agentType,
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
         taskPath: input.path,
       })
 
       return {
         path: input.path,
-        sessionId: session.id,
-        status: session.status,
+        sessionId,
+        status: "pending" as SessionStatus,
       }
     }),
 
@@ -489,18 +474,17 @@ export const tasksRouter = router({
    * Returns a map of taskPath -> session for all tasks with active agents.
    */
   getActiveAgentSessions: procedure.query(() => {
-    const manager = getAgentManager()
-    const allSessions = manager.getAllSessions()
+    const monitor = getProcessMonitor()
+    const allDaemons = monitor.getAllDaemons()
 
-    // Filter to sessions that have a taskPath and are still running *in this server instance*.
-    // Persisted statuses can be stale after restarts, so only trust the in-memory runner map.
+    // Filter to daemons that have a taskPath and are still running
     const taskSessions: Record<string, { sessionId: string; status: string }> = {}
 
-    for (const session of allSessions) {
-      if (session.taskPath && manager.isRunning(session.id)) {
-        taskSessions[session.taskPath] = {
-          sessionId: session.id,
-          status: session.status,
+    for (const daemon of allDaemons) {
+      if (daemon.config.taskPath && monitor.isProcessRunning(daemon.pid)) {
+        taskSessions[daemon.config.taskPath] = {
+          sessionId: daemon.sessionId,
+          status: "running",
         }
       }
     }

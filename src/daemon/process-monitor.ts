@@ -7,7 +7,9 @@
 
 import { spawn, ChildProcess } from "child_process"
 import { join } from "path"
+import { randomBytes } from "crypto"
 import type { DaemonConfig } from "./agent-daemon"
+import { getDaemonRegistry, type DaemonRecord } from "./daemon-registry"
 
 export interface SpawnedDaemon {
   sessionId: string
@@ -26,17 +28,19 @@ export class ProcessMonitor {
    * Spawn a new agent daemon process (detached)
    */
   spawnDaemon(config: DaemonConfig): SpawnedDaemon {
+    const daemonNonce = config.daemonNonce || randomBytes(16).toString("hex")
+    const spawnConfig: DaemonConfig = { ...config, daemonNonce }
     const daemonScript = join(process.cwd(), "dist", "daemon", "agent-daemon.js")
-    const configJson = JSON.stringify(config)
+    const configJson = JSON.stringify(spawnConfig)
 
     // Spawn detached process
     const child: ChildProcess = spawn("node", [daemonScript, `--config=${configJson}`], {
       detached: true,
       stdio: "ignore", // Don't pipe stdio - daemon writes to streams
-      cwd: config.workingDir,
+      cwd: spawnConfig.workingDir,
       env: {
         ...process.env,
-        STREAM_SERVER_URL: config.streamServerUrl || process.env.STREAM_SERVER_URL,
+        STREAM_SERVER_URL: spawnConfig.streamServerUrl || process.env.STREAM_SERVER_URL,
       },
     })
 
@@ -44,15 +48,16 @@ export class ProcessMonitor {
     child.unref()
 
     const daemon: SpawnedDaemon = {
-      sessionId: config.sessionId,
+      sessionId: spawnConfig.sessionId,
       pid: child.pid!,
       startedAt: new Date(),
-      config,
+      config: spawnConfig,
     }
 
-    this.daemons.set(config.sessionId, daemon)
+    this.daemons.set(spawnConfig.sessionId, daemon)
+    getDaemonRegistry().register(this.toRegistryRecord(daemon, daemonNonce))
 
-    console.log(`[ProcessMonitor] Spawned daemon for session ${config.sessionId} (PID: ${child.pid})`)
+    console.log(`[ProcessMonitor] Spawned daemon for session ${spawnConfig.sessionId} (PID: ${child.pid})`)
 
     return daemon
   }
@@ -85,6 +90,7 @@ export class ProcessMonitor {
         console.log(`[ProcessMonitor] Sent ${signal} to daemon ${sessionId} (PID: ${daemon.pid})`)
       }
       this.daemons.delete(sessionId)
+      getDaemonRegistry().remove(sessionId)
       return true
     } catch (err) {
       console.error(`[ProcessMonitor] Failed to kill daemon ${sessionId}:`, err)
@@ -116,11 +122,35 @@ export class ProcessMonitor {
       if (!this.isProcessRunning(daemon.pid)) {
         console.log(`[ProcessMonitor] Daemon ${sessionId} (PID: ${daemon.pid}) is no longer running`)
         this.daemons.delete(sessionId)
+        getDaemonRegistry().remove(sessionId)
         deadSessions.push(sessionId)
       }
     }
 
     return deadSessions
+  }
+
+  /**
+   * Track an existing daemon without spawning a new process.
+   */
+  attachDaemon(record: DaemonRecord): void {
+    const daemon: SpawnedDaemon = {
+      sessionId: record.sessionId,
+      pid: record.pid,
+      startedAt: new Date(record.startedAt),
+      config: record.config,
+    }
+    this.daemons.set(record.sessionId, daemon)
+  }
+
+  private toRegistryRecord(daemon: SpawnedDaemon, daemonNonce: string): DaemonRecord {
+    return {
+      sessionId: daemon.sessionId,
+      pid: daemon.pid,
+      daemonNonce,
+      startedAt: daemon.startedAt.toISOString(),
+      config: daemon.config,
+    }
   }
 
   /**

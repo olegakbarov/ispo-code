@@ -5,9 +5,9 @@
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { AgentProgressBanner } from './-agent-progress-banner'
-import { agentTypeLabel } from './-agent-config'
-import type { AgentSession } from './-agent-types'
+import { AgentProgressBanner } from './agent-progress-banner'
+import { agentTypeLabel } from './agent-config'
+import type { AgentSession } from './agent-types'
 import type { AgentType } from '@/lib/agent/types'
 
 type Mode = 'edit' | 'preview'

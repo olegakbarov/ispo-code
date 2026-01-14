@@ -23,6 +23,7 @@ export interface DaemonConfig {
   agentType: AgentType
   prompt: string
   workingDir: string
+  daemonNonce: string
   model?: string
   taskPath?: string
   streamServerUrl?: string
@@ -46,7 +47,7 @@ export class AgentDaemon {
       bufferSize: 1, // Publish immediately for real-time updates
       debug: process.env.DEBUG === "true",
     })
-    this.analyzer = new MetadataAnalyzer(config.agentType)
+    this.analyzer = new MetadataAnalyzer(config.agentType, config.workingDir)
     this.abortController = new AbortController()
   }
 
@@ -56,8 +57,15 @@ export class AgentDaemon {
   async run(): Promise<void> {
     const { sessionId, agentType, prompt, workingDir, model, taskPath, isResume, cliSessionId } =
       this.config
+    const { daemonNonce } = this.config
 
     try {
+      // 0. Announce daemon identity for rehydration validation.
+      await this.publisher.publishSession(
+        sessionId,
+        createSessionEvent.daemonStarted(process.pid, daemonNonce)
+      )
+
       // 1. Register session creation in registry (if not resume)
       if (!isResume) {
         await this.publisher.publishRegistry(
@@ -262,8 +270,10 @@ async function main() {
   }
 
   // Validate required fields
-  if (!config.sessionId || !config.agentType || !config.prompt || !config.workingDir) {
-    console.error("Missing required config fields: sessionId, agentType, prompt, workingDir")
+  if (!config.sessionId || !config.agentType || !config.prompt || !config.workingDir || !config.daemonNonce) {
+    console.error(
+      "Missing required config fields: sessionId, agentType, prompt, workingDir, daemonNonce"
+    )
     process.exit(1)
   }
 

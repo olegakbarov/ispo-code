@@ -162,7 +162,7 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
           {selectedFiles.size} of {files.length} files selected
         </div>
         <button
-          onClick={() => commitMutation.mutate()}
+          onClick={() => commitMutation.mutate({ files: Array.from(selectedFiles), message: commitMessage })}
           disabled={!canCommit}
           className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >

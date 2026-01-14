@@ -8,6 +8,7 @@
 import { spawn, type ChildProcess } from "child_process"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
+import { randomBytes } from "crypto"
 import type { AgentType } from "../lib/agent/types"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -20,10 +21,12 @@ export interface SpawnDaemonConfig {
   agentType: AgentType
   prompt: string
   workingDir: string
+  daemonNonce?: string
   model?: string
   cliSessionId?: string
   isResume?: boolean
   taskPath?: string
+  streamServerUrl?: string
 }
 
 /**
@@ -38,6 +41,8 @@ export interface SpawnDaemonConfig {
  * @returns Process ID of the spawned daemon
  */
 export function spawnAgentDaemon(config: SpawnDaemonConfig): number {
+  const daemonNonce = config.daemonNonce ?? randomBytes(16).toString("hex")
+  const daemonConfig = { ...config, daemonNonce }
   // Path to the daemon script
   const daemonPath = join(__dirname, "agent-daemon.js")
 
@@ -45,8 +50,8 @@ export function spawnAgentDaemon(config: SpawnDaemonConfig): number {
   const isDev = process.env.NODE_ENV !== "production"
   const command = isDev ? "tsx" : "node"
   const args = isDev
-    ? [join(__dirname, "agent-daemon.ts"), "--config", JSON.stringify(config)]
-    : [daemonPath, "--config", JSON.stringify(config)]
+    ? [join(__dirname, "agent-daemon.ts"), `--config=${JSON.stringify(daemonConfig)}`]
+    : [daemonPath, `--config=${JSON.stringify(daemonConfig)}`]
 
   console.log(`[SpawnDaemon] Spawning daemon for session ${config.sessionId}`)
   console.log(`[SpawnDaemon] Command: ${command} ${args[0]}`)
@@ -55,7 +60,11 @@ export function spawnAgentDaemon(config: SpawnDaemonConfig): number {
   const child: ChildProcess = spawn(command, args, {
     detached: true,
     stdio: "ignore", // Don't pipe stdio to parent
-    cwd: config.workingDir,
+    cwd: daemonConfig.workingDir,
+    env: {
+      ...process.env,
+      STREAM_SERVER_URL: daemonConfig.streamServerUrl || process.env.STREAM_SERVER_URL,
+    },
   })
 
   // Unreference so parent can exit independently

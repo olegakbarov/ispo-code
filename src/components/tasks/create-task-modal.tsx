@@ -5,7 +5,7 @@
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
-import { agentTypeLabel, type PlannerAgentType } from './-agent-config'
+import { agentTypeLabel, type PlannerAgentType } from './agent-config'
 import type { AgentType } from '@/lib/agent/types'
 
 interface CreateTaskModalProps {

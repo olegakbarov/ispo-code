@@ -14,11 +14,11 @@ import { router, procedure } from "./trpc"
 import { getAgentManager } from "@/lib/agent/manager"
 import { getStreamAPI } from "@/streams/client"
 import { getProcessMonitor } from "@/daemon/process-monitor"
-import { spawnAgentDaemon, killDaemon, isDaemonRunning } from "@/daemon/spawn-daemon"
+import { killDaemon, isDaemonRunning } from "@/daemon/spawn-daemon"
 import { getStreamServerUrl } from "@/streams/server"
 import type { AgentSession, AgentOutputChunk, SessionStatus } from "@/lib/agent/types"
 import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdEvent } from "@/streams/schemas"
-import { createControlEvent, getControlStreamPath } from "@/streams/schemas"
+import { createControlEvent, createRegistryEvent, getControlStreamPath } from "@/streams/schemas"
 
 const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras"])
 
@@ -116,10 +116,20 @@ export const agentRouter = router({
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
 
-      // Group events by session and get unique session IDs
+      // Track deleted sessions
+      const deletedSessionIds = new Set<string>()
+      for (const event of registryEvents) {
+        if (event.type === "session_deleted") {
+          deletedSessionIds.add(event.sessionId)
+        }
+      }
+
+      // Group events by session and get unique session IDs (excluding deleted)
       const sessionIds = new Set<string>()
       for (const event of registryEvents) {
-        sessionIds.add(event.sessionId)
+        if (!deletedSessionIds.has(event.sessionId)) {
+          sessionIds.add(event.sessionId)
+        }
       }
 
       // Reconstruct each session
@@ -149,6 +159,15 @@ export const agentRouter = router({
       if (USE_DURABLE_STREAMS) {
         const streamAPI = getStreamAPI()
         const registryEvents = await streamAPI.readRegistry()
+
+        // Check if session was deleted
+        const isDeleted = registryEvents.some(
+          (e) => e.type === "session_deleted" && e.sessionId === input.id
+        )
+        if (isDeleted) {
+          return null
+        }
+
         const sessionEvents = await streamAPI.readSession(input.id)
         return reconstructSessionFromStreams(input.id, registryEvents, sessionEvents)
       }
@@ -217,32 +236,25 @@ export const agentRouter = router({
       if (USE_DURABLE_STREAMS) {
         const sessionId = randomBytes(6).toString("hex")
         const streamServerUrl = getStreamServerUrl()
+        const daemonNonce = randomBytes(16).toString("hex")
 
-        // Spawn daemon as detached process
-        const pid = spawnAgentDaemon({
-          sessionId,
-          agentType: input.agentType,
-          prompt: input.prompt,
-          workingDir: ctx.workingDir,
-          model: input.model,
-        })
-
-        // Track in process monitor
+        // Spawn daemon as detached process and track it
         const monitor = getProcessMonitor()
-        monitor.spawnDaemon({
+        const daemon = monitor.spawnDaemon({
           sessionId,
           agentType: input.agentType,
           prompt: input.prompt,
           workingDir: ctx.workingDir,
           model: input.model,
           streamServerUrl,
+          daemonNonce,
         })
 
         return {
           sessionId,
           status: "pending" as SessionStatus,
           agentType: input.agentType,
-          pid,
+          pid: daemon.pid,
         }
       }
 
@@ -283,11 +295,15 @@ export const agentRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       if (USE_DURABLE_STREAMS) {
-        // For durable streams, we don't actually delete - streams are append-only
-        // We just remove from process monitor if running
+        // For durable streams, we soft-delete by appending a session_deleted event
         const monitor = getProcessMonitor()
         monitor.killDaemon(input.id)
-        // TODO: Add a "session_deleted" event to registry for soft delete
+
+        // Write deletion event to registry (soft delete)
+        const streamAPI = getStreamAPI()
+        await streamAPI.appendToRegistry(
+          createRegistryEvent.deleted({ sessionId: input.id })
+        )
         return { success: true }
       }
 
@@ -327,8 +343,11 @@ export const agentRouter = router({
           (e): e is CLISessionIdEvent => e.type === "cli_session_id"
         )
 
-        // Spawn new daemon for resume
-        spawnAgentDaemon({
+        const streamServerUrl = getStreamServerUrl()
+        const daemonNonce = randomBytes(16).toString("hex")
+
+        // Spawn new daemon for resume and track it
+        monitor.spawnDaemon({
           sessionId: input.sessionId,
           agentType: session.agentType ?? "cerebras",
           prompt: input.message,
@@ -336,6 +355,8 @@ export const agentRouter = router({
           model: session.model,
           cliSessionId: cliSessionIdEvent?.cliSessionId,
           isResume: true,
+          streamServerUrl,
+          daemonNonce,
         })
 
         return { success: true }

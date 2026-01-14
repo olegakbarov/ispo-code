@@ -17,6 +17,7 @@ export type RegistryEvent =
   | SessionCompletedEvent
   | SessionFailedEvent
   | SessionCancelledEvent
+  | SessionDeletedEvent
 
 export interface SessionCreatedEvent {
   type: "session_created"
@@ -61,6 +62,12 @@ export interface SessionCancelledEvent {
   timestamp: string
 }
 
+export interface SessionDeletedEvent {
+  type: "session_deleted"
+  sessionId: string
+  timestamp: string
+}
+
 /**
  * Control stream events - commands sent to daemon
  * Published to: /control/{sessionId}
@@ -98,6 +105,7 @@ export type SessionStreamEvent =
   | ApprovalRequestEvent
   | InputRequestEvent
   | CLISessionIdEvent
+  | DaemonStartedEvent
 
 export interface AgentOutputEvent {
   type: "output"
@@ -124,6 +132,13 @@ export interface InputRequestEvent {
 export interface CLISessionIdEvent {
   type: "cli_session_id"
   cliSessionId: string
+  timestamp: string
+}
+
+export interface DaemonStartedEvent {
+  type: "daemon_started"
+  pid: number
+  daemonNonce: string
   timestamp: string
 }
 
@@ -167,6 +182,12 @@ export const createRegistryEvent = {
     ...data,
     timestamp: new Date().toISOString(),
   }),
+
+  deleted: (data: Omit<SessionDeletedEvent, "type" | "timestamp">): SessionDeletedEvent => ({
+    type: "session_deleted",
+    ...data,
+    timestamp: new Date().toISOString(),
+  }),
 }
 
 /**
@@ -198,6 +219,13 @@ export const createSessionEvent = {
   cliSessionId: (cliSessionId: string): CLISessionIdEvent => ({
     type: "cli_session_id",
     cliSessionId,
+    timestamp: new Date().toISOString(),
+  }),
+
+  daemonStarted: (pid: number, daemonNonce: string): DaemonStartedEvent => ({
+    type: "daemon_started",
+    pid,
+    daemonNonce,
     timestamp: new Date().toISOString(),
   }),
 }

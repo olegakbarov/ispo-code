@@ -6,6 +6,7 @@
  */
 
 import { startStreamServer, type StreamServerConfig } from './server'
+import { rehydrateDaemonsOnBoot } from '../daemon/rehydrate'
 
 let serverStarted = false
 let serverPromise: Promise<void> | null = null
@@ -54,7 +55,11 @@ export function isStreamsServerInitialized(): boolean {
  */
 if (typeof process !== 'undefined' && !process.env.SKIP_STREAMS_INIT) {
   // Initialize in background, don't block module load
-  initializeStreamsServer().catch((error) => {
-    console.error('[Streams] Failed to auto-initialize:', error)
-  })
+  initializeStreamsServer()
+    .then(async () => {
+      await rehydrateDaemonsOnBoot()
+    })
+    .catch((error) => {
+      console.error('[Streams] Failed to auto-initialize:', error)
+    })
 }

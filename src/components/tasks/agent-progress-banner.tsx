@@ -3,7 +3,7 @@
  */
 
 import { useMemo } from 'react'
-import type { AgentSession } from './-agent-types'
+import type { AgentSession } from './agent-types'
 
 interface AgentProgressBannerProps {
   session: AgentSession

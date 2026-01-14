@@ -43,6 +43,7 @@ export class StreamAPI {
   private getHandle(streamPath: string): DurableStream {
     return new DurableStream({
       url: `${this.baseUrl}${streamPath}`,
+      contentType: 'application/json',
     })
   }
 
@@ -55,8 +56,14 @@ export class StreamAPI {
       await handle.create()
     } catch (err: unknown) {
       // Stream already exists (409 Conflict) - that's fine
-      if (err && typeof err === 'object' && 'code' in err && err.code === 'CONFLICT_EXISTS') {
-        return
+      if (err && typeof err === 'object') {
+        // Check for CONFLICT_EXISTS code or 409 status
+        if ('code' in err && err.code === 'CONFLICT_EXISTS') {
+          return
+        }
+        if ('status' in err && err.status === 409) {
+          return
+        }
       }
       throw err
     }
