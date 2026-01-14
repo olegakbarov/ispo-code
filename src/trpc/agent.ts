@@ -88,10 +88,12 @@ export const agentRouter = router({
       message: z.string().min(1),
     }))
     .mutation(async ({ input }) => {
-      // TODO: Implement sendMessage in AgentManager
-      // This requires keeping the CLI process alive and writing to stdin
-      console.warn(`sendMessage not yet implemented for session ${input.sessionId}`)
-      return { success: false }
+      const manager = getAgentManager()
+      const result = await manager.sendMessage(input.sessionId, input.message)
+      if (!result.success) {
+        throw new Error(result.error ?? "Failed to send message")
+      }
+      return { success: true }
     }),
 
   /**
@@ -104,8 +106,11 @@ export const agentRouter = router({
       approved: z.boolean(),
     }))
     .mutation(({ input }) => {
-      // TODO: Implement sendApproval in AgentManager
-      console.warn(`approve not yet implemented for session ${input.sessionId}`)
-      return { success: false }
+      const manager = getAgentManager()
+      const result = manager.approve(input.sessionId, input.approved)
+      if (!result.success) {
+        throw new Error(result.error ?? "Failed to send approval")
+      }
+      return { success: true }
     }),
 })

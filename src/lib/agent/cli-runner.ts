@@ -109,6 +109,8 @@ export class CLIAgentRunner extends EventEmitter {
   private process: ChildProcess | null = null
   private aborted = false
   private outputBuffer = ""
+  private awaitingApproval = false
+  private awaitingInput = false
   /** CLI session ID discovered from output */
   public cliSessionId: string | null = null
 
@@ -147,6 +149,10 @@ export class CLIAgentRunner extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       try {
+        this.aborted = false
+        this.awaitingApproval = false
+        this.awaitingInput = false
+
         const env: Record<string, string> = { ...(process.env as Record<string, string>), FORCE_COLOR: "0" }
 
         // Codex CLI writes session state under CODEX_HOME
@@ -174,8 +180,12 @@ export class CLIAgentRunner extends EventEmitter {
             if (!stdinPrompt.endsWith("\n")) {
               this.process.stdin.write("\n")
             }
+            // Most CLIs expect EOF when prompt is passed via stdin.
+            this.process.stdin.end()
+          } else {
+            // Keep stdin open when prompt is passed via args so we can respond
+            // to interactive prompts (e.g. approval y/n) if needed.
           }
-          this.process.stdin.end()
         }
 
         // Handle stdout
@@ -194,6 +204,7 @@ export class CLIAgentRunner extends EventEmitter {
             } else {
               this.emitChunk("system", text)
             }
+            this.maybeEmitInteractiveState(text)
           })
         }
 
@@ -346,6 +357,7 @@ export class CLIAgentRunner extends EventEmitter {
       const json = JSON.parse(line)
       this.parseJsonOutput(json, agentType)
     } catch {
+      this.maybeEmitInteractiveState(line)
       this.emitChunk("text", line)
     }
   }
@@ -451,6 +463,14 @@ export class CLIAgentRunner extends EventEmitter {
   private parseCodexOutput(json: Record<string, unknown>) {
     const type = typeof json.type === "string" ? json.type : undefined
 
+    if (type && (type.includes("approval") || type.includes("permission"))) {
+      this.emitWaitingApproval()
+    }
+    const status = typeof json.status === "string" ? json.status : undefined
+    if (status === "waiting_approval" || status === "approval_required") {
+      this.emitWaitingApproval()
+    }
+
     if (type === "thread.started") {
       const threadId = json.thread_id as string | undefined
       if (threadId) {
@@ -554,6 +574,56 @@ export class CLIAgentRunner extends EventEmitter {
       lowerText.includes("fatal:") ||
       lowerText.includes("exception:")
     )
+  }
+
+  private emitWaitingApproval(): void {
+    if (this.awaitingApproval) return
+    this.awaitingApproval = true
+    this.emit("waiting_approval")
+  }
+
+  private emitWaitingInput(): void {
+    if (this.awaitingInput) return
+    this.awaitingInput = true
+    this.emit("waiting_input")
+  }
+
+  private maybeEmitInteractiveState(text: string): void {
+    const lower = text.toLowerCase()
+
+    const looksLikeYesNo =
+      /\b\(?y\/n\)?\b/i.test(text) ||
+      /\[[yY]\/[nN]\]/.test(text) ||
+      /\([yY]\/[nN]\)/.test(text)
+
+    const mentionsApproval =
+      lower.includes("approval") ||
+      lower.includes("approve") ||
+      lower.includes("permission") ||
+      lower.includes("allow") ||
+      lower.includes("confirm")
+
+    if (looksLikeYesNo && mentionsApproval) {
+      this.emitWaitingApproval()
+      return
+    }
+
+    // Very lightweight "waiting for input" heuristic.
+    const mentionsInput =
+      lower.includes("enter") ||
+      lower.includes("type your") ||
+      lower.includes("your response") ||
+      lower.includes("input:")
+
+    if (looksLikeYesNo) {
+      // If it's a y/n prompt but not clearly about approval, still treat it as approval.
+      this.emitWaitingApproval()
+      return
+    }
+
+    if (mentionsInput) {
+      this.emitWaitingInput()
+    }
   }
 
   /**

@@ -66,24 +66,27 @@ class SessionStore {
   }
 
   appendOutput(sessionId: string, chunk: AgentOutputChunk): void {
-    const buffer = this.outputBuffers.get(sessionId)
-    if (buffer) {
-      buffer.push(chunk)
-      // Flush every 10 chunks
-      if (buffer.length >= 10) {
-        this.flushOutput(sessionId)
-      }
+    let buffer = this.outputBuffers.get(sessionId)
+    if (!buffer) {
+      buffer = []
+      this.outputBuffers.set(sessionId, buffer)
+    }
+
+    buffer.push(chunk)
+    // Flush every 10 chunks
+    if (buffer.length >= 10) {
+      this.flushOutput(sessionId)
     }
   }
 
   flushOutput(sessionId: string): void {
     const buffer = this.outputBuffers.get(sessionId)
     const session = this.data.sessions.find((s) => s.id === sessionId)
-    if (buffer && session) {
-      session.output.push(...buffer)
-      buffer.length = 0
-      this.save()
-    }
+    if (!session || !buffer || buffer.length === 0) return
+
+    session.output.push(...buffer)
+    buffer.length = 0
+    this.save()
   }
 
   getSession(sessionId: string): AgentSession | null {
@@ -98,7 +101,11 @@ class SessionStore {
 
   getActiveSessions(): AgentSession[] {
     return this.data.sessions.filter((s) =>
-      s.status === "running" || s.status === "pending"
+      s.status === "running" ||
+      s.status === "pending" ||
+      s.status === "working" ||
+      s.status === "waiting_approval" ||
+      s.status === "waiting_input"
     )
   }
 

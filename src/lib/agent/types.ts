@@ -202,6 +202,8 @@ export interface AgentSession {
   output: AgentOutputChunk[]
   error?: string
   agentType?: AgentType
+  /** Model identifier used by the backend (varies by agent type) */
+  model?: string
   metadata?: AgentSessionMetadata | null
   tokensUsed?: {
     input: number

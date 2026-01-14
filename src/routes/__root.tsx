@@ -6,7 +6,7 @@ import {
   Link,
 } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
-import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus } from 'lucide-react'
+import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus, Map } from 'lucide-react'
 import appCss from '../styles.css?url'
 import { ThemeProvider, ThemeScript, useTheme } from '@/components/theme'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -126,6 +126,7 @@ function Sidebar() {
       <nav className="divide-y divide-border/40">
         <NavLink to="/tasks" icon={<ListTodo className="w-4 h-4" />}>Tasks</NavLink>
         <NavLink to="/git" icon={<GitBranch className="w-4 h-4" />}>Git</NavLink>
+        <NavLink to="/map" icon={<Map className="w-4 h-4" />}>Map</NavLink>
       </nav>
 
       <div className="flex-1 overflow-y-auto">

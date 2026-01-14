@@ -13,7 +13,7 @@ import Cerebras from "@cerebras/cerebras_cloud_sdk"
 import { execSync } from "child_process"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { resolve } from "path"
-import type { AgentOutputChunk } from "./types"
+import type { AgentOutputChunk, CerebrasMessageData } from "./types"
 
 // === Types ===
 
@@ -23,6 +23,8 @@ export interface CerebrasAgentOptions {
   model?: string
   /** System prompt for the agent */
   systemPrompt?: string
+  /** Existing conversation state for resuming a session */
+  messages?: CerebrasMessageData[]
 }
 
 export interface CerebrasEvents {
@@ -116,16 +118,7 @@ const TOOLS = [
   },
 ]
 
-type Message = {
-  role: "system" | "user" | "assistant" | "tool"
-  content: string | null
-  tool_calls?: Array<{
-    id: string
-    type: "function"
-    function: { name: string; arguments: string }
-  }>
-  tool_call_id?: string
-}
+type Message = CerebrasMessageData
 
 // === Cerebras Agent ===
 
@@ -145,6 +138,7 @@ export class CerebrasAgent extends EventEmitter {
     this.model = options.model ?? DEFAULT_MODEL
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     this.sessionId = this.generateSessionId()
+    this.messages = options.messages ? options.messages.map((m) => ({ ...m })) : []
   }
 
   private generateSessionId(): string {
@@ -374,6 +368,13 @@ export class CerebrasAgent extends EventEmitter {
    */
   async continue(message: string): Promise<void> {
     await this.run(message)
+  }
+
+  /**
+   * Get current conversation state (for persistence/resume)
+   */
+  getMessages(): CerebrasMessageData[] {
+    return this.messages.map((m) => ({ ...m }))
   }
 
   /**
