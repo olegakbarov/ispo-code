@@ -38,6 +38,7 @@ export function CreateTaskModal({
   onAgentTypeChange,
 }: CreateTaskModalProps) {
   if (!isOpen) return null
+  const canUseAgent = availablePlannerTypes.length > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -74,14 +75,14 @@ export function CreateTaskModal({
             <Checkbox
               checked={useAgent}
               onChange={() => onUseAgentChange(!useAgent)}
-              disabled={isCreating || (!!availableTypes && availablePlannerTypes.length === 0)}
+              disabled={isCreating || (!canUseAgent && !useAgent)}
             />
             <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
               Use AI to create detailed task plan
             </span>
           </label>
 
-          {useAgent && (
+          {useAgent && canUseAgent && (
             <div>
               <div className="font-vcr text-xs text-text-muted mb-2">Agent Type</div>
               <Select
@@ -111,7 +112,7 @@ export function CreateTaskModal({
           </button>
           <button
             onClick={onCreate}
-            disabled={isCreating || !newTitle.trim()}
+            disabled={isCreating || !newTitle.trim() || (useAgent && !canUseAgent)}
             className="px-3 py-1.5 rounded text-xs font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isCreating ? 'Creating...' : 'Create'}

@@ -31,7 +31,14 @@ export function FileList({
   onSelectionChange,
   onFileClick,
 }: FileListProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('staged')
+  // Default to first tab with files
+  const getDefaultTab = (): Tab => {
+    if (staged.length > 0) return 'staged'
+    if (modified.length > 0) return 'modified'
+    if (untracked.length > 0) return 'untracked'
+    return 'staged'
+  }
+  const [activeTab, setActiveTab] = useState<Tab>(getDefaultTab)
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: 'staged', label: 'Staged', count: staged.length },

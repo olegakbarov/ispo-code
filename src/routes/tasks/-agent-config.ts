@@ -4,7 +4,7 @@
 
 import type { AgentType } from '@/lib/agent/types'
 
-export type PlannerAgentType = Exclude<AgentType, 'cerebras'>
+export type PlannerAgentType = AgentType
 
 export const TASK_REVIEW_OUTPUT_START = '===TASK_REVIEW_OUTPUT_START==='
 export const TASK_REVIEW_OUTPUT_END = '===TASK_REVIEW_OUTPUT_END==='

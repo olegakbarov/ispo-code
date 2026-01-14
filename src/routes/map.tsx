@@ -95,12 +95,12 @@ function MermaidDiagram({ chart, id }: { chart: string; id: string }) {
 
   if (error) {
     return (
-      <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 my-4">
-        <p className="text-red-400 text-sm mb-2">Mermaid diagram error:</p>
-        <pre className="text-xs text-red-300 overflow-auto">{error}</pre>
-        <details className="mt-2">
-          <summary className="text-xs text-muted-foreground cursor-pointer">Show source</summary>
-          <pre className="text-xs mt-2 p-2 bg-panel rounded overflow-auto">{chart}</pre>
+      <div className="bg-red-900/20 border border-red-500/50 rounded p-2 my-2">
+        <p className="text-red-400 text-xs mb-1">Mermaid error:</p>
+        <pre className="text-[10px] text-red-300 overflow-auto">{error}</pre>
+        <details className="mt-1">
+          <summary className="text-[10px] text-muted-foreground cursor-pointer">Show source</summary>
+          <pre className="text-[10px] mt-1 p-1 bg-panel rounded overflow-auto">{chart}</pre>
         </details>
       </div>
     )
@@ -108,8 +108,8 @@ function MermaidDiagram({ chart, id }: { chart: string; id: string }) {
 
   if (!svg) {
     return (
-      <div className="bg-panel border border-border rounded-lg p-4 my-4 text-center text-muted-foreground">
-        Loading diagram...
+      <div className="bg-panel border border-border rounded p-2 my-2 text-center text-muted-foreground text-xs">
+        Loading...
       </div>
     )
   }
@@ -117,7 +117,7 @@ function MermaidDiagram({ chart, id }: { chart: string; id: string }) {
   return (
     <div
       ref={containerRef}
-      className="bg-panel border border-border rounded-lg p-4 my-4 overflow-auto"
+      className="bg-panel border border-border rounded p-2 my-2 overflow-auto [&_svg]:max-h-[300px]"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )
@@ -236,24 +236,24 @@ function markdownToHtml(md: string): string {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-    return `<pre class="bg-panel border border-border rounded-lg p-4 overflow-x-auto my-4"><code class="text-sm text-text-primary language-${lang}">${escapedCode}</code></pre>`
+    return `<pre class="bg-panel border border-border rounded p-2 overflow-x-auto my-2 text-xs leading-tight"><code class="text-text-primary language-${lang}">${escapedCode}</code></pre>`
   })
 
   // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-panel px-1.5 py-0.5 rounded text-sm">$1</code>')
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-panel px-1 py-0.5 rounded text-xs">$1</code>')
 
   // Headers with IDs
   html = html.replace(/^### (.+)$/gm, (_match, text) => {
     const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-    return `<h3 id="${id}" class="text-lg font-bold mt-8 mb-4 text-text-primary scroll-mt-20">${text}</h3>`
+    return `<h3 id="${id}" class="text-sm font-bold mt-4 mb-1 text-text-primary scroll-mt-16">${text}</h3>`
   })
   html = html.replace(/^## (.+)$/gm, (_match, text) => {
     const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-    return `<h2 id="${id}" class="text-xl font-bold mt-10 mb-4 text-text-primary border-b border-border pb-2 scroll-mt-20">${text}</h2>`
+    return `<h2 id="${id}" class="text-base font-bold mt-6 mb-2 text-text-primary border-b border-border pb-1 scroll-mt-16">${text}</h2>`
   })
   html = html.replace(/^# (.+)$/gm, (_match, text) => {
     const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-    return `<h1 id="${id}" class="text-2xl font-bold mt-6 mb-6 text-text-primary scroll-mt-20">${text}</h1>`
+    return `<h1 id="${id}" class="text-lg font-bold mt-4 mb-2 text-text-primary scroll-mt-16">${text}</h1>`
   })
 
   // Tables
@@ -264,17 +264,17 @@ function markdownToHtml(md: string): string {
 
     const tag = "td"
     const cellsHtml = cells
-      .map((c) => `<${tag} class="border border-border px-3 py-2">${c}</${tag}>`)
+      .map((c) => `<${tag} class="border border-border px-2 py-1 text-xs">${c}</${tag}>`)
       .join("")
     return `<tr class="hover:bg-panel/50">${cellsHtml}</tr>`
   })
   html = html.replace(
     /(<tr[^>]*>[\s\S]*?<\/tr>\s*)+/g,
-    '<table class="w-full border-collapse my-4">$&</table>'
+    '<table class="w-full border-collapse my-2 text-xs">$&</table>'
   )
 
   // Bold
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold">$1</strong>')
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold">$1</strong>')
 
   // Italic
   html = html.replace(/\*([^*]+)\*/g, '<em class="italic">$1</em>')
@@ -288,21 +288,21 @@ function markdownToHtml(md: string): string {
   // Blockquotes
   html = html.replace(
     /^> (.+)$/gm,
-    '<blockquote class="border-l-4 border-primary pl-4 italic text-muted-foreground my-4">$1</blockquote>'
+    '<blockquote class="border-l-2 border-primary pl-2 italic text-muted-foreground my-1 text-xs">$1</blockquote>'
   )
 
   // Unordered lists
-  html = html.replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-  html = html.replace(/(<li[^>]*>[\s\S]*?<\/li>\s*)+/g, '<ul class="my-2 space-y-1">$&</ul>')
+  html = html.replace(/^- (.+)$/gm, '<li class="ml-3 list-disc text-xs">$1</li>')
+  html = html.replace(/(<li[^>]*>[\s\S]*?<\/li>\s*)+/g, '<ul class="my-1 space-y-0">$&</ul>')
 
   // Ordered lists
-  html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+  html = html.replace(/^\d+\. (.+)$/gm, '<li class="ml-3 list-decimal text-xs">$1</li>')
 
   // Horizontal rules
-  html = html.replace(/^---$/gm, '<hr class="border-border my-8" />')
+  html = html.replace(/^---$/gm, '<hr class="border-border my-3" />')
 
   // Paragraphs (wrap remaining text)
-  html = html.replace(/^(?!<[a-z]|$)(.+)$/gm, '<p class="my-2 text-text-secondary">$1</p>')
+  html = html.replace(/^(?!<[a-z]|$)(.+)$/gm, '<p class="my-1 text-xs text-text-secondary">$1</p>')
 
   return html
 }
@@ -376,24 +376,24 @@ function CodebaseMapPage() {
   return (
     <div className="flex h-full">
       {/* Table of Contents Sidebar */}
-      <aside className="w-64 border-r border-border overflow-y-auto shrink-0 hidden lg:block">
-        <div className="sticky top-0 bg-background p-4 border-b border-border">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <FileText className="w-4 h-4" />
+      <aside className="w-48 border-r border-border overflow-y-auto shrink-0 hidden lg:block">
+        <div className="sticky top-0 bg-background px-2 py-1.5 border-b border-border">
+          <div className="flex items-center gap-1.5 text-xs font-medium">
+            <FileText className="w-3 h-3" />
             <span>Contents</span>
           </div>
         </div>
-        <nav className="p-4">
-          <ul className="space-y-1 text-sm">
+        <nav className="p-2">
+          <ul className="space-y-0 text-[11px]">
             {toc.map((item, i) => (
               <li
                 key={i}
-                style={{ paddingLeft: `${(item.level - 1) * 12}px` }}
+                style={{ paddingLeft: `${(item.level - 1) * 8}px` }}
               >
                 <a
                   href={`#${item.id}`}
                   className={`
-                    flex items-center gap-1 py-1 px-2 rounded transition-colors
+                    flex items-center gap-0.5 py-0.5 px-1 rounded transition-colors
                     ${activeSection === item.id
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:text-text-primary hover:bg-panel"
@@ -401,7 +401,7 @@ function CodebaseMapPage() {
                   `}
                 >
                   {item.level > 1 && (
-                    <ChevronRight className="w-3 h-3 shrink-0" />
+                    <ChevronRight className="w-2.5 h-2.5 shrink-0" />
                   )}
                   <span className="truncate">{item.text}</span>
                 </a>
@@ -414,46 +414,44 @@ function CodebaseMapPage() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         {/* Header */}
-        <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-6 py-4">
+        <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Map className="w-5 h-5 text-primary" />
-              <h1 className="text-lg font-bold">Codebase Map</h1>
+            <div className="flex items-center gap-2">
+              <Map className="w-4 h-4 text-primary" />
+              <h1 className="text-sm font-bold">Codebase Map</h1>
             </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
               {frontmatter.last_mapped && (
-                <span>
-                  Last mapped: {new Date(frontmatter.last_mapped).toLocaleDateString()}
-                </span>
+                <span>{new Date(frontmatter.last_mapped).toLocaleDateString()}</span>
               )}
               {frontmatter.total_files && (
                 <span>{frontmatter.total_files} files</span>
               )}
               {frontmatter.total_tokens && (
-                <span>{Number(frontmatter.total_tokens).toLocaleString()} tokens</span>
+                <span>{Number(frontmatter.total_tokens).toLocaleString()} tok</span>
               )}
               <button
                 onClick={() => refetch()}
-                className="p-1 hover:bg-panel rounded"
+                className="p-0.5 hover:bg-panel rounded"
                 title="Refresh"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-3.5 h-3.5" />
               </button>
               <a
                 href={data.path}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1 hover:bg-panel rounded"
+                className="p-0.5 hover:bg-panel rounded"
                 title="Open file"
               >
-                <ExternalLink className="w-4 h-4" />
+                <ExternalLink className="w-3.5 h-3.5" />
               </a>
             </div>
           </div>
         </header>
 
         {/* Markdown Content */}
-        <article className="px-6 py-8 max-w-4xl">
+        <article className="px-4 py-4 max-w-4xl">
           <MarkdownWithMermaid content={body} />
         </article>
       </main>

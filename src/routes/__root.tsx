@@ -5,7 +5,7 @@ import {
   Scripts,
   Link,
 } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Moon, Sun, Bot, GitBranch, Cpu, ListTodo, Trash2, FolderOpen, Plus, Map } from 'lucide-react'
 import appCss from '../styles.css?url'
 import { ThemeProvider, ThemeScript, useTheme } from '@/components/theme'
@@ -256,6 +256,9 @@ function AgentSessionLink({
       to="/agents/$sessionId"
       params={{ sessionId: session.id }}
       className="group relative flex items-center gap-2 pr-3 pl-8 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
+      activeProps={{
+        className: 'bg-primary/10 text-foreground border-l-2 border-primary pl-[30px]',
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

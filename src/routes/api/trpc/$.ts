@@ -8,8 +8,10 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { appRouter } from "@/trpc/router"
+import { ensureServerEnv } from "@/lib/server/env"
 
 // Default working directory - falls back to current working directory
+ensureServerEnv()
 const DEFAULT_WORKING_DIR = process.env.WORKING_DIR || process.cwd()
 
 const serve = async (request: Request) => {

@@ -44,6 +44,30 @@ export const CEREBRAS_MODELS = [
 
 const DEFAULT_MODEL = "zai-glm-4.7"
 
+// Rate limit retry settings
+const MAX_RETRIES = 5
+const INITIAL_RETRY_DELAY_MS = 2000 // Start with 2 seconds
+const MAX_RETRY_DELAY_MS = 60000 // Cap at 60 seconds
+
+/**
+ * Sleep for a given number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Check if an error is a rate limit error (429)
+ */
+function isRateLimitError(err: unknown): boolean {
+  if (err && typeof err === "object") {
+    const e = err as { status?: number; statusCode?: number; message?: string }
+    if (e.status === 429 || e.statusCode === 429) return true
+    if (e.message?.includes("429") || e.message?.toLowerCase().includes("rate limit")) return true
+  }
+  return false
+}
+
 const DEFAULT_SYSTEM_PROMPT = `You are an expert software engineer assistant with access to tools for reading files, writing files, and executing shell commands.
 
 When given a task:
@@ -262,15 +286,44 @@ export class CerebrasAgent extends EventEmitter {
 
         this.emitOutput("system", `Calling GLM (iteration ${iterationCount})...`)
 
-        // Create chat completion with tools
-        const response = await this.client.chat.completions.create({
-          model: this.model,
-          messages: this.messages as Parameters<typeof this.client.chat.completions.create>[0]["messages"],
-          tools: TOOLS,
-          tool_choice: "auto",
-          max_completion_tokens: 8192,
-          temperature: 0.6, // Recommended for instruction following
-        })
+        // Create chat completion with tools (with retry for rate limits)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let response: any
+        let lastError: unknown = null
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          try {
+            response = await this.client.chat.completions.create({
+              model: this.model,
+              messages: this.messages as Parameters<typeof this.client.chat.completions.create>[0]["messages"],
+              tools: TOOLS,
+              tool_choice: "auto",
+              max_completion_tokens: 8192,
+              temperature: 0.6, // Recommended for instruction following
+            })
+            break // Success, exit retry loop
+          } catch (err) {
+            lastError = err
+            if (isRateLimitError(err) && attempt < MAX_RETRIES - 1) {
+              // Calculate exponential backoff delay
+              const delay = Math.min(
+                INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt),
+                MAX_RETRY_DELAY_MS
+              )
+              this.emitOutput(
+                "system",
+                `Rate limited (429). Waiting ${Math.round(delay / 1000)}s before retry ${attempt + 2}/${MAX_RETRIES}...`
+              )
+              await sleep(delay)
+              continue
+            }
+            throw err // Non-rate-limit error or max retries reached
+          }
+        }
+
+        if (!response) {
+          throw lastError ?? new Error("Failed to get response after retries")
+        }
 
         // Track usage
         const usage = response.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined

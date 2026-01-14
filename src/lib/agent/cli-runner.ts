@@ -4,7 +4,7 @@
 
 import { EventEmitter } from "events"
 import { spawn, execSync, type ChildProcess } from "child_process"
-import { existsSync, mkdirSync } from "fs"
+import { existsSync, mkdirSync, accessSync, constants } from "fs"
 import { join } from "path"
 import type { AgentOutputChunk, AgentType } from "./types"
 
@@ -83,7 +83,8 @@ export function getAvailableAgentTypes(): AgentType[] {
   const types: AgentType[] = []
   if (checkCLIAvailable("claude")) types.push("claude")
   if (checkCLIAvailable("codex")) types.push("codex")
-  if (checkCLIAvailable("opencode")) types.push("opencode")
+  // OpenCode is available via the embedded SDK (no CLI required).
+  types.push("opencode")
   // Cerebras GLM agent - requires CEREBRAS_API_KEY
   if (process.env.CEREBRAS_API_KEY?.trim()) {
     types.push("cerebras")
@@ -92,6 +93,7 @@ export function getAvailableAgentTypes(): AgentType[] {
 }
 
 const MAX_PROMPT_BYTES_IN_ARGS = 100_000
+const STARTUP_OUTPUT_TIMEOUT_MS = 30_000
 
 type PromptTransport = "args" | "stdin"
 
@@ -108,11 +110,15 @@ interface BuiltCommand {
 export class CLIAgentRunner extends EventEmitter {
   private process: ChildProcess | null = null
   private aborted = false
+  private abortReason: "user" | "timeout" | null = null
+  private abortMessage: string | null = null
   private outputBuffer = ""
   private awaitingApproval = false
   private awaitingInput = false
   /** CLI session ID discovered from output */
   public cliSessionId: string | null = null
+  /** Agent reported an error in structured output (even if exit code is 0). */
+  private reportedError: string | null = null
 
   constructor() {
     super()
@@ -148,8 +154,30 @@ export class CLIAgentRunner extends EventEmitter {
     this.emitChunk("system", `${action} ${agentType} agent...`)
 
     return new Promise((resolve, reject) => {
+      let settled = false
+      let sawProcessOutput = false
+      let startupTimer: ReturnType<typeof setTimeout> | null = null
+
+      const settle = (fn: () => void) => {
+        if (settled) return
+        settled = true
+        if (startupTimer) clearTimeout(startupTimer)
+        startupTimer = null
+        fn()
+      }
+
+      const markProcessOutput = () => {
+        if (sawProcessOutput) return
+        sawProcessOutput = true
+        if (startupTimer) clearTimeout(startupTimer)
+        startupTimer = null
+      }
+
       try {
         this.aborted = false
+        this.abortReason = null
+        this.abortMessage = null
+        this.reportedError = null
         this.awaitingApproval = false
         this.awaitingInput = false
 
@@ -166,12 +194,67 @@ export class CLIAgentRunner extends EventEmitter {
           }
         }
 
+        // Claude Code writes to ~/.claude and ~/.claude.json. In sandboxed environments
+        // HOME may not be writable, which causes Claude to fail early with EPERM.
+        // If HOME isn't writable, redirect HOME to a project-local directory. We prefer
+        // HOME over CLAUDE_CONFIG_DIR so Claude continues to find existing credentials.
+        if (agentType === "claude") {
+          env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING ??= "1"
+
+          const home = env.HOME || ""
+          let homeWritable = false
+          if (home) {
+            try {
+              accessSync(home, constants.W_OK)
+              homeWritable = true
+            } catch {
+              homeWritable = false
+            }
+          }
+
+          if (!homeWritable) {
+            const redirectedHome = join(workingDir, "data", "claude-home")
+            try {
+              mkdirSync(redirectedHome, { recursive: true })
+              env.HOME = redirectedHome
+            } catch {
+              // If we can't create it, leave HOME as-is and let Claude error.
+            }
+          }
+        }
+
+        console.log(`[CLIRunner] Spawning: ${command} ${args.join(" ")}`)
+        console.log(`[CLIRunner] Working dir: ${workingDir}`)
+
         this.process = spawn(command, args, {
           cwd: workingDir,
           env,
           stdio: ["pipe", "pipe", "pipe"],
-          shell: true,
+          shell: false,
         })
+
+        console.log(`[CLIRunner] Process spawned with PID: ${this.process.pid}`)
+
+        // If the child never produces output, fail fast with a clear error.
+        startupTimer = setTimeout(() => {
+          if (settled) return
+          if (sawProcessOutput) return
+          if (!this.process) return
+          if (this.aborted) return
+
+          const msg =
+            `${agentType} agent produced no output after ${Math.round(STARTUP_OUTPUT_TIMEOUT_MS / 1000)}s. ` +
+            `Check CLI authentication and filesystem permissions.`
+          this.abortReason = "timeout"
+          this.abortMessage = msg
+          this.aborted = true
+
+          try {
+            this.process.kill("SIGTERM")
+          } catch {
+            // Ignore
+          }
+        }, STARTUP_OUTPUT_TIMEOUT_MS)
 
         // Handle stdin
         if (this.process.stdin) {
@@ -191,6 +274,7 @@ export class CLIAgentRunner extends EventEmitter {
         // Handle stdout
         if (this.process.stdout) {
           this.process.stdout.on("data", (data: Buffer) => {
+            markProcessOutput()
             this.handleOutput(data.toString(), agentType)
           })
         }
@@ -198,7 +282,9 @@ export class CLIAgentRunner extends EventEmitter {
         // Handle stderr
         if (this.process.stderr) {
           this.process.stderr.on("data", (data: Buffer) => {
+            markProcessOutput()
             const text = data.toString()
+            console.log(`[CLIRunner] stderr: ${text.slice(0, 200)}`)
             if (this.isErrorMessage(text)) {
               this.emitChunk("error", text)
             } else {
@@ -210,6 +296,7 @@ export class CLIAgentRunner extends EventEmitter {
 
         // Handle process exit
         this.process.on("close", (code) => {
+          console.log(`[CLIRunner] Process exited with code: ${code}`)
           this.process = null
 
           if (this.outputBuffer.trim()) {
@@ -218,29 +305,47 @@ export class CLIAgentRunner extends EventEmitter {
           }
 
           if (this.aborted) {
+            if (this.abortReason === "timeout") {
+              const msg = this.abortMessage ?? "Agent timed out waiting for output"
+              this.emitChunk("error", msg)
+              this.emit("error", msg)
+              settle(() => reject(new Error(msg)))
+              return
+            }
             this.emit("cancelled")
-            resolve()
+            settle(resolve)
+            return
+          }
+
+          // Claude can report an error via JSON result while still exiting 0.
+          if (code === 0 && this.reportedError) {
+            this.emit("error", this.reportedError)
+            settle(() => reject(new Error(this.reportedError!)))
             return
           }
 
           if (code === 0) {
             this.emit("complete", { tokensUsed: { input: 0, output: 0 } })
-            resolve()
+            settle(resolve)
           } else {
-            this.emit("error", `Agent exited with code ${code}`)
-            reject(new Error(`Agent exited with code ${code}`))
+            const msg = this.reportedError
+              ? `${this.reportedError} (exit code ${code})`
+              : `Agent exited with code ${code}`
+            this.emit("error", msg)
+            settle(() => reject(new Error(msg)))
           }
         })
 
         this.process.on("error", (err) => {
+          console.error(`[CLIRunner] Process error:`, err)
           this.process = null
           this.emit("error", err.message)
-          reject(err)
+          settle(() => reject(err))
         })
       } catch (err) {
         const error = err as Error
         this.emit("error", error.message)
-        reject(error)
+        settle(() => reject(error))
       }
     })
   }
@@ -257,31 +362,34 @@ export class CLIAgentRunner extends EventEmitter {
     }
 
     const promptBytes = Buffer.byteLength(prompt, "utf8")
-    const promptTransport: PromptTransport =
+    let promptTransport: PromptTransport =
       promptBytes > MAX_PROMPT_BYTES_IN_ARGS ? "stdin" : "args"
 
     switch (agentType) {
       case "claude": {
+        // Claude Code supports reading the prompt from stdin (when no positional prompt
+        // argument is provided). Prefer stdin to avoid shell escaping issues and OS
+        // argv size limits for large task prompts.
+        promptTransport = "stdin"
+        // NOTE: --verbose must come before --output-format stream-json
         const args = [
           "-p",
-          "--output-format", "stream-json",
           "--verbose",
+          "--output-format", "stream-json",
           "--dangerously-skip-permissions",
         ]
-
-        if (promptTransport === "args") {
-          args.splice(1, 0, prompt)
-        }
 
         if (isResume && cliSessionId) {
           args.push("--resume", cliSessionId)
         }
 
+        console.log(`[CLIRunner] Claude command: ${cliPath} ${args.join(" ")}`)
+
         return {
           command: cliPath,
           args,
           promptTransport,
-          stdinPrompt: promptTransport === "stdin" ? prompt : undefined,
+          stdinPrompt: prompt,
         }
       }
 
@@ -410,13 +518,17 @@ export class CLIAgentRunner extends EventEmitter {
       }
 
       case "assistant": {
+        const errorCode = typeof json.error === "string" ? json.error : undefined
+        let firstText: string | null = null
         // Handle assistant message with content array
         const message = json.message as Record<string, unknown> | undefined
         if (message?.content && Array.isArray(message.content)) {
           for (const block of message.content) {
             const blockObj = block as Record<string, unknown>
             if (blockObj.type === "text" && blockObj.text) {
-              this.emitChunk("text", String(blockObj.text))
+              const text = String(blockObj.text)
+              if (!firstText) firstText = text
+              this.emitChunk("text", text)
             } else if (blockObj.type === "thinking" && blockObj.thinking) {
               this.emitChunk("thinking", String(blockObj.thinking))
             } else if (blockObj.type === "tool_use") {
@@ -427,11 +539,22 @@ export class CLIAgentRunner extends EventEmitter {
             }
           }
         }
+
+        if (errorCode) {
+          this.reportedError ??= firstText ?? errorCode
+        }
         break
       }
 
       case "result": {
         // Handle final result - session complete
+        const isError = json.is_error === true
+        if (isError) {
+          const msg = String(json.result ?? json.message ?? json.error ?? "Unknown error")
+          this.reportedError ??= msg
+          this.emitChunk("error", msg)
+        }
+
         const sessionId = json.session_id as string | undefined
         if (sessionId && !this.cliSessionId) {
           this.cliSessionId = sessionId
@@ -452,7 +575,8 @@ export class CLIAgentRunner extends EventEmitter {
         break
 
       case "error":
-        this.emitChunk("error", String(json.message ?? json.error ?? "Unknown error"))
+        this.reportedError ??= String(json.message ?? json.error ?? "Unknown error")
+        this.emitChunk("error", this.reportedError)
         break
     }
   }
@@ -482,6 +606,7 @@ export class CLIAgentRunner extends EventEmitter {
 
     if (type?.includes("error")) {
       const msg = (json.message as string) ?? (json.error as string) ?? "Error"
+      this.reportedError ??= msg
       this.emitChunk("error", msg)
       return
     }
@@ -541,6 +666,7 @@ export class CLIAgentRunner extends EventEmitter {
 
       case "error": {
         const errorMsg = (json.message ?? json.error ?? "Unknown error") as string
+        this.reportedError ??= errorMsg
         this.emitChunk("error", errorMsg)
         break
       }
@@ -633,6 +759,8 @@ export class CLIAgentRunner extends EventEmitter {
     if (this.aborted) return
 
     this.aborted = true
+    this.abortReason = "user"
+    this.abortMessage = null
 
     if (!this.process) return
 

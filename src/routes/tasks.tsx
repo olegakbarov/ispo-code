@@ -48,7 +48,7 @@ function TasksPage() {
   })
 
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
-    const candidates: PlannerAgentType[] = ['claude', 'codex', 'opencode']
+    const candidates: PlannerAgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
     return candidates.filter((t) => availableTypes.includes(t))
   }, [availableTypes])
 
@@ -66,22 +66,61 @@ function TasksPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
 
   // Agent type for "Create task with agent" (planning only)
-  const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('claude')
+  const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('cerebras')
 
   // Agent type for "Run with Agent"
   const [runAgentType, setRunAgentType] = useState<AgentType>('cerebras')
 
   // Track active agent session for progress display (from polling)
-  const agentSession: AgentSession | null = useMemo(() => {
-    if (!selectedPath || !activeAgentSessions[selectedPath]) return null
-    const { sessionId, status } = activeAgentSessions[selectedPath]
-    return {
-      id: sessionId,
-      status: status as AgentSession['status'],
-      prompt: `Executing task: ${selectedPath}`,
-      output: [],
+  const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
+  const activeSessionId = activeSessionInfo?.sessionId
+
+  const { data: liveSession } = trpc.agent.get.useQuery(
+    { id: activeSessionId ?? '' },
+    {
+      enabled: !!activeSessionId,
+      refetchInterval: 1000,
     }
-  }, [selectedPath, activeAgentSessions])
+  )
+
+  const agentSession: AgentSession | null = useMemo(() => {
+    if (!activeSessionId) return null
+
+    if (!liveSession) {
+      return {
+        id: activeSessionId,
+        status: activeSessionInfo?.status ?? 'running',
+        prompt: 'Agent running...',
+        output: [],
+      }
+    }
+
+    return {
+      id: liveSession.id,
+      status: liveSession.status,
+      prompt: liveSession.prompt,
+      output: liveSession.output,
+      error: liveSession.error,
+    }
+  }, [activeSessionId, activeSessionInfo?.status, liveSession])
+
+  // Keep create-with-agent settings valid as available types change.
+  useEffect(() => {
+    if (availablePlannerTypes.length === 0) return
+    if (!availablePlannerTypes.includes(createAgentType)) {
+      setCreateAgentType(availablePlannerTypes[0])
+    }
+  }, [availablePlannerTypes, createAgentType])
+
+  // Keep run-with-agent setting valid as available types change.
+  useEffect(() => {
+    if (availableTypes.length === 0) return
+    if (availableTypes.includes(runAgentType)) return
+
+    const preferred: AgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
+    const next = preferred.find((t) => availableTypes.includes(t)) ?? availableTypes[0]
+    setRunAgentType(next)
+  }, [availableTypes, runAgentType])
 
   // Mutations
   const saveMutation = trpc.tasks.save.useMutation({
@@ -124,6 +163,16 @@ function TasksPage() {
     },
   })
 
+  const cancelAgentMutation = trpc.agent.cancel.useMutation({
+    onSuccess: () => {
+      utils.tasks.getActiveAgentSessions.invalidate()
+      if (selectedPath) {
+        utils.tasks.get.invalidate({ path: selectedPath })
+      }
+      utils.tasks.list.invalidate()
+    },
+  })
+
   // Load content when task changes
   useEffect(() => {
     if (!selectedPath || !workingDir) return
@@ -140,6 +189,44 @@ function TasksPage() {
       lastLoadedPathRef.current = selectedPath
     })
   }, [selectedPath, workingDir, utils.client.tasks.get])
+
+  // Live-refresh task content while an agent is active (unless the user has local edits).
+  useEffect(() => {
+    if (!selectedPath || !workingDir) return
+    if (!activeSessionId) return
+    if (dirty) return
+
+    const interval = globalThis.setInterval(() => {
+      utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
+        setDraft(task.content)
+        setDirty(false)
+      }).catch((err) => {
+        console.error('Failed to refresh task:', err)
+      })
+    }, 2000)
+
+    return () => globalThis.clearInterval(interval)
+  }, [selectedPath, workingDir, activeSessionId, dirty, utils.client.tasks.get])
+
+  // One last refresh when an active agent finishes.
+  const prevActiveSessionIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedPath || !workingDir) return
+
+    const prev = prevActiveSessionIdRef.current
+    const current = activeSessionId ?? null
+    prevActiveSessionIdRef.current = current
+
+    if (!prev || current) return
+    if (dirty) return
+
+    utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
+      setDraft(task.content)
+      setDirty(false)
+    }).catch((err) => {
+      console.error('Failed to refresh task after agent completion:', err)
+    })
+  }, [selectedPath, workingDir, activeSessionId, dirty, utils.client.tasks.get])
 
   const filteredTasks = useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -164,6 +251,7 @@ function TasksPage() {
       if (dirty && !globalThis.confirm('You have unsaved changes. Discard them?')) return
 
       lastLoadedPathRef.current = null
+      prevActiveSessionIdRef.current = null
       setMode('edit')
 
       navigate({
@@ -248,19 +336,22 @@ function TasksPage() {
     }
 
     try {
+      setSaveError(null)
       await assignToAgentMutation.mutateAsync({
         path: selectedPath,
         agentType: runAgentType,
       })
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
+      setSaveError(msg)
       console.error('Failed to assign to agent:', err)
     }
   }, [selectedPath, dirty, draft, runAgentType, saveMutation, assignToAgentMutation])
 
   const handleCancelAgent = useCallback(() => {
-    // TODO: Implement agent cancellation via tRPC
-    console.log('Agent cancellation not yet implemented')
-  }, [])
+    if (!activeSessionId) return
+    cancelAgentMutation.mutate({ id: activeSessionId })
+  }, [activeSessionId, cancelAgentMutation])
 
   const handleReview = useCallback(() => {
     // TODO: Implement review modal with reviewWithAgent mutation

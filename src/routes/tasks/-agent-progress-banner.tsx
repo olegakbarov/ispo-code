@@ -12,9 +12,21 @@ interface AgentProgressBannerProps {
 
 export function AgentProgressBanner({ session, onCancel }: AgentProgressBannerProps) {
   const status = session.status
-  const isWorking = status === 'working' || status === 'pending'
+  const isWorking = status === 'running' || status === 'working' || status === 'pending' || status === 'waiting_approval' || status === 'waiting_input' || status === 'idle'
   const isCompleted = status === 'completed'
   const isFailed = status === 'failed' || status === 'cancelled'
+  const label =
+    status === 'waiting_approval'
+      ? 'Needs approval'
+      : status === 'waiting_input' || status === 'idle'
+        ? 'Waiting for input'
+        : isWorking
+          ? 'Agent running...'
+          : isCompleted
+            ? 'Agent finished'
+            : isFailed
+              ? 'Agent stopped'
+              : `Status: ${status}`
 
   // Get last meaningful output for display
   const lastOutput = useMemo(() => {
@@ -54,7 +66,7 @@ export function AgentProgressBanner({ session, onCancel }: AgentProgressBannerPr
           {isFailed && <span className="shrink-0">&#10007;</span>}
 
           <span className="font-vcr shrink-0">
-            {isWorking ? 'Generating task plan...' : isCompleted ? 'Task plan generated' : 'Generation failed'}
+            {label}
           </span>
 
           {toolUseCount > 0 && isWorking && (

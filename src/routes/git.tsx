@@ -121,17 +121,7 @@ function GitPage() {
     utils.git.branches.invalidate()
   }, [utils])
 
-  // File click - open in diff panel
-  const handleFileClick = useCallback((file: string, view: GitDiffView) => {
-    if (!openFiles.includes(file)) {
-      setOpenFiles((prev) => [...prev, file])
-    }
-    setActiveFile(file)
-    setActiveView(view)
-    setFileViews((prev) => ({ ...prev, [file]: view }))
-  }, [openFiles])
-
-  // Fetch diff data for a file
+  // Fetch diff data for a file (defined before handleFileClick which uses it)
   const handleFetchDiff = useCallback(async (file: string, view: GitDiffView): Promise<DiffData> => {
     const result = await utils.client.git.diff.query({ file, view })
     return {
@@ -139,6 +129,28 @@ function GitPage() {
       newContent: result.newContent,
     }
   }, [utils])
+
+  // File click - open in diff panel and fetch diff
+  const handleFileClick = useCallback((file: string, view: GitDiffView) => {
+    if (!openFiles.includes(file)) {
+      setOpenFiles((prev) => [...prev, file])
+    }
+    setActiveFile(file)
+    setActiveView(view)
+    setFileViews((prev) => ({ ...prev, [file]: view }))
+
+    // Fetch diff data for the clicked file
+    setDiffLoading(true)
+    handleFetchDiff(file, view)
+      .then((data) => {
+        setDiffData(data)
+        setDiffLoading(false)
+      })
+      .catch(() => {
+        setDiffData(null)
+        setDiffLoading(false)
+      })
+  }, [openFiles, handleFetchDiff])
 
   // Diff panel handlers
   const handleSelectFile = useCallback((file: string) => {

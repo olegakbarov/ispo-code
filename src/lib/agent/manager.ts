@@ -4,8 +4,8 @@
  * Supports:
  * - Cerebras GLM (SDK-based with tool calling)
  * - OpenCode (embedded server SDK)
- * - Claude CLI (subprocess - placeholder)
- * - Codex CLI (subprocess - placeholder)
+ * - Claude CLI (subprocess via CLIAgentRunner)
+ * - Codex CLI (subprocess via CLIAgentRunner)
  */
 
 import { EventEmitter } from "events"
@@ -45,9 +45,10 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
   async spawn(params: SpawnAgentParams): Promise<AgentSession> {
     const store = getSessionStore()
-    const activeSessions = store.getActiveSessions()
 
-    if (activeSessions.length >= this.maxConcurrent) {
+    // Concurrency should be based on processes running in this server instance,
+    // not persisted session statuses (which may be stale after restarts).
+    if (this.agents.size >= this.maxConcurrent) {
       throw new Error(`Maximum concurrent agents (${this.maxConcurrent}) reached`)
     }
 
@@ -93,8 +94,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       return { success: false, error: "Session is currently running" }
     }
 
-    const activeSessions = store.getActiveSessions()
-    if (activeSessions.length >= this.maxConcurrent) {
+    if (this.agents.size >= this.maxConcurrent) {
       return { success: false, error: `Maximum concurrent agents (${this.maxConcurrent}) reached` }
     }
 
@@ -325,22 +325,36 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
   }
 
   cancel(sessionId: string): boolean {
-    const running = this.agents.get(sessionId)
-    if (!running) {
+    const store = getSessionStore()
+    const session = store.getSession(sessionId)
+
+    // Session doesn't exist at all
+    if (!session) {
       return false
     }
 
-    const store = getSessionStore()
-    running.abort()
-    this.agents.delete(sessionId)
+    const running = this.agents.get(sessionId)
 
-    const metadata = running.analyzer.getMetadata()
-    store.updateSession(sessionId, { metadata })
-    store.updateStatus(sessionId, "cancelled")
-    store.flushOutput(sessionId)
-    this.emit("status", { sessionId, status: "cancelled" })
+    if (running) {
+      // Agent is actively running - abort the process
+      running.abort()
+      this.agents.delete(sessionId)
+      const metadata = running.analyzer.getMetadata()
+      store.updateSession(sessionId, { metadata })
+    }
 
-    return true
+    // Update status to cancelled (handles both running agents and orphaned sessions)
+    // Only cancel if session is in an active state
+    const activeStatuses: SessionStatus[] = ["pending", "running", "working", "waiting_approval", "waiting_input", "idle"]
+    if (activeStatuses.includes(session.status)) {
+      store.updateStatus(sessionId, "cancelled")
+      store.flushOutput(sessionId)
+      this.emit("status", { sessionId, status: "cancelled" })
+      return true
+    }
+
+    // Session exists but is already in a terminal state
+    return false
   }
 
   getSession(sessionId: string): AgentSession | null {

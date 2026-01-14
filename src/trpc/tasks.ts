@@ -233,11 +233,24 @@ export const tasksRouter = router({
       })
 
       // Spawn the agent to expand the task
-      const session = await manager.spawn({
-        prompt,
-        workingDir: ctx.workingDir,
-        agentType: input.agentType,
-      })
+      let session: Awaited<ReturnType<typeof manager.spawn>>
+      try {
+        session = await manager.spawn({
+          prompt,
+          workingDir: ctx.workingDir,
+          agentType: input.agentType,
+          taskPath, // Link session to task for UI tracking
+        })
+      } catch (err) {
+        // Keep the task file, but annotate it so users aren't left with a forever-placeholder.
+        const message = err instanceof Error ? err.message : String(err)
+        try {
+          saveTask(ctx.workingDir, taskPath, `# ${input.title}\n\n_Error generating task plan:_ ${message}\n`)
+        } catch {
+          // Ignore secondary failures; original error will be surfaced to client.
+        }
+        throw err
+      }
 
       return {
         path: taskPath,
@@ -340,12 +353,12 @@ export const tasksRouter = router({
     const manager = getAgentManager()
     const allSessions = manager.getAllSessions()
 
-    // Filter to sessions that have a taskPath and are still active
-    const activeStatuses = ["pending", "running", "working", "waiting_approval", "waiting_input", "idle"]
+    // Filter to sessions that have a taskPath and are still running *in this server instance*.
+    // Persisted statuses can be stale after restarts, so only trust the in-memory runner map.
     const taskSessions: Record<string, { sessionId: string; status: string }> = {}
 
     for (const session of allSessions) {
-      if (session.taskPath && activeStatuses.includes(session.status)) {
+      if (session.taskPath && manager.isRunning(session.id)) {
         taskSessions[session.taskPath] = {
           sessionId: session.id,
           status: session.status,

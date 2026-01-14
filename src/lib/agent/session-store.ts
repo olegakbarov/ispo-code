@@ -1,4 +1,4 @@
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs"
+import { writeFileSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import type { AgentSession, AgentOutputChunk, SessionStatus } from "./types.js"
@@ -6,6 +6,7 @@ import type { AgentSession, AgentOutputChunk, SessionStatus } from "./types.js"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = join(__dirname, "..", "..", "data")
 const SESSIONS_FILE = join(DATA_DIR, "sessions.json")
+const TEMP_FILE_SUFFIX = ".tmp"
 
 interface SessionsData {
   sessions: AgentSession[]
@@ -13,10 +14,19 @@ interface SessionsData {
 
 /**
  * Session store - persists agent sessions to disk
+ *
+ * Features:
+ * - Atomic writes using temp file + rename pattern
+ * - Output buffering with concurrent-safe flushing
+ * - Automatic cleanup of buffers for completed sessions
  */
 class SessionStore {
   private data: SessionsData
   private outputBuffers = new Map<string, AgentOutputChunk[]>()
+  private flushPromises = new Map<string, Promise<void>>()
+  private flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private flushDelayMs = 250
+  private writeLock = Promise.resolve()
 
   constructor() {
     if (!existsSync(DATA_DIR)) {
@@ -36,21 +46,50 @@ class SessionStore {
     }
   }
 
-  private save() {
-    writeFileSync(SESSIONS_FILE, JSON.stringify(this.data, null, 2))
+  /**
+   * Atomic save using temp file + rename pattern
+   * This prevents data corruption if process crashes mid-write
+   */
+  private async save(): Promise<void> {
+    // Use a lock to prevent concurrent writes
+    this.writeLock = this.writeLock.then(async () => {
+      try {
+        const tempFile = SESSIONS_FILE + TEMP_FILE_SUFFIX
+        writeFileSync(tempFile, JSON.stringify(this.data, null, 2))
+        renameSync(tempFile, SESSIONS_FILE)
+      } catch (err) {
+        console.error("[SessionStore] Failed to save sessions:", err)
+        throw err
+      }
+    })
+    return this.writeLock
+  }
+
+  /**
+   * Synchronous save (for legacy compatibility)
+   */
+  private saveSync(): void {
+    try {
+      const tempFile = SESSIONS_FILE + TEMP_FILE_SUFFIX
+      writeFileSync(tempFile, JSON.stringify(this.data, null, 2))
+      renameSync(tempFile, SESSIONS_FILE)
+    } catch (err) {
+      console.error("[SessionStore] Failed to save sessions:", err)
+      throw err
+    }
   }
 
   createSession(session: AgentSession): void {
     this.data.sessions.push(session)
     this.outputBuffers.set(session.id, [])
-    this.save()
+    this.saveSync()
   }
 
   updateSession(sessionId: string, updates: Partial<AgentSession>): void {
     const session = this.data.sessions.find((s) => s.id === sessionId)
     if (session) {
       Object.assign(session, updates)
-      this.save()
+      this.saveSync()
     }
   }
 
@@ -60,11 +99,21 @@ class SessionStore {
       session.status = status
       if (status === "completed" || status === "failed" || status === "cancelled") {
         session.completedAt = new Date().toISOString()
+        // Clean up buffer for completed sessions
+        this.outputBuffers.delete(sessionId)
+        const timer = this.flushTimers.get(sessionId)
+        if (timer) clearTimeout(timer)
+        this.flushTimers.delete(sessionId)
+        this.flushPromises.delete(sessionId)
       }
-      this.save()
+      this.saveSync()
     }
   }
 
+  /**
+   * Append output to session with concurrent-safe buffering
+   * Uses per-session flush promises to prevent race conditions
+   */
   appendOutput(sessionId: string, chunk: AgentOutputChunk): void {
     let buffer = this.outputBuffers.get(sessionId)
     if (!buffer) {
@@ -72,21 +121,75 @@ class SessionStore {
       this.outputBuffers.set(sessionId, buffer)
     }
 
+    const session = this.data.sessions.find((s) => s.id === sessionId)
+    if (session) {
+      session.output.push(chunk)
+    }
+
     buffer.push(chunk)
+
+    // Persist output quickly so streaming output survives hot reloads or
+    // separate worker instances (without waiting for a 10-chunk flush).
+    if (!this.flushTimers.has(sessionId)) {
+      const timer = setTimeout(() => {
+        this.flushTimers.delete(sessionId)
+        void this.flushOutput(sessionId)
+      }, this.flushDelayMs)
+      this.flushTimers.set(sessionId, timer)
+    }
+
     // Flush every 10 chunks
     if (buffer.length >= 10) {
-      this.flushOutput(sessionId)
+      void this.flushOutput(sessionId)
     }
   }
 
-  flushOutput(sessionId: string): void {
+  /**
+   * Flush output buffer to disk with concurrent safety
+   * Uses per-session promises to prevent concurrent flushes
+   */
+  async flushOutput(sessionId: string): Promise<void> {
+    const timer = this.flushTimers.get(sessionId)
+    if (timer) {
+      clearTimeout(timer)
+      this.flushTimers.delete(sessionId)
+    }
+
+    // If a flush is already in progress, wait for it
+    const existingFlush = this.flushPromises.get(sessionId)
+    if (existingFlush) {
+      return existingFlush
+    }
+
+    const flushPromise = (async () => {
+      try {
+        const buffer = this.outputBuffers.get(sessionId)
+        const session = this.data.sessions.find((s) => s.id === sessionId)
+        if (!session || !buffer || buffer.length === 0) return
+
+        buffer.length = 0
+        await this.save()
+      } catch (err) {
+        console.error("[SessionStore] Failed to flush output:", err)
+      } finally {
+        this.flushPromises.delete(sessionId)
+      }
+    })()
+
+    this.flushPromises.set(sessionId, flushPromise)
+    return flushPromise
+  }
+
+  /**
+   * Synchronous flush for legacy compatibility
+   */
+  flushOutputSync(sessionId: string): void {
     const buffer = this.outputBuffers.get(sessionId)
     const session = this.data.sessions.find((s) => s.id === sessionId)
     if (!session || !buffer || buffer.length === 0) return
 
-    session.output.push(...buffer)
     buffer.length = 0
-    this.save()
+    this.saveSync()
   }
 
   getSession(sessionId: string): AgentSession | null {
@@ -114,7 +217,11 @@ class SessionStore {
     if (index !== -1) {
       this.data.sessions.splice(index, 1)
       this.outputBuffers.delete(sessionId)
-      this.save()
+      this.flushPromises.delete(sessionId)
+      const timer = this.flushTimers.get(sessionId)
+      if (timer) clearTimeout(timer)
+      this.flushTimers.delete(sessionId)
+      this.saveSync()
       return true
     }
     return false
@@ -128,8 +235,69 @@ class SessionStore {
     if (session) {
       Object.assign(session, updates)
       if (options?.save !== false) {
-        this.save()
+        this.saveSync()
       }
+    }
+  }
+
+  /**
+   * Clean up old completed sessions to prevent memory leaks
+   * @param maxAge Maximum age in milliseconds (default: 7 days)
+   * @param maxCount Maximum number of sessions to keep (default: 100)
+   */
+  pruneOldSessions(maxAge: number = 7 * 24 * 60 * 60 * 1000, maxCount: number = 100): void {
+    const now = Date.now()
+    const completedSessions = this.data.sessions.filter(
+      (s) => s.status === "completed" || s.status === "failed" || s.status === "cancelled"
+    )
+
+    // Remove sessions older than maxAge
+    let pruned = 0
+    this.data.sessions = this.data.sessions.filter((session) => {
+      if (
+        (session.status === "completed" || session.status === "failed" || session.status === "cancelled") &&
+        session.completedAt
+      ) {
+        const age = now - new Date(session.completedAt).getTime()
+        if (age > maxAge) {
+          this.outputBuffers.delete(session.id)
+          this.flushPromises.delete(session.id)
+          pruned++
+          return false
+        }
+      }
+      return true
+    })
+
+    // If still too many sessions, remove oldest completed ones
+    if (this.data.sessions.length > maxCount) {
+      const activeCount = this.data.sessions.filter(
+        (s) => !(s.status === "completed" || s.status === "failed" || s.status === "cancelled")
+      ).length
+
+      const completedToRemove = this.data.sessions.length - maxCount
+      if (completedToRemove > 0) {
+        const completed = this.data.sessions.filter(
+          (s) => s.status === "completed" || s.status === "failed" || s.status === "cancelled"
+        )
+        completed.sort((a, b) => new Date(a.completedAt || a.startedAt).getTime() - new Date(b.completedAt || b.startedAt).getTime())
+
+        const toRemove = completed.slice(0, Math.min(completedToRemove, completed.length))
+        for (const session of toRemove) {
+          const index = this.data.sessions.findIndex((s) => s.id === session.id)
+          if (index !== -1) {
+            this.data.sessions.splice(index, 1)
+            this.outputBuffers.delete(session.id)
+            this.flushPromises.delete(session.id)
+            pruned++
+          }
+        }
+      }
+    }
+
+    if (pruned > 0) {
+      this.saveSync()
+      console.log(`[SessionStore] Pruned ${pruned} old sessions`)
     }
   }
 }

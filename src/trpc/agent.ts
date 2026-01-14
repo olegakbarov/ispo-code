@@ -80,7 +80,6 @@ export const agentRouter = router({
 
   /**
    * Send a follow-up message to an existing session (resume conversation)
-   * TODO: Implement proper session resumption in manager
    */
   sendMessage: procedure
     .input(z.object({
@@ -98,7 +97,6 @@ export const agentRouter = router({
 
   /**
    * Send approval response to a running agent
-   * TODO: Implement in manager with stdin support
    */
   approve: procedure
     .input(z.object({
