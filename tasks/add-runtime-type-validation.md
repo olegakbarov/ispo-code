@@ -2,6 +2,7 @@
 
 **Priority**: Medium
 **Category**: Type Safety
+**Status**: ✅ Completed
 
 ## Problem
 
@@ -16,38 +17,30 @@ const imageAttachments = chunk.attachments as ImageAttachment[] | undefined
 
 If `attachments` is not actually `ImageAttachment[]`, the code may crash or behave unexpectedly at runtime.
 
-## Fix
+## Implementation
 
-Add type guard functions:
+### Changes Made
 
-```tsx
-// src/lib/utils/type-guards.ts
-import type { ImageAttachment } from '@/lib/agent/types'
+- [x] Created `src/lib/utils/type-guards.ts` with type guard functions
+- [x] Updated `src/components/agents/output-renderer.tsx` to use runtime validation
+- [x] Verified no TypeScript errors introduced
+- [x] Searched for other unsafe type assertions (found only safe internal patterns)
 
-export function isImageAttachment(value: unknown): value is ImageAttachment {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'type' in value &&
-    (value as { type: unknown }).type === 'image' &&
-    'data' in value
-  )
-}
+### Files Created
 
-export function isImageAttachments(value: unknown): value is ImageAttachment[] {
-  return Array.isArray(value) && value.every(isImageAttachment)
-}
-```
+**`src/lib/utils/type-guards.ts`** - Runtime type validation utilities:
+- `isImageAttachment()` - Validates single image attachment
+- `isImageAttachments()` - Validates array of image attachments
+- `isSerializedImageAttachment()` - Alias for serialized form
 
-Usage:
-```tsx
-// output-renderer.tsx
-const imageAttachments = isImageAttachments(chunk.attachments)
-  ? chunk.attachments
-  : undefined
-```
+### Files Modified
 
-## Files to Check
+**`src/components/agents/output-renderer.tsx`**:
+- Replaced unsafe `as ImageAttachment[]` cast with `isImageAttachments()` type guard
+- Removed unused `ImageAttachment` type import
 
-- `src/components/agents/output-renderer.tsx`
-- Any other files using `as` type assertions with external data
+## Notes
+
+Other `as Type[]` casts in the codebase are:
+1. `Object.keys(obj) as AgentType[]` - Safe pattern for known object keys
+2. Internal message reconstruction in daemon - Lower risk (internal data flow)

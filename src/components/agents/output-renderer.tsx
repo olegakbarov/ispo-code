@@ -8,7 +8,8 @@ import { SimpleErrorBoundary } from '@/components/ui/error-boundary'
 import { ToolCall } from '@/components/agents/tool-call'
 import { ToolResult } from '@/components/agents/tool-result'
 import { ImageAttachmentPreview } from '@/components/agents/image-attachment-input'
-import type { AgentOutputChunk, ImageAttachment } from '@/lib/agent/types'
+import { isImageAttachments } from '@/lib/utils/type-guards'
+import type { AgentOutputChunk } from '@/lib/agent/types'
 
 /**
  * Groups consecutive text chunks and renders them together
@@ -99,8 +100,7 @@ export function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
   }
 
   if (type === 'user_message') {
-    // Cast attachments to ImageAttachment[] for preview
-    const imageAttachments = chunk.attachments as ImageAttachment[] | undefined
+    const imageAttachments = isImageAttachments(chunk.attachments) ? chunk.attachments : undefined
     return (
       <div className="border-l-2 border-primary pl-2 py-1.5 my-2">
         <div className="font-vcr text-[10px] text-primary mb-0.5">USER</div>
