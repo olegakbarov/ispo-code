@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import type { SessionStatus } from '@/lib/agent/types'
+import { Spinner } from '@/components/ui/spinner'
 
 /** Section container with title */
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -105,16 +106,16 @@ export function StatusBadge({ status }: { status: SessionStatus }) {
   )
 }
 
-const statusDotConfig: Record<SessionStatus, { color: string; pulse?: boolean; label: string }> = {
+const statusDotConfig: Record<SessionStatus, { color: string; pulse?: boolean; spin?: boolean; label: string }> = {
   pending: { color: 'bg-muted-foreground', label: 'pending' },
-  working: { color: 'bg-primary', pulse: true, label: 'working' },
+  working: { color: 'text-primary', spin: true, label: 'working' },
   waiting_approval: { color: 'bg-destructive', pulse: true, label: 'approval' },
   waiting_input: { color: 'bg-chart-2', label: 'ready' },
   idle: { color: 'bg-chart-2', label: 'idle' },
   completed: { color: 'bg-foreground/50', label: 'done' },
   failed: { color: 'bg-destructive', label: 'failed' },
   cancelled: { color: 'bg-chart-4', label: 'cancelled' },
-  running: { color: 'bg-primary', pulse: true, label: 'working' },
+  running: { color: 'text-primary', spin: true, label: 'working' },
 }
 
 /** Compact status indicator with dot and label */
@@ -123,7 +124,11 @@ export function StatusDot({ status }: { status: SessionStatus }) {
 
   return (
     <div className="flex items-center gap-1">
-      <span className={`w-1.5 h-1.5 rounded-full ${c.color} ${c.pulse ? 'animate-pulse' : ''}`} />
+      {c.spin ? (
+        <Spinner size="xs" className={c.color} />
+      ) : (
+        <span className={`w-1.5 h-1.5 rounded-full ${c.color} ${c.pulse ? 'animate-pulse' : ''}`} />
+      )}
       <span className="font-vcr text-muted-foreground">{c.label}</span>
     </div>
   )

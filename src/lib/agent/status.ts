@@ -40,15 +40,28 @@ export function isTerminalStatus(status: SessionStatus): boolean {
 }
 
 /**
+ * Statuses that should display an animated spinner
+ */
+export const SPINNER_STATUSES: SessionStatus[] = ['running', 'working']
+
+/**
+ * Check if a status should show a spinner
+ */
+export function isSpinnerStatus(status: SessionStatus): boolean {
+  return SPINNER_STATUSES.includes(status)
+}
+
+/**
  * Status dot color mapping for UI
+ * Note: running/working use text-* colors for spinner (border-current inherits text color)
  */
 export const statusColors: Record<SessionStatus, string> = {
-  working: 'bg-accent animate-pulse',
+  working: 'text-accent', // Spinner uses text color
   waiting_approval: 'bg-error animate-pulse',
   waiting_input: 'bg-green-500',
   idle: 'bg-green-500',
   pending: 'bg-muted-foreground',
-  running: 'bg-accent animate-pulse',
+  running: 'text-accent', // Spinner uses text color
   completed: 'bg-muted-foreground',
   failed: 'bg-error',
   cancelled: 'bg-muted-foreground',
