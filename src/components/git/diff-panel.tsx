@@ -4,7 +4,7 @@
  * Adapted from tRPC version to use props for data/callbacks
  */
 
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import type { AgentType } from '@/lib/agent/types'
@@ -968,7 +968,7 @@ interface DiffTabsHeaderProps {
   onOpenSendToAgent: () => void
 }
 
-function DiffTabsHeader({
+const DiffTabsHeader = memo(function DiffTabsHeader({
   openFiles,
   activeFile,
   canToggleView,
@@ -1101,4 +1101,4 @@ function DiffTabsHeader({
       </div>
     </div>
   )
-}
+})

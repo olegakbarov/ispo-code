@@ -3,7 +3,7 @@
  * Self-contained component that fetches its own data via tRPC
  */
 
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ArrowUp, ArrowDown } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -31,6 +31,88 @@ interface ActiveAgentSession {
 type ArchiveFilter = 'all' | 'active' | 'archived'
 type SortOption = 'updated' | 'title' | 'progress'
 type SortDirection = 'asc' | 'desc'
+
+interface TaskItemProps {
+  task: TaskSummary
+  isActive: boolean
+  agentSession?: ActiveAgentSession
+  onSelect: (path: string) => void
+}
+
+const TaskItem = memo(function TaskItem({ task, isActive, agentSession, onSelect }: TaskItemProps) {
+  const total = task.progress.total
+  const done = task.progress.done
+  const inProgress = task.progress.inProgress
+  const showProgress = total > 0
+  const hasActiveAgent = !!agentSession
+
+  // Calculate percentages for progress bar
+  const donePercent = total > 0 ? (done / total) * 100 : 0
+  const inProgressPercent = total > 0 ? (inProgress / total) * 100 : 0
+
+  return (
+    <button
+      onClick={() => onSelect(task.path)}
+      className={`w-full text-left px-3 py-2 cursor-pointer transition-colors border-t border-border/40 ${
+        isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground'
+      }`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Agent status indicator */}
+        {hasActiveAgent && (
+          <div
+            className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse"
+            title={`Agent ${agentSession.status}`}
+          />
+        )}
+        <div className="text-xs font-vcr truncate flex-1">{task.title}</div>
+        {task.archived && (
+          <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-vcr">
+            ARCHIVED
+          </span>
+        )}
+        {showProgress && (
+          <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-vcr">
+            <span className="text-accent">{done}/{total}</span>
+            <span className="text-muted-foreground">
+              {Math.round(donePercent)}%
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      {showProgress && (
+        <div className="mt-1.5 h-1 bg-border/50 rounded-full overflow-hidden flex">
+          {donePercent > 0 && (
+            <div
+              className="h-full bg-accent transition-all duration-300"
+              style={{ width: `${donePercent}%` }}
+            />
+          )}
+          {inProgressPercent > 0 && (
+            <div
+              className="h-full bg-warning transition-all duration-300"
+              style={{ width: `${inProgressPercent}%` }}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="text-[10px] text-muted-foreground truncate min-w-0">{task.path}</div>
+        <div className="shrink-0 flex items-center gap-1">
+          {hasActiveAgent && (
+            <span className="text-[10px] font-vcr text-accent">
+              {agentSession.status === 'working' ? 'working' : agentSession.status}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">{task.source}</span>
+        </div>
+      </div>
+    </button>
+  )
+})
 
 export function TaskListSidebar() {
   const navigate = useNavigate()
@@ -272,83 +354,15 @@ export function TaskListSidebar() {
           <div className="p-3 text-xs text-muted-foreground">No tasks found</div>
         ) : (
           <div>
-            {filteredTasks.map((t) => {
-              const isActive = t.path === selectedPath
-              const total = t.progress.total
-              const done = t.progress.done
-              const inProgress = t.progress.inProgress
-              const showProgress = total > 0
-              const agentSession = (activeAgentSessions as Record<string, ActiveAgentSession>)?.[t.path]
-              const hasActiveAgent = !!agentSession
-
-              // Calculate percentages for progress bar
-              const donePercent = total > 0 ? (done / total) * 100 : 0
-              const inProgressPercent = total > 0 ? (inProgress / total) * 100 : 0
-
-              return (
-                <button
-                  key={t.path}
-                  onClick={() => handleTaskSelect(t.path)}
-                  className={`w-full text-left px-3 py-2 cursor-pointer transition-colors border-t border-border/40 ${
-                    isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {/* Agent status indicator */}
-                    {hasActiveAgent && (
-                      <div
-                        className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse"
-                        title={`Agent ${agentSession.status}`}
-                      />
-                    )}
-                    <div className="text-xs font-vcr truncate flex-1">{t.title}</div>
-                    {t.archived && (
-                      <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-vcr">
-                        ARCHIVED
-                      </span>
-                    )}
-                    {showProgress && (
-                      <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-vcr">
-                        <span className="text-accent">{done}/{total}</span>
-                        <span className="text-muted-foreground">
-                          {Math.round(donePercent)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Progress bar */}
-                  {showProgress && (
-                    <div className="mt-1.5 h-1 bg-border/50 rounded-full overflow-hidden flex">
-                      {donePercent > 0 && (
-                        <div
-                          className="h-full bg-accent transition-all duration-300"
-                          style={{ width: `${donePercent}%` }}
-                        />
-                      )}
-                      {inProgressPercent > 0 && (
-                        <div
-                          className="h-full bg-warning transition-all duration-300"
-                          style={{ width: `${inProgressPercent}%` }}
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <div className="text-[10px] text-muted-foreground truncate min-w-0">{t.path}</div>
-                    <div className="shrink-0 flex items-center gap-1">
-                      {hasActiveAgent && (
-                        <span className="text-[10px] font-vcr text-accent">
-                          {agentSession.status === 'working' ? 'working' : agentSession.status}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-muted-foreground">{t.source}</span>
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+            {filteredTasks.map((t) => (
+              <TaskItem
+                key={t.path}
+                task={t}
+                isActive={t.path === selectedPath}
+                agentSession={(activeAgentSessions as Record<string, ActiveAgentSession>)?.[t.path]}
+                onSelect={handleTaskSelect}
+              />
+            ))}
           </div>
         )}
       </div>

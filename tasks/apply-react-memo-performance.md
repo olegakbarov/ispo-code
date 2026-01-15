@@ -2,6 +2,7 @@
 
 **Priority**: High
 **Category**: Performance
+**Status**: ✅ Completed
 
 ## Problem
 
@@ -29,14 +30,15 @@ export const DiffViewer = React.memo(({ diff, theme }: Props) => {
 
 ## Target Components
 
-- `src/components/git/diff-panel.tsx` - FileTab, DiffViewer
-- `src/components/agents/changed-files-list.tsx` - FileItem
-- `src/components/tasks/task-list-sidebar.tsx` - TaskItem
-- `src/components/agents/tool-result.tsx` - ToolResultCard
+- [x] `src/components/git/diff-panel.tsx` - DiffTabsHeader (memoized)
+- [x] `src/components/agents/changed-files-list.tsx` - FileItem, FileGroup (memoized)
+- [x] `src/components/tasks/task-list-sidebar.tsx` - TaskItem (extracted and memoized)
+- [x] `src/components/agents/tool-result.tsx` - ToolResult (memoized)
 
 ## Also Fix
 
-`changed-files-list.tsx` line 18 - mutable default Set:
+- [x] `changed-files-list.tsx` line 18 - mutable default Set (fixed with module-level constant)
+
 ```tsx
 // Bad: Creates new Set on every call
 expandedFiles = new Set()
@@ -45,3 +47,20 @@ expandedFiles = new Set()
 const DEFAULT_EXPANDED_FILES = new Set<string>()
 expandedFiles = DEFAULT_EXPANDED_FILES
 ```
+
+## Completed Changes
+
+1. **changed-files-list.tsx**:
+   - Added `DEFAULT_EXPANDED_FILES` module-level constant
+   - Wrapped `FileItem` with `memo()`
+   - Wrapped `FileGroup` with `memo()`
+
+2. **diff-panel.tsx**:
+   - Wrapped `DiffTabsHeader` with `memo()`
+
+3. **task-list-sidebar.tsx**:
+   - Extracted inline task rendering into `TaskItem` component
+   - Wrapped `TaskItem` with `memo()`
+
+4. **tool-result.tsx**:
+   - Wrapped `ToolResult` with `memo()`

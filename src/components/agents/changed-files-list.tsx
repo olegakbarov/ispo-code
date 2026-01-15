@@ -3,8 +3,12 @@
  * Displays files modified by an agent session
  */
 
+import { memo } from "react"
 import type { EditedFileInfo } from "@/lib/agent/types"
 import { Clock, FileEdit, FilePlus, FileX, ChevronDown, ChevronRight } from "lucide-react"
+
+// Module-level constant to avoid creating new Set on every render
+const DEFAULT_EXPANDED_FILES = new Set<string>()
 
 interface ChangedFilesListProps {
   files: EditedFileInfo[]
@@ -15,7 +19,7 @@ interface ChangedFilesListProps {
 export function ChangedFilesList({
   files,
   onFileClick,
-  expandedFiles = new Set(),
+  expandedFiles = DEFAULT_EXPANDED_FILES,
 }: ChangedFilesListProps) {
   if (files.length === 0) {
     return (
@@ -78,7 +82,7 @@ interface FileGroupProps {
   color: string
 }
 
-function FileGroup({ title, icon, files, onFileClick, expandedFiles, color }: FileGroupProps) {
+const FileGroup = memo(function FileGroup({ title, icon, files, onFileClick, expandedFiles, color }: FileGroupProps) {
   return (
     <div>
       <div className={`flex items-center gap-2 text-sm font-medium mb-2 ${color}`}>
@@ -98,7 +102,7 @@ function FileGroup({ title, icon, files, onFileClick, expandedFiles, color }: Fi
       </div>
     </div>
   )
-}
+})
 
 interface FileItemProps {
   file: EditedFileInfo
@@ -106,7 +110,7 @@ interface FileItemProps {
   isExpanded: boolean
 }
 
-function FileItem({ file, onClick, isExpanded }: FileItemProps) {
+const FileItem = memo(function FileItem({ file, onClick, isExpanded }: FileItemProps) {
   const displayPath = file.relativePath || file.path
   const timestamp = new Date(file.timestamp).toLocaleTimeString()
 
@@ -140,4 +144,4 @@ function FileItem({ file, onClick, isExpanded }: FileItemProps) {
       </div>
     </button>
   )
-}
+})

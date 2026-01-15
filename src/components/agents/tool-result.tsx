@@ -3,7 +3,7 @@
  * Renders tool execution results with syntax highlighting and expand/collapse
  */
 
-import { useState } from "react"
+import { memo, useState } from "react"
 import { ChevronDown, ChevronUp, CheckCircle2, XCircle, Copy } from "lucide-react"
 
 interface ToolResultProps {
@@ -38,7 +38,7 @@ function detectContentType(content: string): "file" | "json" | "error" | "plain"
   return "plain"
 }
 
-export function ToolResult({ content, success = true, toolName }: ToolResultProps) {
+export const ToolResult = memo(function ToolResult({ content, success = true, toolName }: ToolResultProps) {
   const contentType = detectContentType(content)
   const isError = !success || contentType === "error"
 
@@ -127,4 +127,4 @@ export function ToolResult({ content, success = true, toolName }: ToolResultProp
       )}
     </div>
   )
-}
+})
