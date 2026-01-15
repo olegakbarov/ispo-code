@@ -20,13 +20,16 @@ import { calculateRelativePaths } from "../utils/path-utils"
 
 /**
  * Default context window limits by agent type
+ * These are fallback values when no model-specific limit is provided.
+ * Prefer using getContextLimit() from model-registry.ts for accurate limits.
  */
 const MODEL_CONTEXT_LIMITS: Record<AgentType, number> = {
-  claude: 200_000, // Claude Sonnet 4.5
-  codex: 128_000, // GPT-4o
+  claude: 200_000, // Claude Opus 4.5
+  codex: 200_000, // Codex 5.2
   opencode: 200_000, // Varies by provider, default to Claude
-  cerebras: 8_192, // GLM-4.7 / Llama-3.3-70b
+  cerebras: 131_072, // GLM-4.7 / Llama-3.3-70b (131k context)
   gemini: 1_048_576, // Gemini 2.0 (1M tokens)
+  mcporter: 1_048_576, // Uses Gemini 2.0 Flash (1M tokens)
 }
 
 /**

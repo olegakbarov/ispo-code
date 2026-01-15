@@ -226,6 +226,38 @@ const CODEX_MODELS: ModelDefinition[] = [
   },
 ]
 
+/**
+ * MCPorter (QA Agent) models - Uses Gemini for LLM reasoning with MCP tools
+ * MCPorter discovers and invokes MCP tools; these models power the reasoning layer
+ */
+const MCPORTER_MODELS: ModelDefinition[] = [
+  {
+    id: "gemini-2.0-flash",
+    name: "Gemini 2.0 Flash",
+    description: "Fast reasoning with MCP tools",
+    contextLimit: 1_048_576,
+    agentType: "mcporter",
+    provider: "Google",
+    isDefault: true,
+  },
+  {
+    id: "gemini-2.0-pro",
+    name: "Gemini 2.0 Pro",
+    description: "Advanced reasoning with MCP tools",
+    contextLimit: 1_048_576,
+    agentType: "mcporter",
+    provider: "Google",
+  },
+  {
+    id: "gemini-1.5-pro",
+    name: "Gemini 1.5 Pro",
+    description: "Balanced performance",
+    contextLimit: 2_097_152,
+    agentType: "mcporter",
+    provider: "Google",
+  },
+]
+
 // ============================================================================
 // REGISTRY
 // ============================================================================
@@ -239,6 +271,7 @@ const MODEL_REGISTRY: Record<AgentType, ModelDefinition[]> = {
   opencode: OPENCODE_MODELS,
   claude: CLAUDE_MODELS,
   codex: CODEX_MODELS,
+  mcporter: MCPORTER_MODELS,
 }
 
 /**
@@ -293,13 +326,14 @@ export function getContextLimit(modelId: string, agentType: AgentType): number {
   const model = findModelByIdForAgent(modelId, agentType) ?? findModelById(modelId)
   if (model) return model.contextLimit
 
-  // Fallback by agent type
+  // Fallback by agent type (for unknown models)
   const defaults: Record<AgentType, number> = {
     claude: 200_000,
-    codex: 128_000,
+    codex: 200_000,
     opencode: 200_000,
     cerebras: 131_072,
     gemini: 1_048_576,
+    mcporter: 1_048_576,
   }
   return defaults[agentType] ?? 128_000
 }
@@ -359,7 +393,7 @@ export function getModelsByProvider(provider: string): ModelDefinition[] {
 // ============================================================================
 
 // Re-export grouped arrays for backward compatibility
-export { CEREBRAS_MODELS, GEMINI_MODELS, OPENCODE_MODELS, CLAUDE_MODELS, CODEX_MODELS }
+export { CEREBRAS_MODELS, GEMINI_MODELS, OPENCODE_MODELS, CLAUDE_MODELS, CODEX_MODELS, MCPORTER_MODELS }
 
 // Export the full registry
 export { MODEL_REGISTRY, ALL_MODELS }
