@@ -1,12 +1,15 @@
 /**
- * Settings Route - User preferences including brand color and audio notifications
+ * Settings Route - User preferences including brand color, audio notifications, and agent defaults
  */
 
 import { createFileRoute } from "@tanstack/react-router"
-import { useState, useRef } from "react"
-import { Settings, Palette, Check, Volume2, Play, Loader2 } from "lucide-react"
+import { useState, useRef, useMemo } from "react"
+import { Settings, Palette, Check, Volume2, Play, Loader2, Bot } from "lucide-react"
 import { useSettingsStore, applyBrandHue } from "@/lib/stores/settings"
 import { trpc } from "@/lib/trpc-client"
+import { agentTypeLabel, getModelsForAgentType, getDefaultModelId } from "@/lib/agent/config"
+import type { AgentType } from "@/lib/agent/types"
+import type { PlannerAgentType } from "@/lib/agent/config"
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -36,6 +39,12 @@ function SettingsPage() {
     setAudioEnabled,
     selectedVoiceId,
     setSelectedVoiceId,
+    defaultPlanningAgentType,
+    setDefaultPlanningAgentType,
+    defaultVerifyAgentType,
+    setDefaultVerifyAgentType,
+    defaultVerifyModelId,
+    setDefaultVerifyModelId,
   } = useSettingsStore()
 
   const handleHueChange = (hue: number) => {
@@ -355,7 +364,159 @@ function SettingsPage() {
           {/* Hidden audio element for playback */}
           <audio ref={audioRef} className="hidden" />
         </section>
+
+        {/* Agent Defaults Section */}
+        <AgentDefaultsSection
+          defaultPlanningAgentType={defaultPlanningAgentType}
+          setDefaultPlanningAgentType={setDefaultPlanningAgentType}
+          defaultVerifyAgentType={defaultVerifyAgentType}
+          setDefaultVerifyAgentType={setDefaultVerifyAgentType}
+          defaultVerifyModelId={defaultVerifyModelId}
+          setDefaultVerifyModelId={setDefaultVerifyModelId}
+        />
       </div>
     </div>
+  )
+}
+
+/**
+ * Agent Defaults Section - separate component to handle available types query
+ */
+function AgentDefaultsSection({
+  defaultPlanningAgentType,
+  setDefaultPlanningAgentType,
+  defaultVerifyAgentType,
+  setDefaultVerifyAgentType,
+  defaultVerifyModelId,
+  setDefaultVerifyModelId,
+}: {
+  defaultPlanningAgentType: PlannerAgentType | null
+  setDefaultPlanningAgentType: (agentType: PlannerAgentType | null) => void
+  defaultVerifyAgentType: AgentType | null
+  setDefaultVerifyAgentType: (agentType: AgentType | null) => void
+  defaultVerifyModelId: string | null
+  setDefaultVerifyModelId: (modelId: string | null) => void
+}) {
+  // Fetch available agent types
+  const { data: availableTypes = [], isLoading } = trpc.agent.availableTypes.useQuery()
+
+  // Filter to planner types
+  const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
+    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter']
+    return candidates.filter((t) => availableTypes.includes(t))
+  }, [availableTypes])
+
+  // Get models for selected verify agent type
+  const verifyModels = useMemo(() => {
+    if (!defaultVerifyAgentType) return []
+    return getModelsForAgentType(defaultVerifyAgentType)
+  }, [defaultVerifyAgentType])
+
+  const handlePlanningAgentChange = (value: string) => {
+    setDefaultPlanningAgentType(value ? (value as PlannerAgentType) : null)
+  }
+
+  const handleVerifyAgentChange = (value: string) => {
+    const newType = value ? (value as AgentType) : null
+    setDefaultVerifyAgentType(newType)
+    // Reset model when agent type changes, set to default for the new type
+    if (newType) {
+      setDefaultVerifyModelId(getDefaultModelId(newType))
+    } else {
+      setDefaultVerifyModelId(null)
+    }
+  }
+
+  const handleVerifyModelChange = (value: string) => {
+    setDefaultVerifyModelId(value || null)
+  }
+
+  return (
+    <section className="mb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <Bot className="w-4 h-4 text-primary" />
+        <h2 className="text-sm font-semibold">Agent Defaults</h2>
+      </div>
+
+      <p className="text-xs text-muted-foreground mb-4">
+        Configure default agents and models for task workflows. These defaults will be pre-selected when creating or verifying tasks.
+      </p>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          Loading available agents...
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Planning Agent Default */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-2 block">
+              Default Planning Agent
+            </label>
+            <p className="text-[10px] text-muted-foreground/70 mb-2">
+              Pre-selected agent when creating new tasks with AI planning
+            </p>
+            <select
+              value={defaultPlanningAgentType ?? ""}
+              onChange={(e) => handlePlanningAgentChange(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Use system default</option>
+              {availablePlannerTypes.map((type) => (
+                <option key={type} value={type}>
+                  {agentTypeLabel[type]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Verification Agent Default */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-2 block">
+              Default Verification Agent
+            </label>
+            <p className="text-[10px] text-muted-foreground/70 mb-2">
+              Pre-selected agent for task verification
+            </p>
+            <select
+              value={defaultVerifyAgentType ?? ""}
+              onChange={(e) => handleVerifyAgentChange(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Use system default</option>
+              {availableTypes.map((type) => (
+                <option key={type} value={type}>
+                  {agentTypeLabel[type as AgentType]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Verification Model Default (only show if agent is selected) */}
+          {defaultVerifyAgentType && verifyModels.length > 0 && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">
+                Default Verification Model
+              </label>
+              <p className="text-[10px] text-muted-foreground/70 mb-2">
+                Pre-selected model for the verification agent
+              </p>
+              <select
+                value={defaultVerifyModelId ?? ""}
+                onChange={(e) => handleVerifyModelChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                {verifyModels.map((model) => (
+                  <option key={model.value} value={model.value}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

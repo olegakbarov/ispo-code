@@ -10,6 +10,7 @@ import { Link } from '@tanstack/react-router'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
+import { useSettingsStore } from '@/lib/stores/settings'
 
 interface TaskSummary {
   path: string
@@ -351,9 +352,17 @@ export function TaskListSidebar() {
     assignToAgentMutation.mutate({ path })
   }, [assignToAgentMutation])
 
+  // Get verification defaults from settings
+  const { defaultVerifyAgentType, defaultVerifyModelId } = useSettingsStore()
+
   const handleRunVerify = useCallback((path: string) => {
-    verifyWithAgentMutation.mutate({ path })
-  }, [verifyWithAgentMutation])
+    verifyWithAgentMutation.mutate({
+      path,
+      // Use settings defaults if available, otherwise let server use its defaults
+      ...(defaultVerifyAgentType && { agentType: defaultVerifyAgentType }),
+      ...(defaultVerifyModelId && { model: defaultVerifyModelId }),
+    })
+  }, [verifyWithAgentMutation, defaultVerifyAgentType, defaultVerifyModelId])
 
   const handleNavigateReview = useCallback((path: string) => {
     // Navigate to task review page for commit & archive

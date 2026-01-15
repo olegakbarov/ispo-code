@@ -8,9 +8,9 @@
  */
 
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useDebouncedCallback } from '@/lib/utils/debounce'
-import type { AgentType } from '@/lib/agent/types'
+import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
@@ -27,6 +27,9 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { tasksReducer, createInitialState } from '@/lib/stores/tasks-reducer'
 import { useSynchronizeAgentType } from '@/lib/hooks/use-synchronize-agent-type'
+import { useAudioNotification } from '@/lib/hooks/use-audio-notification'
+import { isTerminalStatus } from '@/lib/agent/status'
+import { useSettingsStore } from '@/lib/stores/settings'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -142,6 +145,51 @@ export function TasksPage({
     }
   )
 
+  const [audioSessionSnapshot, setAudioSessionSnapshot] = useState<{
+    id: string
+    status: SessionStatus
+  } | null>(null)
+
+  useEffect(() => {
+    if (!activeSessionId) return
+
+    const nextStatus = liveSession?.status ?? activeSessionInfo?.status
+    const nextId = liveSession?.id ?? activeSessionId
+
+    if (!nextStatus) return
+
+    setAudioSessionSnapshot((prev) => {
+      if (prev?.id === nextId && prev.status === nextStatus) return prev
+      return { id: nextId, status: nextStatus }
+    })
+  }, [activeSessionId, activeSessionInfo?.status, liveSession?.id, liveSession?.status])
+
+  const prevAudioSessionIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const prev = prevAudioSessionIdRef.current
+    const current = activeSessionId ?? null
+    prevAudioSessionIdRef.current = current
+
+    if (!prev || current) return
+
+    const lastStatus = audioSessionSnapshot?.id === prev ? audioSessionSnapshot.status : undefined
+    if (lastStatus && isTerminalStatus(lastStatus)) return
+
+    utils.client.agent.get
+      .query({ id: prev })
+      .then((session) => {
+        if (!session) return
+        setAudioSessionSnapshot((snapshot) => {
+          if (snapshot?.id === session.id && snapshot.status === session.status) return snapshot
+          return { id: session.id, status: session.status }
+        })
+      })
+      .catch((error) => {
+        console.error('Failed to fetch final session status for audio notification:', error)
+      })
+  }, [activeSessionId, audioSessionSnapshot?.id, audioSessionSnapshot?.status, utils.client.agent.get])
+
   const agentSession: AgentSession | null = useMemo(() => {
     if (!activeSessionId) return null
 
@@ -162,6 +210,11 @@ export function TasksPage({
       error: liveSession.error,
     }
   }, [activeSessionId, activeSessionInfo?.status, liveSession])
+
+  useAudioNotification({
+    status: audioSessionSnapshot?.status,
+    sessionId: audioSessionSnapshot?.id,
+  })
 
   // Check if active session is a planning session
   const isActivePlanningSession = useMemo(() => {
@@ -234,6 +287,45 @@ export function TasksPage({
     preferredOrder: verifyPreferredOrder,
     onTypeChange: handleVerifyAgentTypeChange,
   })
+
+  // Initialize debug agents when available planner types change
+  useEffect(() => {
+    if (availablePlannerTypes.length > 0 && create.debugAgents.length === 0) {
+      dispatch({ type: 'INIT_DEBUG_AGENTS', payload: availablePlannerTypes })
+    }
+  }, [availablePlannerTypes, create.debugAgents.length])
+
+  // Apply settings defaults on mount
+  const {
+    defaultPlanningAgentType,
+    defaultVerifyAgentType,
+    defaultVerifyModelId,
+  } = useSettingsStore()
+
+  const hasAppliedSettingsRef = useRef(false)
+  useEffect(() => {
+    if (hasAppliedSettingsRef.current) return
+    hasAppliedSettingsRef.current = true
+
+    // Apply default planning agent from settings
+    if (defaultPlanningAgentType && availablePlannerTypes.includes(defaultPlanningAgentType)) {
+      dispatch({ type: 'SET_CREATE_AGENT_TYPE', payload: defaultPlanningAgentType })
+    }
+
+    // Apply default verify agent and model from settings
+    if (defaultVerifyAgentType && availableTypes.includes(defaultVerifyAgentType)) {
+      dispatch({ type: 'SET_VERIFY_AGENT_TYPE', payload: defaultVerifyAgentType })
+      if (defaultVerifyModelId) {
+        dispatch({ type: 'SET_VERIFY_MODEL', payload: defaultVerifyModelId })
+      }
+    }
+  }, [
+    defaultPlanningAgentType,
+    defaultVerifyAgentType,
+    defaultVerifyModelId,
+    availablePlannerTypes,
+    availableTypes,
+  ])
 
   // Build search params for navigation (preserves filter/sort)
   const buildSearchParams = useCallback(() => {
@@ -382,6 +474,59 @@ export function TasksPage({
       navigate({
         to: '/agents/$sessionId',
         params: { sessionId: data.sessionId },
+        search: { taskPath: data.path },
+      })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
+    },
+  })
+
+  const debugWithAgentsMutation = trpc.tasks.debugWithAgents.useMutation({
+    onMutate: async ({ title }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Generate temp path for optimistic entry
+      const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
+
+      // Optimistically add to list with default progress
+      const now = new Date().toISOString()
+      if (previousList) {
+        utils.tasks.list.setData(undefined, [
+          {
+            path: tempPath,
+            title,
+            archived: false,
+            createdAt: now,
+            updatedAt: now,
+            source: 'tasks-dir' as const,
+            progress: { total: 0, done: 0, inProgress: 0 },
+            subtaskCount: 0,
+            hasSubtasks: false,
+          },
+          ...previousList,
+        ])
+      }
+
+      return { previousList, tempPath }
+    },
+    onSuccess: (data, _variables, context) => {
+      // Remove temp entry
+      if (context?.tempPath && context.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
+      utils.tasks.list.invalidate()
+      // Navigate to first agent session to watch debugging
+      navigate({
+        to: '/agents/$sessionId',
+        params: { sessionId: data.sessionIds[0] },
         search: { taskPath: data.path },
       })
     },
@@ -881,12 +1026,27 @@ export function TasksPage({
 
     try {
       if (create.useAgent) {
-        await createWithAgentMutation.mutateAsync({
-          title,
-          taskType: create.taskType,
-          agentType: create.agentType,
-          model: create.model || undefined,
-        })
+        if (create.taskType === 'bug') {
+          // Multi-agent debug for bug tasks
+          const selectedAgents = create.debugAgents
+            .filter((da) => da.selected)
+            .map((da) => ({ agentType: da.agentType, model: da.model || undefined }))
+
+          if (selectedAgents.length > 0) {
+            await debugWithAgentsMutation.mutateAsync({
+              title,
+              agents: selectedAgents,
+            })
+          }
+        } else {
+          // Single agent planning for feature tasks
+          await createWithAgentMutation.mutateAsync({
+            title,
+            taskType: create.taskType,
+            agentType: create.agentType,
+            model: create.model || undefined,
+          })
+        }
       } else {
         await createMutation.mutateAsync({ title })
       }
@@ -1271,7 +1431,7 @@ export function TasksPage({
 
       <CreateTaskModal
         isOpen={create.open}
-        isCreating={createMutation.isPending || createWithAgentMutation.isPending}
+        isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
         newTitle={create.title}
         taskType={create.taskType}
         useAgent={create.useAgent}
@@ -1279,6 +1439,7 @@ export function TasksPage({
         createModel={create.model}
         availableTypes={availableTypes}
         availablePlannerTypes={availablePlannerTypes}
+        debugAgents={create.debugAgents}
         onClose={handleCloseCreate}
         onCreate={handleCreate}
         onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
@@ -1286,6 +1447,8 @@ export function TasksPage({
         onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
         onAgentTypeChange={handleCreateAgentTypeChange}
         onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
+        onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
+        onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
       />
 
       {/* Verify uses ReviewModal (single agent) - defaults to codex */}

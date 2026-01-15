@@ -21,6 +21,13 @@ export interface EditorState {
   dirty: boolean
 }
 
+/** Agent selection for multi-agent debug */
+export interface DebugAgentSelection {
+  agentType: PlannerAgentType
+  model: string
+  selected: boolean
+}
+
 export interface CreateModalState {
   open: boolean
   title: string
@@ -28,6 +35,8 @@ export interface CreateModalState {
   useAgent: boolean
   agentType: PlannerAgentType
   model: string
+  /** Multi-agent debug selections (bug type only) */
+  debugAgents: DebugAgentSelection[]
 }
 
 export interface RunAgentState {
@@ -105,6 +114,9 @@ export type TasksAction =
   | { type: 'SET_CREATE_AGENT_TYPE'; payload: PlannerAgentType }
   | { type: 'SET_CREATE_MODEL'; payload: string }
   | { type: 'RESET_CREATE_MODAL' }
+  | { type: 'TOGGLE_DEBUG_AGENT'; payload: PlannerAgentType }
+  | { type: 'SET_DEBUG_AGENT_MODEL'; payload: { agentType: PlannerAgentType; model: string } }
+  | { type: 'INIT_DEBUG_AGENTS'; payload: PlannerAgentType[] }
 
   // Run agent actions
   | { type: 'SET_RUN_AGENT_TYPE'; payload: AgentType }
@@ -155,6 +167,7 @@ export const initialTasksState: TasksState = {
     useAgent: true,
     agentType: 'codex',
     model: getDefaultModelId('codex'),
+    debugAgents: [], // Initialized dynamically based on available types
   },
   run: {
     agentType: 'codex',
@@ -240,6 +253,46 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
           ...initialTasksState.create,
           agentType: state.create.agentType, // Preserve current agent selection
           model: state.create.model,
+          debugAgents: state.create.debugAgents.map((da) => ({ ...da, selected: false })),
+        },
+      }
+
+    case 'TOGGLE_DEBUG_AGENT':
+      return {
+        ...state,
+        create: {
+          ...state.create,
+          debugAgents: state.create.debugAgents.map((da) =>
+            da.agentType === action.payload
+              ? { ...da, selected: !da.selected }
+              : da
+          ),
+        },
+      }
+
+    case 'SET_DEBUG_AGENT_MODEL':
+      return {
+        ...state,
+        create: {
+          ...state.create,
+          debugAgents: state.create.debugAgents.map((da) =>
+            da.agentType === action.payload.agentType
+              ? { ...da, model: action.payload.model }
+              : da
+          ),
+        },
+      }
+
+    case 'INIT_DEBUG_AGENTS':
+      return {
+        ...state,
+        create: {
+          ...state.create,
+          debugAgents: action.payload.map((agentType) => ({
+            agentType,
+            model: getDefaultModelId(agentType),
+            selected: false,
+          })),
         },
       }
 
@@ -363,12 +416,47 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
 // Helper to create initial state with props
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function createInitialState(createModalOpen: boolean): TasksState {
+export interface InitialStateDefaults {
+  createModalOpen: boolean
+  /** Default planning agent type from settings */
+  defaultPlanningAgentType?: PlannerAgentType | null
+  /** Default verify agent type from settings */
+  defaultVerifyAgentType?: AgentType | null
+  /** Default verify model from settings */
+  defaultVerifyModelId?: string | null
+}
+
+export function createInitialState(defaults: InitialStateDefaults | boolean): TasksState {
+  // Support legacy boolean argument for backward compatibility
+  const opts: InitialStateDefaults = typeof defaults === 'boolean'
+    ? { createModalOpen: defaults }
+    : defaults
+
+  const {
+    createModalOpen,
+    defaultPlanningAgentType,
+    defaultVerifyAgentType,
+    defaultVerifyModelId,
+  } = opts
+
   return {
     ...initialTasksState,
     create: {
       ...initialTasksState.create,
       open: createModalOpen,
+      // Use settings default if provided, otherwise fall back to initial state default
+      agentType: defaultPlanningAgentType ?? initialTasksState.create.agentType,
+      model: defaultPlanningAgentType
+        ? getDefaultModelId(defaultPlanningAgentType)
+        : initialTasksState.create.model,
+    },
+    verify: {
+      ...initialTasksState.verify,
+      // Use settings default if provided, otherwise fall back to initial state default
+      agentType: defaultVerifyAgentType ?? initialTasksState.verify.agentType,
+      model: defaultVerifyModelId ?? (defaultVerifyAgentType
+        ? getDefaultModelId(defaultVerifyAgentType)
+        : initialTasksState.verify.model),
     },
   }
 }
