@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from "child_process"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { randomBytes } from "crypto"
-import type { AgentType } from "../lib/agent/types"
+import type { AgentType, ImageAttachment } from "../lib/agent/types"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -23,10 +23,18 @@ export interface SpawnDaemonConfig {
   workingDir: string
   daemonNonce?: string
   model?: string
+  /** Display title for sidebar (e.g., "Comment: file.ts:42") */
+  title?: string
   cliSessionId?: string
   isResume?: boolean
   taskPath?: string
+  /** Source file path if session originated from a file comment */
+  sourceFile?: string
+  /** Source line number if session originated from an inline comment */
+  sourceLine?: number
   streamServerUrl?: string
+  /** Image attachments for multimodal input */
+  attachments?: ImageAttachment[]
 }
 
 /**

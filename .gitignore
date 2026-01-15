@@ -11,3 +11,7 @@ src/routeTree.gen.ts
 data/
 .streams
 logs/
+.claude
+.opencode
+.codex
+worktrees

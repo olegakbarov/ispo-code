@@ -6,7 +6,7 @@
 import { useState, useMemo, useCallback } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
-import { GitCommit, Loader2, Check, X, ChevronRight, ChevronDown, History, FileText, Archive, RotateCcw } from "lucide-react"
+import { Loader2, Check, X, ChevronRight, ChevronDown, FileText, Archive, RotateCcw, GitCommit } from "lucide-react"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
 import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
@@ -21,6 +21,7 @@ interface TaskReviewPanelProps {
   isRestoring?: boolean
   onArchive?: () => void
   onRestore?: () => void
+  onCommitAndArchive?: () => void
 }
 
 export function TaskReviewPanel({
@@ -32,6 +33,7 @@ export function TaskReviewPanel({
   isRestoring = false,
   onArchive,
   onRestore,
+  onCommitAndArchive,
 }: TaskReviewPanelProps) {
   const { theme } = useTheme()
   const utils = trpc.useUtils()
@@ -88,11 +90,7 @@ export function TaskReviewPanel({
   // Local state
   // Map absolute path -> git-relative path for selected files
   const [selectedFiles, setSelectedFiles] = useState<Map<string, string>>(new Map())
-  const [commitMessage, setCommitMessage] = useState("")
-  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false)
   const [expandedSessions, setExpandedSessions] = useState<Set<string> | null>(null)
-  const [showCommitHistory, setShowCommitHistory] = useState(true)
-  const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set())
 
   // Diff panel state
   const [openFiles, setOpenFiles] = useState<string[]>([])
@@ -106,92 +104,6 @@ export function TaskReviewPanel({
   const resolvedTheme = theme === "system"
     ? (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : theme
-
-  // Commit mutation with optimistic updates
-  const commitMutation = trpc.git.commitScoped.useMutation({
-    onMutate: async ({ files }) => {
-      // 1. Cancel outgoing refetches to avoid overwriting optimistic update
-      await utils.git.status.cancel()
-      await utils.tasks.getChangedFilesForTask.cancel()
-
-      // 2. Snapshot current state for rollback
-      const previousStatus = utils.git.status.getData()
-      const previousChangedFiles = utils.tasks.getChangedFilesForTask.getData({ path: taskPath })
-      const previousSelectedFiles = new Map(selectedFiles)
-      const previousCommitMessage = commitMessage
-
-      // 3. Build set of git-relative paths being committed
-      const commitSet = new Set(files)
-
-      // 4. Optimistically update git status cache - remove committed files
-      if (previousStatus) {
-        utils.git.status.setData(undefined, {
-          ...previousStatus,
-          staged: previousStatus.staged.filter((f) => !commitSet.has(f.file)),
-          modified: previousStatus.modified.filter((f) => !commitSet.has(f.file)),
-          untracked: previousStatus.untracked.filter((f) => !commitSet.has(f)),
-        })
-      }
-
-      // 5. Optimistically update changed files cache - remove committed files
-      if (previousChangedFiles) {
-        utils.tasks.getChangedFilesForTask.setData(
-          { path: taskPath },
-          previousChangedFiles.filter((f) => {
-            const gitPath = f.repoRelativePath || f.relativePath || f.path
-            return !commitSet.has(gitPath)
-          })
-        )
-      }
-
-      // 6. Clear local selection state immediately
-      setSelectedFiles(new Map())
-      setCommitMessage("")
-
-      // 7. Return rollback context
-      return {
-        previousStatus,
-        previousChangedFiles,
-        previousSelectedFiles,
-        previousCommitMessage,
-      }
-    },
-    onError: (_err, _variables, context) => {
-      // Rollback on error
-      if (context?.previousStatus) {
-        utils.git.status.setData(undefined, context.previousStatus)
-      }
-      if (context?.previousChangedFiles) {
-        utils.tasks.getChangedFilesForTask.setData({ path: taskPath }, context.previousChangedFiles)
-      }
-      if (context?.previousSelectedFiles) {
-        setSelectedFiles(context.previousSelectedFiles)
-      }
-      if (context?.previousCommitMessage) {
-        setCommitMessage(context.previousCommitMessage)
-      }
-    },
-    onSettled: () => {
-      // Always refetch to ensure consistency after mutation settles
-      utils.git.status.invalidate()
-      utils.tasks.getChangedFilesForTask.invalidate()
-      utils.tasks.hasUncommittedChanges.invalidate()
-    },
-  })
-
-  // Generate commit message mutation
-  const generateMessageMutation = trpc.git.generateCommitMessage.useMutation()
-
-  // Get git-relative paths for all changed files
-  const gitRelativeFiles = useMemo(() => {
-    return changedFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
-  }, [changedFiles])
-
-  // Query commits for the changed files (for commit history panel)
-  const { data: commits = [], isLoading: commitsLoading } = trpc.git.commitsForFiles.useQuery(
-    { files: gitRelativeFiles, limit: 50 },
-    { enabled: gitRelativeFiles.length > 0 && showCommitHistory }
-  )
 
   // Query uncommitted status to distinguish "no changes yet" vs "all committed"
   const { data: uncommittedStatus } = trpc.tasks.hasUncommittedChanges.useQuery(
@@ -270,47 +182,6 @@ export function TaskReviewPanel({
     setExpandedSessions(newExpanded)
   }
 
-  const toggleCommit = (commitHash: string) => {
-    const newExpanded = new Set(expandedCommits)
-    if (newExpanded.has(commitHash)) {
-      newExpanded.delete(commitHash)
-    } else {
-      newExpanded.add(commitHash)
-    }
-    setExpandedCommits(newExpanded)
-  }
-
-  const handleGenerateMessage = async () => {
-    if (selectedFiles.size === 0) return
-
-    setIsGeneratingMessage(true)
-    try {
-      // Get git-relative paths for the selected files
-      const gitPaths = Array.from(selectedFiles.values())
-      const result = await generateMessageMutation.mutateAsync({
-        taskTitle,
-        taskDescription,
-        files: gitPaths,
-      })
-      setCommitMessage(result.message)
-    } catch (error) {
-      console.error("Failed to generate commit message:", error)
-    } finally {
-      setIsGeneratingMessage(false)
-    }
-  }
-
-  const handleCommit = async () => {
-    if (selectedFiles.size === 0 || !commitMessage.trim()) return
-
-    // Get git-relative paths for the selected files
-    const gitPaths = Array.from(selectedFiles.values())
-    await commitMutation.mutateAsync({
-      files: gitPaths,
-      message: commitMessage,
-    })
-  }
-
   // Diff panel handlers
   const handleFileClick = useCallback((file: string, view: GitDiffView) => {
     setOpenFiles((prev) => {
@@ -382,8 +253,6 @@ export function TaskReviewPanel({
       newContent: result.newContent,
     }
   }, [utils])
-
-  const canCommit = selectedFiles.size > 0 && commitMessage.trim().length > 0 && !commitMutation.isPending
 
   if (filesLoading) {
     return (
@@ -560,167 +429,25 @@ export function TaskReviewPanel({
             </div>
           ))}
 
-          {/* Commit History Section */}
-          <div className="border-t border-border">
-            <button
-              onClick={() => setShowCommitHistory(!showCommitHistory)}
-              aria-expanded={showCommitHistory}
-              aria-label={`Commit history, ${commits.length} commit${commits.length === 1 ? "" : "s"}`}
-              className="w-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-accent text-left"
-            >
-              {showCommitHistory ? (
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-              )}
-              <History className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-              <span className="text-xs font-medium text-foreground flex-1">
-                Commit History
-              </span>
-              {commits.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {commits.length} commit{commits.length === 1 ? "" : "s"}
-                </span>
-              )}
-            </button>
-
-            {showCommitHistory && (
-              <div className="pb-4">
-                {commitsLoading ? (
-                  <div className="flex items-center justify-center p-4">
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                  </div>
-                ) : commits.length === 0 ? (
-                  <div className="px-4 py-3 text-xs text-muted-foreground text-center">
-                    No commits found for these files
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {commits.map((commit) => (
-                      <div key={commit.hash} className="px-4">
-                        <button
-                          onClick={() => toggleCommit(commit.hash)}
-                          aria-expanded={expandedCommits.has(commit.hash)}
-                          aria-label={`Commit ${commit.hash}: ${commit.message.slice(0, 50)}`}
-                          className="w-full text-left p-2 rounded hover:bg-accent"
-                        >
-                          <div className="flex items-start gap-2">
-                            {expandedCommits.has(commit.hash) ? (
-                              <ChevronDown className="w-3 h-3 mt-1 text-muted-foreground shrink-0" aria-hidden="true" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3 mt-1 text-muted-foreground shrink-0" aria-hidden="true" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs font-mono text-primary">
-                                  {commit.hash}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {commit.date}
-                                </span>
-                              </div>
-                              <div className="text-sm text-foreground line-clamp-2">
-                                {commit.message}
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {commit.author}
-                              </div>
-                            </div>
-                          </div>
-                        </button>
-
-                        {expandedCommits.has(commit.hash) && (
-                          <div className="pl-7 pr-2 pb-2 space-y-1">
-                            <div className="text-xs text-muted-foreground mb-1">
-                              Files changed:
-                            </div>
-                            {commit.files.map((file) => (
-                              <div
-                                key={file}
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  handleFileClick(file, "working")
-                                }}
-                                className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 text-xs font-mono cursor-pointer"
-                              >
-                                <FileText className="w-3 h-3 text-muted-foreground shrink-0" />
-                                <span className="truncate">{file}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Commit controls */}
-        <div className="border-t border-border p-4 space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium" id="commit-message-label">Commit Message</label>
-              <button
-                onClick={handleGenerateMessage}
-                disabled={selectedFiles.size === 0 || isGeneratingMessage}
-                aria-label={isGeneratingMessage ? "Generating commit message" : "Generate commit message with AI"}
-                className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isGeneratingMessage ? "Generating..." : "Generate with AI"}
-              </button>
-            </div>
-            <textarea
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              placeholder="Describe your changes..."
-              aria-labelledby="commit-message-label"
-              className="w-full min-h-[100px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-              disabled={commitMutation.isPending}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              {selectedFiles.size} of {uncommittedFiles.length} files selected
-            </div>
+        {/* Commit and Archive button */}
+        {onCommitAndArchive && (
+          <div className="border-t border-border p-4">
             <button
-              onClick={handleCommit}
-              disabled={!canCommit}
-              aria-label={commitMutation.isPending ? "Committing changes" : `Commit ${selectedFiles.size} selected files`}
-              className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              onClick={onCommitAndArchive}
+              disabled={uncommittedFiles.length === 0}
+              aria-label="Commit all changes and archive this task"
+              className="w-full px-4 py-3 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {commitMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  Committing...
-                </>
-              ) : (
-                <>
-                  <GitCommit className="w-4 h-4" aria-hidden="true" />
-                  Commit
-                </>
-              )}
+              <GitCommit className="w-4 h-4" aria-hidden="true" />
+              Commit and Archive
             </button>
+            <div className="text-xs text-muted-foreground text-center mt-2">
+              {uncommittedFiles.length} file{uncommittedFiles.length === 1 ? "" : "s"} will be committed
+            </div>
           </div>
-
-          {/* Success/Error messages */}
-          {commitMutation.isSuccess && (
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 px-3 py-2 rounded">
-              <Check className="w-4 h-4" />
-              Successfully committed changes
-            </div>
-          )}
-          {commitMutation.isError && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">
-              <X className="w-4 h-4" />
-              {commitMutation.error instanceof Error ? commitMutation.error.message : "Failed to commit"}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Right panel - Diff viewer */}

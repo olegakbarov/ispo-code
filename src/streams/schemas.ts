@@ -29,6 +29,12 @@ export interface SessionCreatedEvent {
   taskPath?: string
   /** Display title for sidebar (e.g., "Review: Task Name") */
   title?: string
+  /** Custom user instructions for review/verify tasks */
+  instructions?: string
+  /** Source file path if session originated from a file comment */
+  sourceFile?: string
+  /** Source line number if session originated from an inline comment */
+  sourceLine?: number
   timestamp: string
 }
 
@@ -108,6 +114,7 @@ export type SessionStreamEvent =
   | InputRequestEvent
   | CLISessionIdEvent
   | DaemonStartedEvent
+  | AgentStateEvent
 
 export interface AgentOutputEvent {
   type: "output"
@@ -141,6 +148,18 @@ export interface DaemonStartedEvent {
   type: "daemon_started"
   pid: number
   daemonNonce: string
+  timestamp: string
+}
+
+/**
+ * Agent state event - persists conversation state for SDK agents (Cerebras, Gemini)
+ * Published after each turn completion for resume support
+ */
+export interface AgentStateEvent {
+  type: "agent_state"
+  agentType: "cerebras" | "gemini" | "opencode"
+  /** Serialized conversation messages (format depends on agentType) */
+  messages: unknown[]
   timestamp: string
 }
 
@@ -228,6 +247,16 @@ export const createSessionEvent = {
     type: "daemon_started",
     pid,
     daemonNonce,
+    timestamp: new Date().toISOString(),
+  }),
+
+  agentState: (
+    agentType: "cerebras" | "gemini" | "opencode",
+    messages: unknown[]
+  ): AgentStateEvent => ({
+    type: "agent_state",
+    agentType,
+    messages,
     timestamp: new Date().toISOString(),
   }),
 }

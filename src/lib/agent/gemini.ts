@@ -13,7 +13,7 @@ import { google } from "@ai-sdk/google"
 import { execSync } from "child_process"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { z } from "zod"
-import type { AgentOutputChunk, GeminiMessageData } from "./types"
+import type { AgentOutputChunk, GeminiMessageData, ImageAttachment } from "./types"
 import { validatePath } from "./path-validator.js"
 
 // Limits for tool operations
@@ -31,6 +31,8 @@ export interface GeminiAgentOptions {
   systemPrompt?: string
   /** Existing conversation state for resuming a session */
   messages?: GeminiMessageData[]
+  /** Image attachments for the initial prompt */
+  attachments?: ImageAttachment[]
 }
 
 export interface GeminiEvents {
@@ -98,6 +100,8 @@ export class GeminiAgent extends EventEmitter {
   private totalTokens = { input: 0, output: 0 }
   private sessionId: string
   private messages: ModelMessage[] = []
+  /** Pending attachments for the next run() call */
+  private pendingAttachments?: ImageAttachment[]
 
   constructor(options: GeminiAgentOptions) {
     super()
@@ -105,6 +109,7 @@ export class GeminiAgent extends EventEmitter {
     this.model = options.model ?? DEFAULT_MODEL
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     this.sessionId = this.generateSessionId()
+    this.pendingAttachments = options.attachments
 
     // Restore messages from session if provided
     if (options.messages && options.messages.length > 0) {
@@ -297,13 +302,50 @@ export class GeminiAgent extends EventEmitter {
   }
 
   /**
+   * Build multimodal content for a message with attachments
+   */
+  private buildMultimodalContent(text: string, attachments?: ImageAttachment[]): string | Array<{ type: string; text?: string; image?: string; mimeType?: string }> {
+    if (!attachments || attachments.length === 0) {
+      return text
+    }
+
+    // Build content array with text and images
+    const content: Array<{ type: string; text?: string; image?: string; mimeType?: string }> = []
+
+    // Add text part first
+    if (text) {
+      content.push({ type: "text", text })
+    }
+
+    // Add image parts - Vercel AI SDK expects base64 data URL format
+    for (const att of attachments) {
+      content.push({
+        type: "image",
+        image: `data:${att.mimeType};base64,${att.data}`,
+        mimeType: att.mimeType,
+      })
+    }
+
+    return content
+  }
+
+  /**
+   * Set attachments for the next message (used for follow-up messages)
+   */
+  setAttachments(attachments?: ImageAttachment[]): void {
+    this.pendingAttachments = attachments
+  }
+
+  /**
    * Main execution loop
    */
   async run(prompt: string): Promise<void> {
     this.emit("session_id", this.sessionId)
 
-    // Add user message
-    this.messages.push({ role: "user", content: prompt })
+    // Add user message with any pending attachments
+    const content = this.buildMultimodalContent(prompt, this.pendingAttachments)
+    this.messages.push({ role: "user", content } as ModelMessage)
+    this.pendingAttachments = undefined // Clear after use
 
     await this.executeLoop()
   }

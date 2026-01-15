@@ -15,13 +15,23 @@ config()
 
 import { EventEmitter } from "events"
 import { StreamPublisher } from "./stream-publisher"
-import { createRegistryEvent, createSessionEvent } from "../streams/schemas"
+import { createRegistryEvent, createSessionEvent, type AgentStateEvent } from "../streams/schemas"
 import { CerebrasAgent } from "../lib/agent/cerebras"
 import { GeminiAgent } from "../lib/agent/gemini"
 import { OpencodeAgent } from "../lib/agent/opencode"
 import { CLIAgentRunner } from "../lib/agent/cli-runner"
 import { MetadataAnalyzer } from "../lib/agent/metadata-analyzer"
-import type { AgentType, AgentOutputChunk } from "../lib/agent/types"
+import { extractTaskReviewOutput } from "../lib/agent/config"
+import { saveTask } from "../lib/agent/task-service"
+import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
+
+/** Agent interface with optional getMessages for SDK agents */
+interface SDKAgentLike extends EventEmitter {
+  abort: () => void
+  run: (p: string) => Promise<void>
+  getMessages?: () => CerebrasMessageData[] | GeminiMessageData[]
+  setAttachments?: (attachments?: ImageAttachment[]) => void
+}
 
 export interface DaemonConfig {
   sessionId: string
@@ -33,9 +43,49 @@ export interface DaemonConfig {
   taskPath?: string
   /** Display title for sidebar (e.g., "Review: Task Name") */
   title?: string
+  /** Custom user instructions for review/verify tasks */
+  instructions?: string
+  /** Source file path if session originated from a file comment */
+  sourceFile?: string
+  /** Source line number if session originated from an inline comment */
+  sourceLine?: number
   streamServerUrl?: string
   isResume?: boolean
   cliSessionId?: string
+  /** Reconstructed conversation state for SDK agents (from stream events) */
+  reconstructedMessages?: unknown[]
+  /** Image attachments for multimodal input */
+  attachments?: ImageAttachment[]
+}
+
+/**
+ * Format conversation history as context for agents that don't support message restoration
+ * (e.g., OpenCode which creates fresh sessions via SDK)
+ */
+function formatConversationContext(messages: unknown[]): string {
+  if (!messages || messages.length === 0) return ""
+
+  const lines: string[] = ["=== Previous Conversation Context ===", ""]
+
+  for (const msg of messages) {
+    const m = msg as { role?: string; content?: string | null }
+    if (!m.role || m.role === "system" || m.role === "tool") continue
+
+    const role = m.role === "user" ? "User" : "Assistant"
+    const content = m.content ?? ""
+
+    // Truncate very long messages
+    const truncated = content.length > 2000
+      ? content.slice(0, 2000) + "... [truncated]"
+      : content
+
+    if (truncated) {
+      lines.push(`${role}: ${truncated}`, "")
+    }
+  }
+
+  lines.push("=== Continue from here ===", "")
+  return lines.join("\n")
 }
 
 /**
@@ -46,7 +96,8 @@ export class AgentDaemon {
   private config: DaemonConfig
   private analyzer: MetadataAnalyzer
   private abortController: AbortController
-  private agent?: EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }
+  private agent?: SDKAgentLike
+  private outputBuffer: AgentOutputChunk[] = []
 
   constructor(config: DaemonConfig) {
     this.config = config
@@ -63,7 +114,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, isResume, cliSessionId } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, isResume, cliSessionId } =
       this.config
     const { daemonNonce } = this.config
 
@@ -85,18 +136,33 @@ export class AgentDaemon {
             model,
             taskPath,
             title,
+            instructions,
+            sourceFile,
+            sourceLine,
           })
         )
       }
 
-      // 2. Publish the user message to output stream
+      // 2. Publish the user message to output stream (with attachments if any)
+      const userMessageChunk: AgentOutputChunk = {
+        type: "user_message",
+        content: prompt,
+        timestamp: new Date().toISOString(),
+      }
+
+      // Add attachments to the user message if present
+      if (this.config.attachments && this.config.attachments.length > 0) {
+        userMessageChunk.attachments = this.config.attachments.map((att) => ({
+          type: att.type,
+          mimeType: att.mimeType,
+          data: att.data,
+          fileName: att.fileName,
+        }))
+      }
+
       await this.publisher.publishSession(
         sessionId,
-        createSessionEvent.output({
-          type: "user_message",
-          content: prompt,
-          timestamp: new Date().toISOString(),
-        })
+        createSessionEvent.output(userMessageChunk)
       )
 
       // 3. Publish status change to running
@@ -109,15 +175,23 @@ export class AgentDaemon {
       )
 
       // 4. Create and wire up the agent
-      this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId)
+      const { reconstructedMessages, attachments } = this.config
+      this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId, reconstructedMessages, attachments)
 
       // Wire up event handlers
       this.setupAgentHandlers(this.agent, sessionId)
 
-      // 5. Run the agent
-      await this.agent.run(prompt)
+      // 5. Prepare prompt (for OpenCode, prepend conversation context on resume)
+      let effectivePrompt = prompt
+      if (isResume && agentType === "opencode" && reconstructedMessages && reconstructedMessages.length > 0) {
+        const context = formatConversationContext(reconstructedMessages)
+        effectivePrompt = context + prompt
+      }
 
-      // 6. Publish completion
+      // 6. Run the agent
+      await this.agent.run(effectivePrompt)
+
+      // 7. Publish completion
       const metadata = this.analyzer.getMetadata()
       await this.publisher.publishRegistry(
         createRegistryEvent.completed({
@@ -126,6 +200,36 @@ export class AgentDaemon {
         })
       )
       await this.publisher.publishSession(sessionId, createSessionEvent.statusChange("completed"))
+
+      // 8. Post-process review/verify sessions: extract and write updated task
+      if (taskPath && title) {
+        const isReviewOrVerify = title.startsWith("Review:") || title.startsWith("Verify:")
+        if (isReviewOrVerify) {
+          try {
+            // Collect all assistant output into a single text
+            const allOutput = this.outputBuffer
+              .filter((chunk) => chunk.type === "text")
+              .map((chunk) => chunk.content)
+              .join("\n")
+
+            // Extract the updated task content
+            const extractedContent = extractTaskReviewOutput(allOutput)
+            if (extractedContent) {
+              // Write the extracted content to the task file
+              saveTask(workingDir, taskPath, extractedContent)
+              console.log(`[AgentDaemon] Updated task file: ${taskPath}`)
+            } else {
+              console.warn(
+                `[AgentDaemon] Could not extract task review output for ${title}. ` +
+                `Agent may not have used the required markers.`
+              )
+            }
+          } catch (err) {
+            // Log but don't fail the session if post-processing fails
+            console.error(`[AgentDaemon] Failed to post-process ${title}:`, err)
+          }
+        }
+      }
 
       // Flush all pending events
       await this.publisher.close()
@@ -162,23 +266,42 @@ export class AgentDaemon {
     agentType: AgentType,
     workingDir: string,
     model?: string,
-    cliSessionId?: string
-  ): Promise<EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }> {
+    cliSessionId?: string,
+    reconstructedMessages?: unknown[],
+    attachments?: ImageAttachment[]
+  ): Promise<SDKAgentLike> {
     switch (agentType) {
       case "cerebras": {
-        return new CerebrasAgent({ workingDir, model }) as any
+        return new CerebrasAgent({
+          workingDir,
+          model,
+          messages: reconstructedMessages as CerebrasMessageData[] | undefined,
+          attachments,
+        }) as unknown as SDKAgentLike
       }
       case "gemini": {
-        return new GeminiAgent({ workingDir, model }) as any
+        return new GeminiAgent({
+          workingDir,
+          model,
+          messages: reconstructedMessages as GeminiMessageData[] | undefined,
+          attachments,
+        }) as unknown as SDKAgentLike
       }
       case "opencode": {
-        return new OpencodeAgent({ workingDir, model }) as any
+        // OpenCode SDK doesn't support message restoration or multimodal
+        // Messages will be formatted as context in the prompt by the caller
+        return new OpencodeAgent({ workingDir, model }) as unknown as SDKAgentLike
       }
       case "claude":
       case "codex": {
         const cliRunner = new CLIAgentRunner()
+        // Store attachments for CLI runner to use
+        let pendingAttachments = attachments
         const runnerWrapper = Object.assign(new EventEmitter(), {
           abort: () => cliRunner.abort(),
+          setAttachments: (atts?: ImageAttachment[]) => {
+            pendingAttachments = atts
+          },
           run: async (p: string) => {
             cliRunner.on("output", (chunk: AgentOutputChunk) => {
               runnerWrapper.emit("output", chunk)
@@ -209,9 +332,11 @@ export class AgentDaemon {
               cliSessionId,
               isResume: Boolean(cliSessionId),
               model,
+              attachments: pendingAttachments,
             })
+            pendingAttachments = undefined // Clear after use
           },
-        }) as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }
+        }) as SDKAgentLike
         return runnerWrapper
       }
       default:
@@ -228,6 +353,7 @@ export class AgentDaemon {
   ): void {
     agent.on("output", async (chunk: AgentOutputChunk) => {
       this.analyzer.processChunk(chunk)
+      this.outputBuffer.push(chunk) // Store for post-processing
       await this.publisher.publishSession(sessionId, createSessionEvent.output(chunk))
     })
 
@@ -251,8 +377,20 @@ export class AgentDaemon {
       )
     })
 
-    agent.on("complete", (data: { tokensUsed: { input: number; output: number } }) => {
+    agent.on("complete", async (data: { tokensUsed: { input: number; output: number } }) => {
       this.analyzer.updateTokenCounts(data.tokensUsed.input, data.tokensUsed.output)
+
+      // Publish agent state for SDK agents (enables resume with conversation context)
+      if (this.agent && typeof this.agent.getMessages === "function") {
+        const messages = this.agent.getMessages()
+        if (messages && messages.length > 0) {
+          const agentType = this.config.agentType as "cerebras" | "gemini" | "opencode"
+          await this.publisher.publishSession(
+            sessionId,
+            createSessionEvent.agentState(agentType, messages)
+          )
+        }
+      }
     })
 
     agent.on("error", (error: string) => {

@@ -129,8 +129,14 @@ export class OpencodeAgent extends EventEmitter {
         },
       })
 
-      // Wait for events to finish processing
-      await eventPromise
+      // Signal event processing to stop (prompt API call completed means we're done)
+      this.aborted = true
+
+      // Wait briefly for any remaining events, but don't block forever
+      await Promise.race([
+        eventPromise,
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ])
 
       if (promptResult.error) {
         const err = promptResult.error as { message?: string }

@@ -29,6 +29,17 @@ export interface TaskSummary {
 
 export interface TaskFile extends TaskSummary {
   content: string
+  splitFrom?: string
+}
+
+/**
+ * Represents a section in a task (phase/header with checkboxes)
+ */
+export interface TaskSection {
+  title: string
+  checkboxes: string[]
+  startLine: number
+  endLine: number
 }
 
 const TASK_GLOBS: Array<{ pattern: string; source: TaskSource }> = [
@@ -109,6 +120,69 @@ function parseProgressFromMarkdown(content: string): TaskProgress {
   }
 
   return { total, done, inProgress }
+}
+
+/**
+ * Extract splitFrom comment from markdown content
+ * Looks for: <!-- splitFrom: tasks/original.md -->
+ */
+function parseSplitFrom(content: string): string | undefined {
+  const match = content.match(/<!--\s*splitFrom:\s*(.+?)\s*-->/)
+  return match?.[1]
+}
+
+/**
+ * Parse markdown into sections by phase/header
+ * Sections are identified by `### Phase:` or `## ` headers
+ * Returns sections with 3+ checkboxes each
+ */
+export function parseSections(content: string): TaskSection[] {
+  const lines = content.split("\n")
+  const sections: TaskSection[] = []
+
+  let currentSection: TaskSection | null = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const lineNum = i + 1 // 1-indexed
+
+    // Check for section header: ### Phase: X or ## X (but not # which is title)
+    const phaseMatch = line.match(/^###\s*Phase[:\s]+(.+?)\s*$/)
+    const headerMatch = line.match(/^##\s+(.+?)\s*$/)
+
+    if (phaseMatch || headerMatch) {
+      // Save previous section if it has enough checkboxes
+      if (currentSection && currentSection.checkboxes.length >= 3) {
+        currentSection.endLine = lineNum - 1
+        sections.push(currentSection)
+      }
+
+      // Start new section
+      currentSection = {
+        title: phaseMatch ? phaseMatch[1] : headerMatch![1],
+        checkboxes: [],
+        startLine: lineNum,
+        endLine: lines.length, // Default to end, will be updated
+      }
+      continue
+    }
+
+    // Check for checkbox within current section
+    if (currentSection) {
+      const checkboxMatch = line.match(/^\s*-\s*\[([ xX-])\]\s*(.+?)\s*$/)
+      if (checkboxMatch) {
+        currentSection.checkboxes.push(checkboxMatch[2])
+      }
+    }
+  }
+
+  // Don't forget the last section
+  if (currentSection && currentSection.checkboxes.length >= 3) {
+    currentSection.endLine = lines.length
+    sections.push(currentSection)
+  }
+
+  return sections
 }
 
 function sourceForPath(relPath: string): TaskSource {
@@ -195,6 +269,7 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
   const fallbackTitle = path.basename(relPath, ".md")
   const title = parseTitleFromMarkdown(content, fallbackTitle)
   const progress = parseProgressFromMarkdown(content)
+  const splitFrom = parseSplitFrom(content)
 
   // Determine if task is archived based on path
   const archived = relPath.startsWith("tasks/archive/")
@@ -209,6 +284,7 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
     archived,
     archivedAt,
     content,
+    splitFrom,
   }
 }
 

@@ -112,7 +112,7 @@ export function ToolResult({ content, success = true, toolName }: ToolResultProp
 
       {/* Result content */}
       <pre
-        className={`text-[10px] overflow-x-auto whitespace-pre-wrap ${
+        className={`text-xs overflow-x-auto whitespace-pre-wrap ${
           isError ? "text-error" : "text-text-secondary"
         } ${contentType === "file" ? "font-mono" : ""}`}
       >

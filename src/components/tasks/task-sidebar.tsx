@@ -137,12 +137,12 @@ export function TaskSidebar({
             </div>
           )}
 
-          {/* Review/Verify Buttons */}
-          <div className="flex gap-2">
+          {/* Main action buttons - REVIEW, IMPLEMENT, VERIFY */}
+          <div className="space-y-2">
             <button
               onClick={onReview}
               disabled={!!agentSession}
-              className={`flex-1 px-3 py-2 rounded text-xs font-vcr border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`w-full px-3 py-2 rounded text-xs font-vcr border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 hasActiveDebate
                   ? 'border-accent/50 text-accent hover:bg-accent/10'
                   : 'border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover'
@@ -152,10 +152,34 @@ export function TaskSidebar({
               {hasActiveDebate ? 'Resume Review' : 'Review'}
             </button>
 
+            {/* Implement with Agent */}
+            <Select
+              value={runAgentType}
+              onChange={(e) => onRunAgentTypeChange(e.target.value as AgentType)}
+              variant="sm"
+              disabled={isAssigning || !!agentSession}
+              className="w-full bg-background text-xs py-1.5"
+            >
+              {(Object.keys(agentTypeLabel) as AgentType[]).map((t) => (
+                <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
+                  {agentTypeLabel[t]}
+                </option>
+              ))}
+            </Select>
+
+            <button
+              onClick={onAssignToAgent}
+              disabled={isAssigning || !!agentSession || (availableTypes ? !availableTypes.includes(runAgentType) : false)}
+              className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Assign this task to an AI agent for implementation"
+            >
+              {isAssigning ? 'Implementing...' : 'Implement'}
+            </button>
+
             <button
               onClick={onVerify}
               disabled={!!agentSession}
-              className="flex-1 px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              className="w-full px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
               title="Verify completed items against codebase"
             >
               Verify
@@ -186,59 +210,19 @@ export function TaskSidebar({
               <span className="truncate">Split from: {splitFrom.replace('tasks/', '')}</span>
             </button>
           )}
-
-          {/* Run with Agent */}
-          <div className="space-y-2">
-            <Select
-              value={runAgentType}
-              onChange={(e) => onRunAgentTypeChange(e.target.value as AgentType)}
-              variant="sm"
-              disabled={isAssigning || !!agentSession}
-              className="w-full bg-background text-xs py-1.5"
-            >
-              {(Object.keys(agentTypeLabel) as AgentType[]).map((t) => (
-                <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
-                  {agentTypeLabel[t]}
-                </option>
-              ))}
-            </Select>
-
-            {supportsModelSelection(runAgentType) && (
-              <Select
-                value={runModel}
-                onChange={(e) => onRunModelChange(e.target.value)}
-                variant="sm"
-                disabled={isAssigning || !!agentSession}
-                className="w-full bg-background text-xs py-1.5"
-              >
-                {getModelsForAgentType(runAgentType).map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-
-            <button
-              onClick={onAssignToAgent}
-              disabled={isAssigning || !!agentSession || (availableTypes ? !availableTypes.includes(runAgentType) : false)}
-              className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Assign this task to an AI agent"
-            >
-              {isAssigning ? 'Assigning...' : 'Run'}
-            </button>
-          </div>
         </div>
 
-        {/* Delete Button */}
-        <button
-          onClick={onDelete}
-          disabled={isDeleting}
-          className="w-full px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Delete this task"
-        >
-          {isDeleting ? 'Deleting...' : 'Delete'}
-        </button>
+        {/* Delete Button - at bottom */}
+        <div className="pt-2 border-t border-border/50">
+          <button
+            onClick={onDelete}
+            disabled={isDeleting}
+            className="w-full px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Delete this task"
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
       </div>
     </div>
   )

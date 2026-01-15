@@ -28,7 +28,7 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     }
 
     return (
-      <div className="relative">
+      <div className="relative w-full">
         <select
           ref={ref}
           className={`

@@ -4,6 +4,20 @@
 export type AgentType = "claude" | "codex" | "opencode" | "cerebras" | "gemini"
 
 /**
+ * Image attachment for multimodal agent input
+ */
+export interface ImageAttachment {
+  /** Discriminator for attachment type */
+  type: "image"
+  /** MIME type (e.g., "image/png", "image/jpeg") */
+  mimeType: string
+  /** Base64-encoded image data */
+  data: string
+  /** Optional file name for display */
+  fileName?: string
+}
+
+/**
  * Agent session status
  */
 export type SessionStatus =
@@ -18,6 +32,17 @@ export type SessionStatus =
   | "cancelled"
 
 /**
+ * Serialized image attachment for output chunk metadata
+ * Using Record form to stay compatible with existing metadata type
+ */
+export interface SerializedImageAttachment {
+  type: "image"
+  mimeType: string
+  data: string
+  fileName?: string
+}
+
+/**
  * Output chunk from an agent
  */
 export interface AgentOutputChunk {
@@ -26,6 +51,8 @@ export interface AgentOutputChunk {
   timestamp: string
   /** Serializable metadata - avoid using `unknown` for TanStack serialization */
   metadata?: Record<string, string | number | boolean | null>
+  /** Image attachments for user_message chunks */
+  attachments?: SerializedImageAttachment[]
 }
 
 /**
@@ -249,6 +276,12 @@ export interface AgentSession {
   taskPath?: string
   /** Link to a plan file if this session was created from a plan */
   planPath?: string
+  /** Custom user instructions for review/verify tasks */
+  instructions?: string
+  /** Source file path if session originated from a file comment */
+  sourceFile?: string
+  /** Source line number if session originated from an inline comment */
+  sourceLine?: number
   /** Whether this session can be resumed */
   resumable?: boolean
   /** Timestamp of last resume attempt */
@@ -274,6 +307,12 @@ export interface SpawnAgentParams {
   taskPath?: string
   /** Link to a plan file if this session was created from a plan */
   planPath?: string
+  /** Source file path if session originated from a file comment */
+  sourceFile?: string
+  /** Source line number if session originated from an inline comment */
+  sourceLine?: number
+  /** Image attachments for multimodal input */
+  attachments?: ImageAttachment[]
 }
 
 /**

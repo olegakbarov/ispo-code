@@ -7,7 +7,8 @@ import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import { SimpleErrorBoundary } from '@/components/ui/error-boundary'
 import { ToolCall } from '@/components/agents/tool-call'
 import { ToolResult } from '@/components/agents/tool-result'
-import type { AgentOutputChunk } from '@/lib/agent/types'
+import { ImageAttachmentPreview } from '@/components/agents/image-attachment-input'
+import type { AgentOutputChunk, ImageAttachment } from '@/lib/agent/types'
 
 /**
  * Groups consecutive text chunks and renders them together
@@ -32,7 +33,7 @@ export function OutputRenderer({ chunks }: { chunks: AgentOutputChunk[] }) {
           return (
             <div key={i} className="py-0.5">
               <SimpleErrorBoundary>
-                <StreamingMarkdown content={combinedText} className="text-xs" />
+                <StreamingMarkdown content={combinedText} className="text-sm" />
               </SimpleErrorBoundary>
             </div>
           )
@@ -75,7 +76,7 @@ export function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
     return (
       <div className="border-l-2 border-muted-foreground pl-2 py-0.5">
         <div className="font-vcr text-[10px] text-muted-foreground mb-0.5">THINKING</div>
-        <div className="text-xs text-muted-foreground italic">{content}</div>
+        <div className="text-sm text-muted-foreground italic">{content}</div>
       </div>
     )
   }
@@ -84,7 +85,7 @@ export function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
     return (
       <div className="border-l-2 border-destructive pl-2 py-0.5">
         <div className="font-vcr text-[10px] text-destructive mb-0.5">ERROR</div>
-        <div className="text-xs text-destructive">{content}</div>
+        <div className="text-sm text-destructive">{content}</div>
       </div>
     )
   }
@@ -98,10 +99,15 @@ export function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
   }
 
   if (type === 'user_message') {
+    // Cast attachments to ImageAttachment[] for preview
+    const imageAttachments = chunk.attachments as ImageAttachment[] | undefined
     return (
       <div className="border-l-2 border-primary pl-2 py-1.5 my-2">
         <div className="font-vcr text-[10px] text-primary mb-0.5">USER</div>
-        <div className="text-xs text-foreground whitespace-pre-wrap">{content}</div>
+        <div className="text-sm text-foreground whitespace-pre-wrap">{content}</div>
+        {imageAttachments && imageAttachments.length > 0 && (
+          <ImageAttachmentPreview attachments={imageAttachments} />
+        )}
       </div>
     )
   }

@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { getAgentManager } from './manager'
 import { getSessionStore } from './session-store'
+import type { CerebrasMessageData } from './types'
 
 describe('Session Resumption', () => {
   beforeEach(() => {
@@ -86,9 +87,9 @@ describe('Session Resumption', () => {
         output: [],
         agentType: 'cerebras' as const,
         cerebrasMessages: [
-          { role: 'system', content: 'You are an assistant' },
-          { role: 'user', content: 'test' },
-          { role: 'assistant', content: 'response' },
+          { role: 'system' as const, content: 'You are an assistant' },
+          { role: 'user' as const, content: 'test' },
+          { role: 'assistant' as const, content: 'response' },
         ],
         resumable: true,
         resumeAttempts: 0,
@@ -116,7 +117,7 @@ describe('Session Resumption', () => {
         output: [],
         agentType: 'cerebras' as const,
         cerebrasMessages: [
-          { role: 'system', content: 'You are an assistant' },
+          { role: 'system' as const, content: 'You are an assistant' },
         ],
         resumable: true,
         resumeAttempts: 0,
@@ -152,7 +153,7 @@ describe('Session Resumption', () => {
         output: [],
         agentType: 'cerebras' as const,
         cerebrasMessages: [
-          { role: 'system', content: 'You are an assistant' },
+          { role: 'system' as const, content: 'You are an assistant' },
         ],
         resumable: true,
         resumeAttempts: 0,
@@ -188,18 +189,18 @@ describe('Session Resumption', () => {
       const { CerebrasAgent } = await import('./cerebras')
 
       // Create agent with many messages
-      const messages = [
-        { role: 'system' as const, content: 'You are an assistant' },
+      const messages: CerebrasMessageData[] = [
+        { role: 'system', content: 'You are an assistant' },
       ]
 
       // Add many large messages to exceed context threshold
       for (let i = 0; i < 100; i++) {
         messages.push({
-          role: 'user' as const,
+          role: 'user',
           content: 'This is a test message. '.repeat(1000),
         })
         messages.push({
-          role: 'assistant' as const,
+          role: 'assistant',
           content: 'This is a response. '.repeat(1000),
         })
       }
@@ -342,7 +343,7 @@ describe('Session Resumption', () => {
         output: [],
         agentType: 'cerebras' as const,
         cerebrasMessages: [
-          { role: 'system', content: 'You are an assistant' },
+          { role: 'system' as const, content: 'You are an assistant' },
         ],
         resumable: true,
         resumeAttempts: 0,
@@ -377,7 +378,7 @@ describe('Session Resumption', () => {
         output: [],
         agentType: 'cerebras' as const,
         cerebrasMessages: [
-          { role: 'system', content: 'You are an assistant' },
+          { role: 'system' as const, content: 'You are an assistant' },
         ],
         resumable: true,
         resumeAttempts: 0,

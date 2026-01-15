@@ -7,7 +7,7 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask } from "@/lib/agent/task-service"
+import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections } from "@/lib/agent/task-service"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
@@ -569,6 +569,160 @@ export const tasksRouter = router({
     }))
     .mutation(({ ctx, input }) => {
       return restoreTask(ctx.workingDir, input.path)
+    }),
+
+  /**
+   * Get sections from a task for splitting.
+   * Returns sections with 3+ checkboxes each.
+   */
+  getSections: procedure
+    .input(z.object({
+      path: z.string().min(1),
+    }))
+    .query(({ ctx, input }) => {
+      const task = getTask(ctx.workingDir, input.path)
+      const sections = parseSections(task.content)
+      return {
+        sections,
+        title: task.title,
+        canSplit: sections.length > 1,
+      }
+    }),
+
+  /**
+   * Split a task into multiple subtasks by section.
+   * Creates new task files for selected sections, optionally archives original.
+   * If splitting an archived task, restores it first automatically.
+   */
+  splitTask: procedure
+    .input(z.object({
+      sourcePath: z.string().min(1),
+      sectionIndices: z.array(z.number().int().min(0)),
+      archiveOriginal: z.boolean().default(false),
+    }))
+    .mutation(({ ctx, input }) => {
+      let sourcePath = input.sourcePath
+
+      // Handle archived task: restore first, update source path
+      const initialTask = getTask(ctx.workingDir, sourcePath)
+      if (initialTask.archived) {
+        const restored = restoreTask(ctx.workingDir, sourcePath)
+        sourcePath = restored.path
+      }
+
+      const task = getTask(ctx.workingDir, sourcePath)
+      const sections = parseSections(task.content)
+
+      // Validate section indices
+      for (const idx of input.sectionIndices) {
+        if (idx >= sections.length) {
+          throw new Error(`Invalid section index: ${idx}`)
+        }
+      }
+
+      if (input.sectionIndices.length === 0) {
+        throw new Error("No sections selected for split")
+      }
+
+      // Extract Problem Statement and Scope from original (if present)
+      const lines = task.content.split("\n")
+      let problemStatement = ""
+      let scope = ""
+
+      // Simple extraction: find ## Problem Statement and ## Scope sections
+      let currentSectionType: "problem" | "scope" | null = null
+      let currentContent: string[] = []
+
+      for (const line of lines) {
+        const problemMatch = line.match(/^##\s*Problem\s*Statement\s*$/i)
+        const scopeMatch = line.match(/^##\s*Scope\s*$/i)
+        const otherHeader = line.match(/^##\s+/)
+
+        if (problemMatch) {
+          currentSectionType = "problem"
+          currentContent = []
+          continue
+        }
+        if (scopeMatch) {
+          if (currentSectionType === "problem") {
+            problemStatement = currentContent.join("\n").trim()
+          }
+          currentSectionType = "scope"
+          currentContent = []
+          continue
+        }
+        if (otherHeader && currentSectionType) {
+          if (currentSectionType === "problem") {
+            problemStatement = currentContent.join("\n").trim()
+          } else if (currentSectionType === "scope") {
+            scope = currentContent.join("\n").trim()
+          }
+          currentSectionType = null
+          continue
+        }
+
+        if (currentSectionType) {
+          currentContent.push(line)
+        }
+      }
+
+      // Handle end of file
+      if (currentSectionType === "problem") {
+        problemStatement = currentContent.join("\n").trim()
+      } else if (currentSectionType === "scope") {
+        scope = currentContent.join("\n").trim()
+      }
+
+      // Create new tasks for selected sections
+      const newPaths: string[] = []
+
+      for (const idx of input.sectionIndices) {
+        const section = sections[idx]
+
+        // Build new task content
+        const newContent = [
+          `# ${section.title}`,
+          "",
+          `<!-- splitFrom: ${input.sourcePath} -->`,
+          "",
+        ]
+
+        // Add problem statement if available
+        if (problemStatement) {
+          newContent.push("## Problem Statement", problemStatement, "")
+        }
+
+        // Add scope if available
+        if (scope) {
+          newContent.push("## Scope", scope, "")
+        }
+
+        // Add implementation plan with checkboxes
+        newContent.push("## Implementation Plan", "")
+        for (const checkbox of section.checkboxes) {
+          newContent.push(`- [ ] ${checkbox}`)
+        }
+        newContent.push("")
+
+        // Create the new task
+        const result = createTask(ctx.workingDir, {
+          title: section.title,
+          content: newContent.join("\n"),
+        })
+        newPaths.push(result.path)
+      }
+
+      // Archive original if requested (use sourcePath which may have been updated by restore)
+      let archivedSource: string | undefined
+      if (input.archiveOriginal) {
+        const archived = archiveTask(ctx.workingDir, sourcePath)
+        archivedSource = archived.path
+      }
+
+      return {
+        newPaths,
+        archivedSource,
+      }
     }),
 
   /**

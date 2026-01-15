@@ -5,6 +5,7 @@
 
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { GitCommit, Check, X, Loader2, FileCheck } from "lucide-react"
 
 interface TaskCommitPanelProps {
@@ -16,6 +17,7 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitMessage, setCommitMessage] = useState("")
   const utils = trpc.useUtils()
+  const sessionTrpc = sessionTrpcOptions(sessionId)
 
   // Query for changed files
   const { data: files = [], isLoading } = trpc.agent.getChangedFiles.useQuery(
@@ -25,6 +27,7 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
 
   // Commit mutation
   const commitMutation = trpc.git.commitScoped.useMutation({
+    ...sessionTrpc,
     onSuccess: () => {
       // Clear selections and message
       setSelectedFiles(new Set())

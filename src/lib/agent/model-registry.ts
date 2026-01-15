@@ -153,34 +153,18 @@ const OPENCODE_MODELS: ModelDefinition[] = [
   },
   // Anthropic via OpenCode
   {
-    id: "anthropic/claude-sonnet-4-20250514",
-    name: "Claude Sonnet 4",
-    description: "Balanced performance",
-    contextLimit: 200_000,
-    agentType: "opencode",
-    provider: "Anthropic",
-  },
-  {
-    id: "anthropic/claude-opus-4-20250514",
-    name: "Claude Opus 4",
-    description: "Most capable",
+    id: "anthropic/claude-opus-4-5-20251101",
+    name: "Claude Opus 4.5",
+    description: "Most capable, enhanced reasoning",
     contextLimit: 200_000,
     agentType: "opencode",
     provider: "Anthropic",
   },
   // OpenAI via OpenCode
   {
-    id: "openai/gpt-4o",
-    name: "GPT-4o",
-    description: "Fast and capable",
-    contextLimit: 128_000,
-    agentType: "opencode",
-    provider: "OpenAI",
-  },
-  {
-    id: "openai/o1",
-    name: "OpenAI o1",
-    description: "Advanced reasoning",
+    id: "openai/codex-5.2",
+    name: "Codex 5.2",
+    description: "Most capable coding model",
     contextLimit: 200_000,
     agentType: "opencode",
     provider: "OpenAI",
@@ -217,21 +201,13 @@ const OPENCODE_MODELS: ModelDefinition[] = [
  */
 const CLAUDE_MODELS: ModelDefinition[] = [
   {
-    id: "claude-sonnet-4-20250514",
-    name: "Claude Sonnet 4",
-    description: "Default balanced model",
+    id: "claude-opus-4-5-20251101",
+    name: "Claude Opus 4.5",
+    description: "Most capable, enhanced reasoning",
     contextLimit: 200_000,
     agentType: "claude",
     provider: "Anthropic",
     isDefault: true,
-  },
-  {
-    id: "claude-opus-4-20250514",
-    name: "Claude Opus 4",
-    description: "Most capable",
-    contextLimit: 200_000,
-    agentType: "claude",
-    provider: "Anthropic",
   },
 ]
 
@@ -240,21 +216,13 @@ const CLAUDE_MODELS: ModelDefinition[] = [
  */
 const CODEX_MODELS: ModelDefinition[] = [
   {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    description: "Default model",
-    contextLimit: 128_000,
-    agentType: "codex",
-    provider: "OpenAI",
-    isDefault: true,
-  },
-  {
-    id: "o1",
-    name: "OpenAI o1",
-    description: "Advanced reasoning",
+    id: "codex-5.2",
+    name: "Codex 5.2",
+    description: "Most capable coding model",
     contextLimit: 200_000,
     agentType: "codex",
     provider: "OpenAI",
+    isDefault: true,
   },
 ]
 

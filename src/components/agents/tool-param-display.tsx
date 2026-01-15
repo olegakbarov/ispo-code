@@ -39,7 +39,7 @@ export function ToolParamDisplay({ toolInput, expanded }: ToolParamDisplayProps)
   if (typeof toolInput !== "object" || toolInput === null) {
     const content = formatParamValue(toolInput)
     const display = expanded ? content : truncateContent(content, 150)
-    return <pre className="text-[10px] text-text-secondary overflow-x-auto whitespace-pre-wrap">{display}</pre>
+    return <pre className="text-xs text-text-secondary overflow-x-auto whitespace-pre-wrap">{display}</pre>
   }
 
   // Handle object inputs as key-value pairs
@@ -67,7 +67,7 @@ export function ToolParamDisplay({ toolInput, expanded }: ToolParamDisplayProps)
         const isCommand = key === "cmd" || key === "command"
 
         return (
-          <div key={key} className="flex gap-1.5 text-[10px]">
+          <div key={key} className="flex gap-1.5 text-xs">
             <span className="text-text-muted font-vcr min-w-[60px]">{key}:</span>
             <span
               className={`text-text-secondary flex-1 overflow-x-auto ${
@@ -80,7 +80,7 @@ export function ToolParamDisplay({ toolInput, expanded }: ToolParamDisplayProps)
         )
       })}
       {shouldTruncate && entries.length > 2 && (
-        <div className="text-[10px] text-text-muted italic">+{entries.length - 2} more parameters</div>
+        <div className="text-xs text-text-muted italic">+{entries.length - 2} more parameters</div>
       )}
     </div>
   )

@@ -13,7 +13,7 @@ import Cerebras from "@cerebras/cerebras_cloud_sdk"
 import { execSync } from "child_process"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { resolve } from "path"
-import type { AgentOutputChunk, CerebrasMessageData } from "./types"
+import type { AgentOutputChunk, CerebrasMessageData, ImageAttachment } from "./types"
 import { SecurityConfig } from "./security-config.js"
 import { validatePath } from "./path-validator.js"
 
@@ -27,6 +27,8 @@ export interface CerebrasAgentOptions {
   systemPrompt?: string
   /** Existing conversation state for resuming a session */
   messages?: CerebrasMessageData[]
+  /** Image attachments for the initial prompt */
+  attachments?: ImageAttachment[]
 }
 
 export interface CerebrasEvents {
@@ -162,6 +164,8 @@ export class CerebrasAgent extends EventEmitter {
   private sessionId: string
   private messages: Message[] = []
   private client: Cerebras | null = null
+  /** Pending attachments for the next run() call */
+  private pendingAttachments?: ImageAttachment[]
 
   constructor(options: CerebrasAgentOptions) {
     super()
@@ -170,6 +174,7 @@ export class CerebrasAgent extends EventEmitter {
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     this.sessionId = this.generateSessionId()
     this.messages = options.messages ? options.messages.map((m) => ({ ...m })) : []
+    this.pendingAttachments = options.attachments
   }
 
   private generateSessionId(): string {
@@ -347,6 +352,32 @@ export class CerebrasAgent extends EventEmitter {
   }
 
   /**
+   * Set attachments for the next message (used for follow-up messages)
+   */
+  setAttachments(attachments?: ImageAttachment[]): void {
+    this.pendingAttachments = attachments
+  }
+
+  /**
+   * Build prompt with image attachments as text descriptions
+   * Cerebras GLM may not have full vision support, so we append image info
+   */
+  private buildPromptWithAttachments(prompt: string, attachments?: ImageAttachment[]): string {
+    if (!attachments || attachments.length === 0) {
+      return prompt
+    }
+
+    // Append image metadata to prompt since Cerebras may not support vision natively
+    const imageDescriptions = attachments.map((att, i) => {
+      const name = att.fileName || `Image ${i + 1}`
+      const size = Math.round(att.data.length * 0.75 / 1024) // Approximate KB from base64
+      return `[Attached image: ${name} (${att.mimeType}, ~${size}KB)]`
+    }).join("\n")
+
+    return `${prompt}\n\n---\nAttached images:\n${imageDescriptions}\n\nNote: Image analysis requires a vision-capable model. The images have been attached but may not be processed visually.`
+  }
+
+  /**
    * Run the agent with a prompt
    */
   async run(prompt: string): Promise<void> {
@@ -364,13 +395,19 @@ export class CerebrasAgent extends EventEmitter {
       this.emitOutput("system", `Starting Cerebras GLM agent (${this.model})...`)
       this.emit("session_id", this.sessionId)
 
-      this.client = new Cerebras({ apiKey })
+      // Disable SDK-level retries to avoid double retry loop (SDK default is 2 retries)
+      // Application-level retry logic (lines 403-430) provides better control and visibility
+      this.client = new Cerebras({ apiKey, maxRetries: 0 })
 
       // Build messages array
       if (this.messages.length === 0) {
         this.messages.push({ role: "system", content: this.systemPrompt })
       }
-      this.messages.push({ role: "user", content: prompt })
+
+      // Build prompt with attachments (as text descriptions for non-vision models)
+      const effectivePrompt = this.buildPromptWithAttachments(prompt, this.pendingAttachments)
+      this.pendingAttachments = undefined // Clear after use
+      this.messages.push({ role: "user", content: effectivePrompt })
 
       // Check context window and prune if needed
       const contextLimit = this.getContextLimit()
@@ -407,7 +444,9 @@ export class CerebrasAgent extends EventEmitter {
               messages: this.messages as Parameters<typeof this.client.chat.completions.create>[0]["messages"],
               tools: TOOLS,
               tool_choice: "auto",
-              max_completion_tokens: 8192,
+              // Reduced from 8192 to avoid overestimating token usage in rate limit calculations
+              // Cerebras preemptively reserves max_completion_tokens, so lower value = more requests per quota
+              max_completion_tokens: 4096,
               temperature: 0.6, // Recommended for instruction following
             })
             break // Success, exit retry loop

@@ -1,27 +1,108 @@
 /**
  * File Comment Input Component
- * Allows users to add feedback on file changes
+ * Allows users to add feedback on file changes.
+ * When taskPath is provided, comments spawn agent sessions linked to the task.
  */
 
 import { useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { Send, Loader2 } from "lucide-react"
+import { trpc } from "@/lib/trpc-client"
+import { ImageAttachmentInput } from "@/components/agents/image-attachment-input"
+import type { ImageAttachment } from "@/lib/agent/types"
 
 interface FileCommentInputProps {
   fileName: string
-  onSubmit: (comment: string) => Promise<void>
+  /** If provided, comments will spawn agent sessions linked to this task */
+  taskPath?: string
+  /** Source file for comment context (used for thread backlinks) */
+  sourceFile?: string
+  /** Line number if this is an inline comment */
+  sourceLine?: number
+  /** Legacy handler - used when taskPath not provided */
+  onSubmit?: (comment: string) => Promise<void>
 }
 
-export function FileCommentInput({ fileName, onSubmit }: FileCommentInputProps) {
+export function FileCommentInput({
+  fileName,
+  taskPath,
+  sourceFile,
+  sourceLine,
+  onSubmit,
+}: FileCommentInputProps) {
   const [comment, setComment] = useState("")
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const navigate = useNavigate()
+
+  const utils = trpc.useUtils()
+
+  // Spawn mutation for creating comment threads with optimistic updates
+  const spawnMutation = trpc.agent.spawn.useMutation({
+    onMutate: async () => {
+      // Cancel outgoing refetches
+      await utils.agent.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.agent.list.getData()
+      const previousComment = comment
+
+      // Optimistically clear comment and attachments
+      setComment("")
+      setAttachments([])
+
+      return { previousList, previousComment }
+    },
+    onSuccess: (data) => {
+      // Navigate to the new session
+      navigate({
+        to: "/agents/$sessionId",
+        params: { sessionId: data.sessionId },
+      })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.agent.list.setData(undefined, context.previousList)
+      }
+      if (context?.previousComment) {
+        setComment(context.previousComment)
+      }
+    },
+    onSettled: () => {
+      // Refetch to ensure consistency
+      utils.agent.list.invalidate()
+    },
+  })
 
   const handleSubmit = async () => {
     if (!comment.trim() || isSubmitting) return
 
     setIsSubmitting(true)
     try {
-      await onSubmit(comment)
-      setComment("") // Clear input after successful submission
+      // If taskPath is provided, spawn an agent session
+      if (taskPath) {
+        const title = sourceLine
+          ? `Comment: ${fileName}:${sourceLine}`
+          : `Comment: ${fileName}`
+
+        const prompt = sourceLine
+          ? `File comment on ${fileName} at line ${sourceLine}:\n\n${comment.trim()}\n\nPlease review and address this feedback.`
+          : `File comment on ${fileName}:\n\n${comment.trim()}\n\nPlease review and address this feedback.`
+
+        await spawnMutation.mutateAsync({
+          prompt,
+          title,
+          taskPath,
+          sourceFile: sourceFile || fileName,
+          sourceLine,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        })
+      } else if (onSubmit) {
+        // Legacy behavior - use callback
+        await onSubmit(comment)
+        setComment("")
+      }
     } catch (error) {
       console.error("Failed to submit comment:", error)
     } finally {
@@ -50,9 +131,18 @@ export function FileCommentInput({ fileName, onSubmit }: FileCommentInputProps) 
         className="w-full min-h-[80px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
         disabled={isSubmitting}
       />
+      {/* Image attachments */}
+      <div className="mt-2">
+        <ImageAttachmentInput
+          attachments={attachments}
+          onChange={setAttachments}
+          disabled={isSubmitting}
+          maxFiles={3}
+        />
+      </div>
       <div className="flex items-center justify-between mt-2">
         <span className="text-xs text-muted-foreground">
-          {comment.length} characters
+          {comment.length} characters{attachments.length > 0 ? ` + ${attachments.length} image${attachments.length > 1 ? "s" : ""}` : ""}
         </span>
         <button
           onClick={handleSubmit}

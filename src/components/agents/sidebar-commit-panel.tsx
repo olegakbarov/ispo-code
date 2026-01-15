@@ -5,6 +5,7 @@
 
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { GitCommit, Check, X, Loader2, GitBranch, ChevronDown, ChevronRight } from "lucide-react"
 
 interface SidebarCommitPanelProps {
@@ -16,6 +17,7 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitMessage, setCommitMessage] = useState("")
   const utils = trpc.useUtils()
+  const sessionTrpc = sessionTrpcOptions(sessionId)
 
   // Fetch session to check for worktree info
   const { data: session } = trpc.agent.get.useQuery(
@@ -29,6 +31,7 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     enabled: isExpanded,
     refetchInterval: isExpanded ? 3000 : false,
+    ...sessionTrpc,
   })
 
   // Changed files from session
@@ -37,11 +40,70 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
     { enabled: isExpanded }
   )
 
-  // Commit mutation
+  // Commit mutation with optimistic updates
   const commitMutation = trpc.git.commitScoped.useMutation({
-    onSuccess: () => {
+    ...sessionTrpc,
+    onMutate: async ({ files }) => {
+      // 1. Cancel outgoing refetches to avoid overwriting optimistic update
+      await utils.git.status.cancel()
+      await utils.agent.getChangedFiles.cancel()
+
+      // 2. Snapshot current state for rollback
+      const previousStatus = utils.git.status.getData()
+      const previousChangedFiles = utils.agent.getChangedFiles.getData({ sessionId })
+      const previousSelectedFiles = new Set(selectedFiles)
+      const previousCommitMessage = commitMessage
+
+      // 3. Build set of paths being committed
+      const commitSet = new Set(files)
+
+      // 4. Optimistically update git status cache - remove committed files
+      if (previousStatus) {
+        utils.git.status.setData(undefined, {
+          ...previousStatus,
+          staged: previousStatus.staged.filter((f) => !commitSet.has(f.file)),
+          modified: previousStatus.modified.filter((f) => !commitSet.has(f.file)),
+          untracked: previousStatus.untracked.filter((f) => !commitSet.has(f)),
+        })
+      }
+
+      // 5. Optimistically update changed files - remove committed files
+      if (previousChangedFiles) {
+        utils.agent.getChangedFiles.setData(
+          { sessionId },
+          previousChangedFiles.filter((f) => !commitSet.has(f.path))
+        )
+      }
+
+      // 6. Clear local state immediately
       setSelectedFiles(new Set())
       setCommitMessage("")
+
+      // 7. Return rollback context
+      return {
+        previousStatus,
+        previousChangedFiles,
+        previousSelectedFiles,
+        previousCommitMessage,
+      }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousStatus) {
+        utils.git.status.setData(undefined, context.previousStatus)
+      }
+      if (context?.previousChangedFiles) {
+        utils.agent.getChangedFiles.setData({ sessionId }, context.previousChangedFiles)
+      }
+      if (context?.previousSelectedFiles) {
+        setSelectedFiles(context.previousSelectedFiles)
+      }
+      if (context?.previousCommitMessage) {
+        setCommitMessage(context.previousCommitMessage)
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency after mutation settles
       utils.git.status.invalidate()
       utils.agent.getChangedFiles.invalidate()
     },

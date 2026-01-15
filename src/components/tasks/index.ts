@@ -1,6 +1,6 @@
 export { TaskList, type TaskSummary } from './task-list'
 export { TaskEditor } from './task-editor'
 export { CreateTaskModal } from './create-task-modal'
-export { AgentProgressBanner } from './agent-progress-banner'
+export { CommitArchiveModal } from './commit-archive-modal'
 export { agentTypeLabel, type PlannerAgentType } from '@/lib/agent/config'
 export type { AgentSession } from './agent-types'

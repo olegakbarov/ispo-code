@@ -4,9 +4,10 @@
 
 import { EventEmitter } from "events"
 import { spawn, execSync, type ChildProcess } from "child_process"
-import { existsSync, mkdirSync, accessSync, constants } from "fs"
+import { existsSync, mkdirSync, accessSync, constants, writeFileSync, rmSync } from "fs"
 import { join } from "path"
-import type { AgentOutputChunk, AgentType } from "./types"
+import { tmpdir } from "os"
+import type { AgentOutputChunk, AgentType, ImageAttachment } from "./types"
 
 export interface CLIRunnerConfig {
   agentType: AgentType
@@ -18,6 +19,8 @@ export interface CLIRunnerConfig {
   isResume?: boolean
   /** Model to use in format "provider/model" (for opencode) */
   model?: string
+  /** Image attachments for multimodal input */
+  attachments?: ImageAttachment[]
 }
 
 /**
@@ -223,6 +226,45 @@ interface BuiltCommand {
   args: string[]
   promptTransport: PromptTransport
   stdinPrompt?: string
+  /** Temp files to clean up after process exits */
+  tempFiles?: string[]
+}
+
+/**
+ * Write image attachments to temp files and return file paths
+ */
+function writeImagesTempFiles(attachments: ImageAttachment[]): string[] {
+  const tempPaths: string[] = []
+  const tempDir = tmpdir()
+
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i]
+    // Determine extension from MIME type
+    const ext = att.mimeType.split("/")[1] || "png"
+    const fileName = att.fileName?.replace(/[^a-zA-Z0-9._-]/g, "_") || `image_${i}`
+    const tempPath = join(tempDir, `agentz_${Date.now()}_${fileName}.${ext}`)
+
+    // Decode base64 and write to temp file
+    const buffer = Buffer.from(att.data, "base64")
+    writeFileSync(tempPath, buffer)
+    tempPaths.push(tempPath)
+  }
+
+  return tempPaths
+}
+
+/**
+ * Clean up temp files
+ */
+function cleanupTempFiles(paths?: string[]): void {
+  if (!paths) return
+  for (const p of paths) {
+    try {
+      rmSync(p, { force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 }
 
 /**
@@ -269,7 +311,7 @@ export class CLIAgentRunner extends EventEmitter {
   async run(config: CLIRunnerConfig): Promise<void> {
     const { agentType, workingDir, isResume } = config
 
-    const { command, args, promptTransport, stdinPrompt } = this.buildCommand(config)
+    const { command, args, promptTransport, stdinPrompt, tempFiles } = this.buildCommand(config)
 
     const action = isResume ? "Resuming" : "Starting"
     this.emitChunk("system", `${action} ${agentType} agent...`)
@@ -287,6 +329,8 @@ export class CLIAgentRunner extends EventEmitter {
         if (maxRuntimeTimer) clearTimeout(maxRuntimeTimer)
         startupTimer = null
         maxRuntimeTimer = null
+        // Clean up temp files when process completes
+        cleanupTempFiles(tempFiles)
         fn()
       }
 
@@ -411,11 +455,12 @@ export class CLIAgentRunner extends EventEmitter {
             if (!stdinPrompt.endsWith("\n")) {
               this.process.stdin.write("\n")
             }
-            // Most CLIs expect EOF when prompt is passed via stdin.
-            this.process.stdin.end()
-          } else {
-            // Keep stdin open when prompt is passed via args so we can respond
-            // to interactive prompts (e.g. approval y/n) if needed.
+            // Claude CLI requires EOF to process input. Since we use
+            // --dangerously-skip-permissions, no interactive prompts are expected.
+            // Codex may need stdin open for interactive prompts, so only close for Claude.
+            if (agentType === "claude") {
+              this.process.stdin.end()
+            }
           }
         }
 
@@ -502,7 +547,7 @@ export class CLIAgentRunner extends EventEmitter {
    * Build CLI command and args
    */
   private buildCommand(config: CLIRunnerConfig): BuiltCommand {
-    const { agentType, prompt, cliSessionId, isResume, model } = config
+    const { agentType, prompt, cliSessionId, isResume, model, attachments } = config
 
     const cliPath = getCLIPath(agentType as "claude" | "codex" | "opencode")
     if (!cliPath) {
@@ -512,6 +557,12 @@ export class CLIAgentRunner extends EventEmitter {
     const promptBytes = Buffer.byteLength(prompt, "utf8")
     let promptTransport: PromptTransport =
       promptBytes > MAX_PROMPT_BYTES_IN_ARGS ? "stdin" : "args"
+
+    // Write images to temp files if present
+    let tempFiles: string[] | undefined
+    if (attachments && attachments.length > 0) {
+      tempFiles = writeImagesTempFiles(attachments)
+    }
 
     switch (agentType) {
       case "claude": {
@@ -527,6 +578,17 @@ export class CLIAgentRunner extends EventEmitter {
           "--dangerously-skip-permissions",
         ]
 
+        if (model) {
+          args.push("--model", model)
+        }
+
+        // Add image files using --image flag (Claude CLI supports multiple --image flags)
+        if (tempFiles && tempFiles.length > 0) {
+          for (const imagePath of tempFiles) {
+            args.push("--image", imagePath)
+          }
+        }
+
         if (isResume && cliSessionId) {
           args.push("--resume", cliSessionId)
         }
@@ -538,6 +600,7 @@ export class CLIAgentRunner extends EventEmitter {
           args,
           promptTransport,
           stdinPrompt: prompt,
+          tempFiles,
         }
       }
 

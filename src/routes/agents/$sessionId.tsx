@@ -3,8 +3,8 @@
  */
 
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useMemo, useState, useRef, useEffect } from 'react'
-import { Send, Square, RotateCcw, Trash2 } from 'lucide-react'
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
+import { Send, Square, RotateCcw, Trash2, Image } from 'lucide-react'
 import { z } from 'zod'
 import { PromptDisplay } from '@/components/agents/prompt-display'
 import { StatusDot } from '@/components/agents/session-primitives'
@@ -68,8 +68,10 @@ function AgentSessionPage() {
   const [messageInput, setMessageInput] = useState('')
   const [messageQueue, setMessageQueue] = useState<string[]>([])
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
+  const [isDragOver, setIsDragOver] = useState(false)
   const outputRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // All output from session
   const allOutput = useMemo((): AgentOutputChunk[] => {
@@ -116,6 +118,75 @@ function AgentSessionPage() {
       cancelAnimationFrame(rafId)
     }
   }, [sessionId, allOutput.length])
+
+  // File drop handlers
+  const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+  const MAX_SIZE = 10 * 1024 * 1024 // 10MB
+  const MAX_FILES = 5
+
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files)
+    const remainingSlots = MAX_FILES - attachments.length
+    const filesToProcess = fileArray.slice(0, remainingSlots)
+
+    const newAttachments: ImageAttachment[] = []
+    for (const file of filesToProcess) {
+      if (!ACCEPTED_TYPES.includes(file.type)) continue
+      if (file.size > MAX_SIZE) continue
+
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        const base64Data = dataUrl.split(",")[1]
+        if (base64Data) {
+          newAttachments.push({
+            type: "image",
+            mimeType: file.type,
+            data: base64Data,
+            fileName: file.name,
+          })
+        }
+      } catch {
+        // Skip failed files
+      }
+    }
+
+    if (newAttachments.length > 0) {
+      setAttachments(prev => [...prev, ...newAttachments])
+    }
+  }, [attachments.length])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only leave if we're actually leaving the container (not entering a child)
+    const rect = e.currentTarget.getBoundingClientRect()
+    const { clientX, clientY } = e
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFiles(files)
+    }
+  }, [handleFiles])
 
   // Status helpers
   const busyStatuses: SessionStatus[] = ['pending', 'running', 'working', 'waiting_approval', 'waiting_input']
@@ -360,7 +431,22 @@ function AgentSessionPage() {
         <div className="border-t border-border bg-card">
           {/* Textarea with image attachments - only for active sessions */}
           {!isDone && (
-            <form onSubmit={handleSendMessage}>
+            <form
+              onSubmit={handleSendMessage}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className="relative"
+            >
+              {/* Dropzone overlay */}
+              {isDragOver && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary rounded-lg pointer-events-none">
+                  <div className="flex items-center gap-2 text-primary">
+                    <Image className="w-5 h-5" />
+                    <span className="text-sm font-medium">Drop images here</span>
+                  </div>
+                </div>
+              )}
               {/* Image attachment preview */}
               {attachments.length > 0 && (
                 <div className="px-3 pt-2 border-b border-border/40">
@@ -387,12 +473,12 @@ function AgentSessionPage() {
                   }}
                   placeholder={canSendMessage ? "Message... (Enter to send)" : messageQueue.length > 0 ? `Queue (${messageQueue.length}) - Enter to queue message` : "Agent working... (Enter to queue message)"}
                   disabled={isMutating}
-                  rows={2}
-                  className="flex-1 px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  rows={3}
+                  className="flex-1 px-3 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed min-h-[80px]"
                 />
                 {/* Compact image attachment button */}
                 {attachments.length === 0 && (
-                  <div className="pb-2 pr-2">
+                  <div className="pb-3 pr-2">
                     <ImageAttachmentInput
                       attachments={attachments}
                       onChange={setAttachments}
@@ -402,6 +488,15 @@ function AgentSessionPage() {
                   </div>
                 )}
               </div>
+              {/* Hidden file input for programmatic triggers */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                onChange={(e) => e.target.files && handleFiles(e.target.files)}
+                className="hidden"
+              />
             </form>
           )}
 
