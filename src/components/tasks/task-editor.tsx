@@ -39,6 +39,9 @@ interface TaskEditorProps {
   // Active planning session output (when planning is in progress)
   activePlanningOutput?: OutputChunk[]
   isPlanningActive?: boolean
+  // Review mode - selected file from URL
+  reviewFile?: string
+  onReviewFileChange?: (file: string | null) => void
   // Callbacks
   onModeChange: (mode: Mode) => void
   onDraftChange: (draft: string) => void
@@ -63,6 +66,8 @@ export function TaskEditor({
   onCommitAndArchive,
   activePlanningOutput,
   isPlanningActive,
+  reviewFile,
+  onReviewFileChange,
   onModeChange,
   onDraftChange,
 }: TaskEditorProps) {
@@ -165,6 +170,8 @@ export function TaskEditor({
               onArchive={onArchive}
               onRestore={onRestore}
               onCommitAndArchive={onCommitAndArchive}
+              reviewFile={reviewFile}
+              onReviewFileChange={onReviewFileChange}
             />
           </div>
         )}

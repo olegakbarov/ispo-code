@@ -3,7 +3,7 @@
  * Shows all files changed across task sessions with diff view and commit functionality
  */
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { Loader2 } from "lucide-react"
@@ -25,6 +25,10 @@ interface TaskReviewPanelProps {
   onArchive?: () => void
   onRestore?: () => void
   onCommitAndArchive?: () => void
+  /** Selected file from URL (git-relative path) */
+  reviewFile?: string
+  /** Callback when active file changes (for URL sync) */
+  onReviewFileChange?: (file: string | null) => void
 }
 
 export function TaskReviewPanel({
@@ -37,6 +41,8 @@ export function TaskReviewPanel({
   onArchive,
   onRestore,
   onCommitAndArchive,
+  reviewFile,
+  onReviewFileChange,
 }: TaskReviewPanelProps) {
   const { theme } = useTheme()
   const utils = trpc.useUtils()
@@ -151,6 +157,64 @@ export function TaskReviewPanel({
     modified: gitStatus.modified,
     untracked: gitStatus.untracked,
   } : undefined
+
+  // Track whether we've initialized from URL reviewFile (to avoid re-triggering on state updates)
+  const initializedFromUrlRef = useRef(false)
+
+  // Initialize activeFile and openFiles from reviewFile URL param on mount
+  useEffect(() => {
+    // Skip if already initialized or no reviewFile in URL
+    if (initializedFromUrlRef.current || !reviewFile) return
+    // Skip if files haven't loaded yet
+    if (uncommittedFiles.length === 0) return
+
+    // Find the file in uncommittedFiles that matches the reviewFile git path
+    const matchingFile = uncommittedFiles.find(f => {
+      const gitPath = f.repoRelativePath || f.relativePath || f.path
+      return gitPath === reviewFile
+    })
+
+    if (matchingFile) {
+      const gitPath = matchingFile.repoRelativePath || matchingFile.relativePath || matchingFile.path
+      initializedFromUrlRef.current = true
+
+      // Open the file and set it as active
+      setOpenFiles([gitPath])
+      setActiveFile(gitPath)
+      setFileViews({ [gitPath]: "working" })
+
+      // Fetch diff for the file
+      setDiffLoading(true)
+      utils.client.git.diff.query({ file: gitPath, view: "working" })
+        .then((data) => {
+          setDiffData({
+            oldContent: data.oldContent,
+            newContent: data.newContent,
+          })
+          setDiffLoading(false)
+        })
+        .catch(() => {
+          setDiffData(null)
+          setDiffLoading(false)
+        })
+    }
+  }, [reviewFile, uncommittedFiles, utils])
+
+  // Sync activeFile changes to URL
+  const prevActiveFileRef = useRef<string | null>(null)
+  useEffect(() => {
+    // Skip during initial load from URL
+    if (!initializedFromUrlRef.current && reviewFile) return
+
+    const prev = prevActiveFileRef.current
+    prevActiveFileRef.current = activeFile
+
+    // Only update URL if activeFile actually changed (not on initial render)
+    if (prev === activeFile) return
+
+    // Notify parent to update URL
+    onReviewFileChange?.(activeFile)
+  }, [activeFile, reviewFile, onReviewFileChange])
 
   const toggleFile = (absolutePath: string, gitPath: string) => {
     const newSelected = new Map(selectedFiles)

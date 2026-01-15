@@ -21,6 +21,7 @@ export const Route = createFileRoute('/tasks/$')({
       archiveFilter: z.enum(['all', 'active', 'archived']).optional().default('active'),
       sortBy: z.enum(['updated', 'title', 'progress']).optional(),
       sortDir: z.enum(['asc', 'desc']).optional(),
+      reviewFile: z.string().optional(),
     })
     .parse,
   component: TasksSplat,
@@ -60,6 +61,7 @@ function TasksSplat() {
       archiveFilter={search.archiveFilter}
       sortBy={search.sortBy}
       sortDir={search.sortDir}
+      reviewFile={search.reviewFile}
     />
   )
 }
