@@ -7,8 +7,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
+import type { DebugAgentSelection } from '@/lib/stores/tasks-reducer'
 
 export type TaskType = 'bug' | 'feature'
+
+/** All planner agent type candidates (shown in UI, some may be unavailable) */
+const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter']
 
 interface CreateTaskModalProps {
   isOpen: boolean
@@ -20,6 +24,8 @@ interface CreateTaskModalProps {
   createModel: string
   availableTypes: AgentType[] | undefined
   availablePlannerTypes: PlannerAgentType[]
+  /** Debug agent selections for multi-agent debugging (bug type only) */
+  debugAgents: DebugAgentSelection[]
   onClose: () => void
   onCreate: () => void
   onTitleChange: (title: string) => void
@@ -27,6 +33,8 @@ interface CreateTaskModalProps {
   onUseAgentChange: (useAgent: boolean) => void
   onAgentTypeChange: (agentType: PlannerAgentType) => void
   onModelChange: (model: string) => void
+  onToggleDebugAgent: (agentType: PlannerAgentType) => void
+  onDebugAgentModelChange: (agentType: PlannerAgentType, model: string) => void
 }
 
 export function CreateTaskModal({
@@ -39,6 +47,7 @@ export function CreateTaskModal({
   createModel,
   availableTypes,
   availablePlannerTypes,
+  debugAgents,
   onClose,
   onCreate,
   onTitleChange,
@@ -46,6 +55,8 @@ export function CreateTaskModal({
   onUseAgentChange,
   onAgentTypeChange,
   onModelChange,
+  onToggleDebugAgent,
+  onDebugAgentModelChange,
 }: CreateTaskModalProps) {
   if (!isOpen) return null
   const canUseAgent = availablePlannerTypes.length > 0
@@ -126,7 +137,57 @@ export function CreateTaskModal({
             </span>
           </label>
 
-          {useAgent && canUseAgent && (
+          {useAgent && canUseAgent && taskType === 'bug' && (
+            /* Multi-agent selection for bug debugging */
+            <div>
+              <div className="font-vcr text-xs text-text-muted mb-2">
+                Debug Agents
+                <span className="text-text-muted/60 ml-1">(select 1+)</span>
+              </div>
+              <div className="space-y-2">
+                {debugAgents.map((da) => {
+                  const isAvailable = availablePlannerTypes.includes(da.agentType)
+                  return (
+                    <div key={da.agentType} className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 cursor-pointer group min-w-[120px]">
+                        <Checkbox
+                          checked={da.selected}
+                          onChange={() => onToggleDebugAgent(da.agentType)}
+                          disabled={isCreating || !isAvailable}
+                        />
+                        <span className={`text-xs transition-colors ${
+                          isAvailable
+                            ? 'text-text-secondary group-hover:text-text-primary'
+                            : 'text-text-muted/50'
+                        }`}>
+                          {agentTypeLabel[da.agentType]}
+                          {!isAvailable && ' (N/A)'}
+                        </span>
+                      </label>
+                      {da.selected && supportsModelSelection(da.agentType) && (
+                        <Select
+                          value={da.model}
+                          onChange={(e) => onDebugAgentModelChange(da.agentType, e.target.value)}
+                          variant="sm"
+                          disabled={isCreating}
+                          className="bg-background flex-1 text-xs"
+                        >
+                          {getModelsForAgentType(da.agentType).map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {useAgent && canUseAgent && taskType === 'feature' && (
+            /* Single agent selection for feature planning */
             <>
               <div>
                 <div className="font-vcr text-xs text-text-muted mb-2">Agent Type</div>
@@ -137,11 +198,14 @@ export function CreateTaskModal({
                   disabled={isCreating}
                   className="bg-background"
                 >
-                  {availablePlannerTypes.map((t) => (
-                    <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
-                      {agentTypeLabel[t]}
-                    </option>
-                  ))}
+                  {ALL_PLANNER_CANDIDATES.map((t) => {
+                    const isAvailable = availablePlannerTypes.includes(t)
+                    return (
+                      <option key={t} value={t} disabled={!isAvailable}>
+                        {agentTypeLabel[t]}{!isAvailable ? ' (Not available)' : ''}
+                      </option>
+                    )
+                  })}
                 </Select>
               </div>
 
@@ -177,7 +241,12 @@ export function CreateTaskModal({
           </button>
           <button
             onClick={onCreate}
-            disabled={isCreating || !newTitle.trim() || (useAgent && !canUseAgent)}
+            disabled={
+              isCreating ||
+              !newTitle.trim() ||
+              (useAgent && !canUseAgent) ||
+              (useAgent && taskType === 'bug' && !debugAgents.some((da) => da.selected))
+            }
             className="px-3 py-1.5 rounded text-xs font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isCreating ? 'Creating...' : 'Create'}
