@@ -3,6 +3,7 @@
  * Handles text, tool calls, tool results, thinking, errors, and system messages
  */
 
+import { memo, useMemo } from 'react'
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import { SimpleErrorBoundary } from '@/components/ui/error-boundary'
 import { ToolCall } from '@/components/agents/tool-call'
@@ -13,18 +14,22 @@ import type { AgentOutputChunk } from '@/lib/agent/types'
 
 /**
  * Groups consecutive text chunks and renders them together
+ * Memoized to avoid rebuilding groups when parent re-renders with unchanged chunks
  */
-export function OutputRenderer({ chunks }: { chunks: AgentOutputChunk[] }) {
-  const groups: { type: string; chunks: AgentOutputChunk[] }[] = []
-
-  for (const chunk of chunks) {
-    const lastGroup = groups[groups.length - 1]
-    if (chunk.type === 'text' && lastGroup?.type === 'text') {
-      lastGroup.chunks.push(chunk)
-    } else {
-      groups.push({ type: chunk.type, chunks: [chunk] })
+export const OutputRenderer = memo(function OutputRenderer({ chunks }: { chunks: AgentOutputChunk[] }) {
+  // Memoize groups to avoid rebuilding on every render
+  const groups = useMemo(() => {
+    const result: { type: string; chunks: AgentOutputChunk[] }[] = []
+    for (const chunk of chunks) {
+      const lastGroup = result[result.length - 1]
+      if (chunk.type === 'text' && lastGroup?.type === 'text') {
+        lastGroup.chunks.push(chunk)
+      } else {
+        result.push({ type: chunk.type, chunks: [chunk] })
+      }
     }
-  }
+    return result
+  }, [chunks])
 
   return (
     <>
@@ -45,22 +50,25 @@ export function OutputRenderer({ chunks }: { chunks: AgentOutputChunk[] }) {
       })}
     </>
   )
-}
+})
 
 /** Renders a single output chunk based on type */
-export function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
+export const OutputChunk = memo(function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
   const { type, content, metadata } = chunk
 
-  if (type === 'tool_use') {
-    let parsed: { name?: string; input?: unknown; args?: unknown } = {}
+  // Memoize parsed tool payload to avoid repeated JSON.parse on re-renders
+  const parsedToolPayload = useMemo((): { name?: string; input?: unknown; args?: unknown } | null => {
+    if (type !== 'tool_use') return null
     try {
-      parsed = JSON.parse(content)
+      return JSON.parse(content) as { name?: string; input?: unknown; args?: unknown }
     } catch {
-      parsed = { name: 'unknown', input: content }
+      return { name: 'unknown', input: content, args: undefined }
     }
+  }, [type, content])
 
-    const toolName = parsed.name || (metadata?.tool as string | undefined) || 'unknown'
-    const toolInput = parsed.input ?? parsed.args
+  if (type === 'tool_use' && parsedToolPayload) {
+    const toolName = parsedToolPayload.name || (metadata?.tool as string | undefined) || 'unknown'
+    const toolInput = parsedToolPayload.input ?? parsedToolPayload.args
 
     return <ToolCall toolName={toolName} toolInput={toolInput} metadata={metadata} />
   }
@@ -113,4 +121,4 @@ export function OutputChunk({ chunk }: { chunk: AgentOutputChunk }) {
   }
 
   return null
-}
+})

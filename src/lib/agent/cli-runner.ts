@@ -80,6 +80,53 @@ export function checkCLIAvailable(cli: "claude" | "codex" | "opencode"): boolean
 }
 
 /**
+ * Check if MCPorter is available (has configuration)
+ */
+function checkMCPorterConfig(): boolean {
+  const home = process.env.HOME || ""
+
+  // Check common MCPorter config locations
+  const configPaths = [
+    join(home, ".mcporter", "mcporter.json"),
+    join(home, ".config", "mcporter", "mcporter.json"),
+  ]
+
+  for (const configPath of configPaths) {
+    if (existsSync(configPath)) {
+      try {
+        const { readFileSync } = require("fs")
+        const content = readFileSync(configPath, "utf-8")
+        const config = JSON.parse(content)
+        // Check if config has any server definitions
+        if (config && (config.servers || config.mcpServers || Array.isArray(config))) {
+          return true
+        }
+      } catch {
+        // Invalid JSON or structure - continue checking other paths
+        continue
+      }
+    }
+  }
+
+  // Also check for Claude Desktop config (MCPorter can read it)
+  const claudeConfig = join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+  if (existsSync(claudeConfig)) {
+    try {
+      const { readFileSync } = require("fs")
+      const content = readFileSync(claudeConfig, "utf-8")
+      const config = JSON.parse(content)
+      if (config?.mcpServers && Object.keys(config.mcpServers).length > 0) {
+        return true
+      }
+    } catch {
+      // Invalid - ignore
+    }
+  }
+
+  return false
+}
+
+/**
  * Get available agent types based on installed CLIs and API keys
  */
 export function getAvailableAgentTypes(): AgentType[] {
@@ -95,6 +142,11 @@ export function getAvailableAgentTypes(): AgentType[] {
   // Gemini agent via Vercel AI SDK - requires GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()) {
     types.push("gemini")
+  }
+  // MCPorter QA agent - requires MCPorter config with MCP servers
+  // Also needs GOOGLE_GENERATIVE_AI_API_KEY for reasoning (uses Gemini)
+  if (checkMCPorterConfig() && (process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim())) {
+    types.push("mcporter")
   }
   return types
 }

@@ -1,7 +1,7 @@
 /**
  * Agent types supported by the system
  */
-export type AgentType = "claude" | "codex" | "opencode" | "cerebras" | "gemini"
+export type AgentType = "claude" | "codex" | "opencode" | "cerebras" | "gemini" | "mcporter"
 
 /**
  * Image attachment for multimodal agent input
@@ -229,6 +229,14 @@ export interface GeminiMessageData {
 }
 
 /**
+ * Serializable MCPorter message format for session storage (Vercel AI SDK CoreMessage)
+ */
+export interface MCPorterMessageData {
+  role: "system" | "user" | "assistant" | "tool"
+  content: string | Array<{ type: string; text?: string; toolCallId?: string; toolName?: string; args?: unknown; result?: unknown }>
+}
+
+/**
  * Resume history entry for tracking session resumption attempts
  */
 export interface ResumeHistoryEntry {
@@ -272,6 +280,8 @@ export interface AgentSession {
   cerebrasMessages?: CerebrasMessageData[]
   /** Raw Gemini messages for conversation resumption (Vercel AI SDK format) */
   geminiMessages?: GeminiMessageData[]
+  /** Raw MCPorter messages for conversation resumption (Vercel AI SDK format) */
+  mcporterMessages?: MCPorterMessageData[]
   /** Link to a task file if this session is executing a task */
   taskPath?: string
   /** Link to a plan file if this session was created from a plan */

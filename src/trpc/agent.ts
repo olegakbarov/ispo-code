@@ -21,7 +21,7 @@ import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdE
 import { createControlEvent, createRegistryEvent, getControlStreamPath } from "@/streams/schemas"
 import { calculateRelativePaths } from "@/lib/utils/path-utils"
 
-const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras", "gemini"])
+const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"])
 
 /** Zod schema for image attachments */
 const imageAttachmentSchema = z.object({

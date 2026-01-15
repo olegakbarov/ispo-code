@@ -19,7 +19,7 @@ import { ImageAttachmentInput } from '@/components/agents/image-attachment-input
 import type { AgentOutputChunk, SessionStatus, ImageAttachment, AgentSession, AgentSessionMetadata } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
 import { useAudioNotification } from '@/lib/hooks/use-audio-notification'
-import { useAdaptivePolling } from '@/lib/hooks/use-adaptive-polling'
+import { computeSessionHash } from '@/lib/hooks/use-adaptive-polling'
 
 /** Session data with metadata - single source of truth for the page */
 export type SessionWithMetadata = AgentSession & { metadata: AgentSessionMetadata | null }
@@ -47,16 +47,62 @@ function AgentSessionPage() {
     setRetryCount(0)
   }, [sessionId])
 
-  // Fetch session data from server
-  const { data: session, isLoading } = trpc.agent.get.useQuery(
+  // Compute hash for change detection in adaptive polling
+  // Using a ref to track state across renders without causing re-renders
+  const pollingStateRef = useRef<{ lastHash: string | null; stableCount: number }>({
+    lastHash: null,
+    stableCount: 0,
+  })
+
+  // Fetch session data from server - single source of truth for the page
+  // Uses getSessionWithMetadata to include metadata for ThreadSidebar
+  const { data: session, isLoading, error: fetchError } = trpc.agent.getSessionWithMetadata.useQuery(
     { id: sessionId },
-    { refetchInterval: (query) => {
-      // Poll every 1s while session is active
-      const status = query.state.data?.status
-      const activeStatuses = ['pending', 'running', 'working', 'waiting_approval', 'waiting_input', 'idle']
-      return status && activeStatuses.includes(status) ? 1000 : false
-    }}
+    {
+      // Retry configuration for error recovery
+      retry: 3,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 4000),
+      // Adaptive polling: faster for active sessions, backs off when idle
+      refetchInterval: (query) => {
+        const data = query.state.data
+        if (!data) return 2000 // Default interval while loading
+
+        const status = data.status
+        const activeStatuses: SessionStatus[] = ['pending', 'running', 'working', 'waiting_approval', 'waiting_input']
+
+        // Stop polling for terminal states
+        if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+          return false
+        }
+
+        // Fast polling for active sessions
+        if (activeStatuses.includes(status)) {
+          pollingStateRef.current.stableCount = 0
+          return 2000
+        }
+
+        // Idle state - apply adaptive backoff
+        const currentHash = computeSessionHash(data)
+        const state = pollingStateRef.current
+
+        if (currentHash === state.lastHash) {
+          state.stableCount++
+        } else {
+          state.stableCount = 0
+        }
+        state.lastHash = currentHash
+
+        // Backoff: 2s -> 3s -> 4.5s -> 6.75s -> ... -> 30s max
+        const backoffMultiplier = Math.min(Math.pow(1.5, Math.floor(state.stableCount / 3)), 15)
+        return Math.min(2000 * backoffMultiplier, 30000)
+      },
+    }
   )
+
+  // Reset polling state when session changes
+  useEffect(() => {
+    pollingStateRef.current = { lastHash: null, stableCount: 0 }
+  }, [sessionId])
 
   // Audio notification on session completion
   useAudioNotification({
@@ -75,7 +121,7 @@ function AgentSessionPage() {
     if (retryCount < maxRetries) {
       const timer = setTimeout(() => {
         setRetryCount(c => c + 1)
-        utils.agent.get.invalidate({ id: sessionId })
+        utils.agent.getSessionWithMetadata.invalidate({ id: sessionId })
       }, 1000)
       return () => clearTimeout(timer)
     }
@@ -220,7 +266,7 @@ function AgentSessionPage() {
   // Mutations
   const cancelMutation = trpc.agent.cancel.useMutation({
     onSuccess: () => {
-      utils.agent.get.invalidate({ id: sessionId })
+      utils.agent.getSessionWithMetadata.invalidate({ id: sessionId })
     },
   })
 
@@ -259,7 +305,7 @@ function AgentSessionPage() {
       setMessageInput('')
       setAttachments([]) // Clear attachments after sending
       setMessageQueue((prevQueue) => prevQueue.length > 0 ? prevQueue.slice(1) : prevQueue)
-      utils.agent.get.invalidate({ id: sessionId })
+      utils.agent.getSessionWithMetadata.invalidate({ id: sessionId })
     },
     onError: (error) => {
       console.error('Failed to send message:', error)
@@ -268,7 +314,7 @@ function AgentSessionPage() {
 
   const approveMutation = trpc.agent.approve.useMutation({
     onSuccess: () => {
-      utils.agent.get.invalidate({ id: sessionId })
+      utils.agent.getSessionWithMetadata.invalidate({ id: sessionId })
     },
   })
 
@@ -335,6 +381,31 @@ function AgentSessionPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <span className="font-vcr text-sm text-muted-foreground">Loading session...</span>
+      </div>
+    )
+  }
+
+  // Handle fetch errors with retry option
+  if (fetchError) {
+    const errorMessage = fetchError.message || 'Failed to load session data'
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <span className="font-vcr text-sm text-destructive">Error: {errorMessage}</span>
+        <p className="text-xs text-muted-foreground max-w-md text-center">
+          There was a problem loading the session. The server may be temporarily unavailable.
+        </p>
+        <button
+          onClick={() => utils.agent.getSessionWithMetadata.invalidate({ id: sessionId })}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-vcr hover:bg-primary/90 cursor-pointer"
+        >
+          Retry
+        </button>
+        <Link
+          to="/"
+          className="text-sm text-accent hover:underline"
+        >
+          Return to dashboard
+        </Link>
       </div>
     )
   }
@@ -597,7 +668,7 @@ function AgentSessionPage() {
       </div>
 
       {/* Sidebar - shows session metadata + git commit panel */}
-      <ThreadSidebar sessionId={sessionId} />
+      <ThreadSidebar sessionId={sessionId} session={session} />
     </div>
   )
 }
