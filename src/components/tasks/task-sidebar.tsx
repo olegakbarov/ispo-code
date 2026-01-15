@@ -5,7 +5,7 @@
 
 import { Select } from '@/components/ui/select'
 import { TaskSessions } from './task-sessions'
-import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from '@/lib/agent/config'
+import { agentTypeLabel } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import { Scissors, ExternalLink } from 'lucide-react'
 
@@ -21,7 +21,6 @@ interface TaskSidebarProps {
 
   // Run controls
   runAgentType: AgentType
-  runModel: string
   availableTypes: AgentType[] | undefined
   agentSession: any | null
 
@@ -56,7 +55,6 @@ interface TaskSidebarProps {
   onVerify: () => void
   onAssignToAgent: () => void
   onRunAgentTypeChange: (agentType: AgentType) => void
-  onRunModelChange: (model: string) => void
   onCancelAgent?: () => void
 }
 
@@ -67,7 +65,6 @@ export function TaskSidebar({
   isAssigning,
   saveError,
   runAgentType,
-  runModel,
   availableTypes,
   agentSession,
   taskSessions,
@@ -81,7 +78,6 @@ export function TaskSidebar({
   onVerify,
   onAssignToAgent,
   onRunAgentTypeChange,
-  onRunModelChange,
   onCancelAgent,
 }: TaskSidebarProps) {
   // Hide sessions and controls in review mode
