@@ -3,7 +3,9 @@
  * Displays changed files grouped by session with selection checkboxes
  */
 
-import { ChevronRight, ChevronDown } from "lucide-react"
+import { memo, useCallback, useMemo } from "react"
+import { ChevronRight, ChevronDown, FilePlus, FileEdit, FileX, Folder } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import type { GitDiffView } from "@/components/git/file-list"
 
 export interface ChangedFile {
@@ -36,68 +38,121 @@ export function FileListPanel({
   onToggleSession,
   onFileClick,
 }: FileListPanelProps) {
+  const allSelected = files.length > 0 && selectedFiles.size === files.length
+  const someSelected = selectedFiles.size > 0 && selectedFiles.size < files.length
+
   return (
     <div className="flex-1 flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-vcr text-sm text-foreground">Changed Files</h3>
-          <button
-            onClick={onToggleAll}
-            aria-label={selectedFiles.size === files.length ? "Deselect all files" : "Select all files"}
-            aria-pressed={selectedFiles.size === files.length}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            {selectedFiles.size === files.length ? "Deselect All" : "Select All"}
-          </button>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {files.length} file{files.length === 1 ? "" : "s"} • {filesBySession.size} session{filesBySession.size === 1 ? "" : "s"}
+      <div className="px-4 py-3 border-b border-border/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Checkbox
+              checked={allSelected}
+              indeterminate={someSelected}
+              onChange={onToggleAll}
+              size="sm"
+              aria-label={allSelected ? "Deselect all files" : "Select all files"}
+            />
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Changed Files</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {selectedFiles.size > 0 ? (
+                  <span>{selectedFiles.size} of {files.length} selected</span>
+                ) : (
+                  <span>{files.length} file{files.length === 1 ? "" : "s"} • {filesBySession.size} session{filesBySession.size === 1 ? "" : "s"}</span>
+                )}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* File list grouped by session */}
       <div className="flex-1 overflow-y-auto">
         {Array.from(filesBySession.entries()).map(([sessionId, sessionFiles]) => (
-          <div key={sessionId} className="border-b border-border">
-            <button
-              onClick={() => onToggleSession(sessionId)}
-              aria-expanded={expandedSessions.has(sessionId)}
-              aria-label={`Session ${sessionId.slice(0, 8)}, ${sessionFiles.length} file${sessionFiles.length === 1 ? "" : "s"}`}
-              className="w-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-accent text-left"
-            >
-              {expandedSessions.has(sessionId) ? (
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-              )}
-              <span className="text-xs font-mono text-muted-foreground flex-1">
-                Session {sessionId.slice(0, 8)}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {sessionFiles.length} file{sessionFiles.length === 1 ? "" : "s"}
-              </span>
-            </button>
-
-            {expandedSessions.has(sessionId) && (
-              <div className="pb-1">
-                {sessionFiles.map((file) => (
-                  <FileListItem
-                    key={file.path}
-                    file={file}
-                    isSelected={selectedFiles.has(file.path)}
-                    onToggle={onToggleFile}
-                    onFileClick={onFileClick}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          <SessionGroup
+            key={sessionId}
+            sessionId={sessionId}
+            files={sessionFiles}
+            selectedFiles={selectedFiles}
+            isExpanded={expandedSessions.has(sessionId)}
+            onToggleSession={onToggleSession}
+            onToggleFile={onToggleFile}
+            onFileClick={onFileClick}
+          />
         ))}
       </div>
     </div>
   )
 }
+
+interface SessionGroupProps {
+  sessionId: string
+  files: ChangedFile[]
+  selectedFiles: Map<string, string>
+  isExpanded: boolean
+  onToggleSession: (sessionId: string) => void
+  onToggleFile: (absolutePath: string, gitPath: string) => void
+  onFileClick: (file: string, view: GitDiffView) => void
+}
+
+const SessionGroup = memo(function SessionGroup({
+  sessionId,
+  files,
+  selectedFiles,
+  isExpanded,
+  onToggleSession,
+  onToggleFile,
+  onFileClick,
+}: SessionGroupProps) {
+  const selectedCount = useMemo(
+    () => files.filter(f => selectedFiles.has(f.path)).length,
+    [files, selectedFiles]
+  )
+
+  return (
+    <div className="border-b border-border/30">
+      <button
+        onClick={() => onToggleSession(sessionId)}
+        aria-expanded={isExpanded}
+        className="w-full px-4 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors text-left group"
+      >
+        <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="w-4 h-4" aria-hidden="true" />
+          )}
+        </span>
+        <Folder className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-mono text-foreground/80 flex-1">
+          {sessionId.slice(0, 8)}
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {selectedCount > 0 && selectedCount < files.length && (
+            <span className="text-primary mr-1">{selectedCount}/</span>
+          )}
+          {files.length}
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="pb-1">
+          {files.map((file) => (
+            <FileListItem
+              key={file.path}
+              file={file}
+              isSelected={selectedFiles.has(file.path)}
+              onToggle={onToggleFile}
+              onFileClick={onFileClick}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+})
 
 interface FileListItemProps {
   file: ChangedFile
@@ -106,42 +161,72 @@ interface FileListItemProps {
   onFileClick: (file: string, view: GitDiffView) => void
 }
 
-function FileListItem({ file, isSelected, onToggle, onFileClick }: FileListItemProps) {
+const FileListItem = memo(function FileListItem({
+  file,
+  isSelected,
+  onToggle,
+  onFileClick,
+}: FileListItemProps) {
   const gitPath = file.repoRelativePath || file.relativePath || file.path
+  const displayPath = file.relativePath || file.path
+
+  const handleRowClick = useCallback(() => {
+    // Open file diff view when clicking on the row
+    onFileClick(gitPath, "working")
+  }, [gitPath, onFileClick])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      // Enter opens the file
+      onFileClick(gitPath, "working")
+    } else if (e.key === " ") {
+      // Space toggles selection
+      e.preventDefault()
+      onToggle(file.path, gitPath)
+    }
+  }, [file.path, gitPath, onToggle, onFileClick])
+
+  const OperationIcon = file.operation === "create" ? FilePlus
+    : file.operation === "delete" ? FileX
+    : FileEdit
+
+  const operationColor = file.operation === "create"
+    ? "text-emerald-500"
+    : file.operation === "delete"
+    ? "text-red-500"
+    : "text-blue-500"
 
   return (
-    <div className="px-2 pl-8">
-      <label className="flex items-center gap-2 py-1 px-2 rounded hover:bg-accent cursor-pointer">
-        <input
-          type="checkbox"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={handleRowClick}
+      onKeyDown={handleKeyDown}
+      className={`
+        group mx-2 px-3 py-2 rounded-md cursor-pointer
+        flex items-center gap-3 transition-all
+        ${isSelected
+          ? "bg-primary/10 hover:bg-primary/15"
+          : "hover:bg-muted/50"
+        }
+      `}
+    >
+      <div data-checkbox onClick={(e) => e.stopPropagation()}>
+        <Checkbox
           checked={isSelected}
           onChange={() => onToggle(file.path, gitPath)}
-          className="w-3.5 h-3.5 rounded border-gray-300"
+          size="sm"
+          aria-label={`Select ${displayPath}`}
         />
-        <div
-          className="flex-1 min-w-0 cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onFileClick(gitPath, "working")
-          }}
-        >
-          <div className="text-xs font-mono truncate">
-            {file.relativePath || file.path}
-          </div>
-          <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-            <span className={`${
-              file.operation === "create" ? "text-green-600 dark:text-green-400" :
-              file.operation === "edit" ? "text-blue-600 dark:text-blue-400" :
-              "text-red-600 dark:text-red-400"
-            }`}>
-              {file.operation}
-            </span>
-            <span>•</span>
-            <span>{file.toolUsed}</span>
-          </div>
-        </div>
-      </label>
+      </div>
+
+      <OperationIcon className={`w-4 h-4 flex-shrink-0 ${operationColor}`} />
+
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-mono truncate block text-foreground/90 group-hover:text-foreground">
+          {displayPath}
+        </span>
+      </div>
     </div>
   )
-}
+})

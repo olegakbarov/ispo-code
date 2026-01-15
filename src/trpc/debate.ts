@@ -35,7 +35,7 @@ const activeDebates = new Map<string, {
  * Zod schema for debate agent config
  */
 const debateAgentSchema = z.object({
-  agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]),
+  agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]),
   model: z.string().optional(),
   persona: z.enum(["security", "oncall", "pm", "performance", "qa"]),
 })
@@ -49,7 +49,7 @@ const debateConfigSchema = z.object({
   consensusThreshold: z.number().min(0).max(1).default(0.67),
   autoSynthesize: z.boolean().default(true),
   synthesisAgent: z.object({
-    agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]),
+    agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]),
     model: z.string().optional(),
   }).optional(),
 })

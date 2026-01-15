@@ -75,6 +75,40 @@ interface TaskMetrics {
 }
 
 /**
+ * Hot file aggregate - files with most edit activity
+ */
+interface HotFile {
+  path: string
+  editCount: number
+  lastModified: string
+  operations: {
+    create: number
+    edit: number
+    delete: number
+  }
+  sessions: Array<{
+    sessionId: string
+    taskPath?: string
+    editCount: number
+  }>
+}
+
+/**
+ * Enhanced tool call details with session context
+ */
+interface ToolCallDetails {
+  tool: string
+  totalCalls: number
+  sessions: Array<{
+    sessionId: string
+    taskPath?: string
+    callCount: number
+  }>
+  firstUsed: string
+  lastUsed: string
+}
+
+/**
  * Helper to determine session type from title
  */
 function getSessionType(title?: string, sourceFile?: string): string {
@@ -444,5 +478,181 @@ export const statsRouter = router({
     taskMetrics.sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())
 
     return taskMetrics
+  }),
+
+  /**
+   * Get hot files - files ranked by edit frequency
+   */
+  getHotFiles: procedure.query(async () => {
+    const streamAPI = getStreamAPI()
+    const registryEvents = await streamAPI.readRegistry()
+
+    const deletedSessionIds = new Set<string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_deleted") {
+        deletedSessionIds.add(event.sessionId)
+      }
+    }
+
+    // Build map of sessionId -> taskPath
+    const sessionTaskMap = new Map<string, string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_created" && event.taskPath && !deletedSessionIds.has(event.sessionId)) {
+        sessionTaskMap.set(event.sessionId, event.taskPath)
+      }
+    }
+
+    // Aggregate file changes by path
+    const fileAggregates = new Map<string, {
+      editCount: number
+      lastModified: Date
+      operations: { create: number; edit: number; delete: number }
+      sessions: Map<string, number> // sessionId -> edit count for that session
+    }>()
+
+    for (const event of registryEvents) {
+      if ((event.type === "session_completed" || event.type === "session_failed") && !deletedSessionIds.has(event.sessionId)) {
+        const metadata = event.metadata
+        if (metadata?.editedFiles) {
+          for (const file of metadata.editedFiles) {
+            const path = file.repoRelativePath || file.relativePath || file.path
+
+            let aggregate = fileAggregates.get(path)
+            if (!aggregate) {
+              aggregate = {
+                editCount: 0,
+                lastModified: new Date(file.timestamp),
+                operations: { create: 0, edit: 0, delete: 0 },
+                sessions: new Map(),
+              }
+              fileAggregates.set(path, aggregate)
+            }
+
+            // Update aggregate
+            aggregate.editCount++
+
+            // Track operation type
+            aggregate.operations[file.operation]++
+
+            // Update last modified
+            const timestamp = new Date(file.timestamp)
+            if (timestamp > aggregate.lastModified) {
+              aggregate.lastModified = timestamp
+            }
+
+            // Track session that modified this file
+            const sessionEditCount = aggregate.sessions.get(event.sessionId) || 0
+            aggregate.sessions.set(event.sessionId, sessionEditCount + 1)
+          }
+        }
+      }
+    }
+
+    // Convert to HotFile array
+    const hotFiles: HotFile[] = []
+    for (const [path, aggregate] of fileAggregates.entries()) {
+      const sessions = Array.from(aggregate.sessions.entries()).map(([sessionId, editCount]) => ({
+        sessionId,
+        taskPath: sessionTaskMap.get(sessionId),
+        editCount,
+      }))
+
+      hotFiles.push({
+        path,
+        editCount: aggregate.editCount,
+        lastModified: aggregate.lastModified.toISOString(),
+        operations: aggregate.operations,
+        sessions,
+      })
+    }
+
+    // Sort by edit count descending
+    hotFiles.sort((a, b) => b.editCount - a.editCount)
+
+    return hotFiles
+  }),
+
+  /**
+   * Get enhanced tool call details with session context
+   */
+  getToolCallDetails: procedure.query(async () => {
+    const streamAPI = getStreamAPI()
+    const registryEvents = await streamAPI.readRegistry()
+
+    const deletedSessionIds = new Set<string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_deleted") {
+        deletedSessionIds.add(event.sessionId)
+      }
+    }
+
+    // Build map of sessionId -> taskPath
+    const sessionTaskMap = new Map<string, string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_created" && event.taskPath && !deletedSessionIds.has(event.sessionId)) {
+        sessionTaskMap.set(event.sessionId, event.taskPath)
+      }
+    }
+
+    // Aggregate tool calls with session context
+    const toolAggregates = new Map<string, {
+      totalCalls: number
+      sessions: Map<string, number> // sessionId -> call count for that session
+      timestamps: Date[]
+    }>()
+
+    for (const event of registryEvents) {
+      if ((event.type === "session_completed" || event.type === "session_failed") && !deletedSessionIds.has(event.sessionId)) {
+        const metadata = event.metadata
+        if (metadata?.toolStats) {
+          for (const [tool, count] of Object.entries(metadata.toolStats.byTool)) {
+            let aggregate = toolAggregates.get(tool)
+            if (!aggregate) {
+              aggregate = {
+                totalCalls: 0,
+                sessions: new Map(),
+                timestamps: [],
+              }
+              toolAggregates.set(tool, aggregate)
+            }
+
+            aggregate.totalCalls += count
+
+            // Track session that used this tool
+            const sessionCallCount = aggregate.sessions.get(event.sessionId) || 0
+            aggregate.sessions.set(event.sessionId, sessionCallCount + count)
+
+            // Add timestamp (using event timestamp as proxy for tool usage time)
+            aggregate.timestamps.push(new Date(event.timestamp))
+          }
+        }
+      }
+    }
+
+    // Convert to ToolCallDetails array
+    const toolDetails: ToolCallDetails[] = []
+    for (const [tool, aggregate] of toolAggregates.entries()) {
+      // Sort timestamps to get first/last used
+      aggregate.timestamps.sort((a, b) => a.getTime() - b.getTime())
+
+      const sessions = Array.from(aggregate.sessions.entries()).map(([sessionId, callCount]) => ({
+        sessionId,
+        taskPath: sessionTaskMap.get(sessionId),
+        callCount,
+      }))
+
+      toolDetails.push({
+        tool,
+        totalCalls: aggregate.totalCalls,
+        sessions,
+        firstUsed: aggregate.timestamps[0]?.toISOString() || new Date().toISOString(),
+        lastUsed: aggregate.timestamps[aggregate.timestamps.length - 1]?.toISOString() || new Date().toISOString(),
+      })
+    }
+
+    // Sort by total calls descending
+    toolDetails.sort((a, b) => b.totalCalls - a.totalCalls)
+
+    return toolDetails
   }),
 })

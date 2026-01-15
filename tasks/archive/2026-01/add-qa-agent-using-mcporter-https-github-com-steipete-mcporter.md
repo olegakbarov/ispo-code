@@ -20,20 +20,20 @@ New QA agent type using MCPorter for MCP tool discovery/invocation. Standalone a
 ## Implementation Plan
 
 ### Phase 1: Dependencies & Types
-- [ ] Install `mcporter` package
-- [ ] Add `"mcporter"` to `AgentType` union in `types.ts`
-- [ ] Add `mcporterMessages` to `AgentSession` for resumption
-- [ ] Update `agentTypeSchema` in `trpc/agent.ts`
+- [x] Install `mcporter` package
+- [x] Add `"mcporter"` to `AgentType` union in `types.ts`
+- [x] Add `mcporterMessages` to `AgentSession` for resumption
+- [x] Update `agentTypeSchema` in `trpc/agent.ts`
 
 ### Phase 2: Model Registry
-- [ ] Define `MCPORTER_MODELS` array in `model-registry.ts`
-- [ ] Add to `MODEL_REGISTRY` record
-- [ ] Set default model (Gemini 2.0 Flash or configurable)
+- [x] Define `MCPORTER_MODELS` array in `model-registry.ts`
+- [x] Add to `MODEL_REGISTRY` record
+- [x] Set default model (Gemini 2.0 Flash or configurable)
 
 ### Phase 3: Agent Implementation
-- [ ] Create `src/lib/agent/mcporter.ts`
-- [ ] Implement `MCPorterAgent` class extending `EventEmitter`
-- [ ] Use `createRuntime()` for MCP server connection pooling
+- [x] Create `src/lib/agent/mcporter.ts`
+- [x] Implement `MCPorterAgent` class extending `EventEmitter`
+- [x] Use `createRuntime()` for MCP server connection pooling
     - [ ] Implement error handling for `createRuntime()`, including connection failures and invalid configuration.
         - [ ] If the MCP server is unavailable, the agent should display an error message: "Failed to connect to MCP server. Please check your configuration and network connection."
     - [ ] Implement retry mechanisms for transient connection errors.
@@ -51,18 +51,18 @@ New QA agent type using MCPorter for MCP tool discovery/invocation. Standalone a
     - [ ] Implement output validation and sanitization to prevent XSS. Always sanitize user inputs before including them in error messages displayed to the user. Use a library specifically designed for XSS prevention, such as DOMPurify.
 
 ### Phase 4: Manager Integration
-- [ ] Add `case "mcporter"` to `runAgent()` switch in `manager.ts`
-- [ ] Export from `index.ts`
-- [ ] Add availability check in `cli-runner.ts`
+- [x] Add `case "mcporter"` to `runAgent()` switch in `manager.ts`
+- [x] Export from `index.ts`
+- [x] Add availability check in `cli-runner.ts`
     - [ ] Check for `mcporter.json` existence, valid JSON format, and at least one valid server definition.
         - [ ] Add error handling to report specific errors like 'Invalid JSON format', 'Missing server configuration', or 'Invalid server address' to the user, guiding them to correct their mcporter.json file.
     - [ ] Implement validation of the MCP server configurations loaded from `~/.mcporter/mcporter.json`. This should include verifying the server's address and checking for known malicious patterns.
 - [ ] Implement a robust authorization mechanism that verifies user permissions before invoking any MCP tool. Authorization will be based on user roles and permissions configured in the MCP server. The agent will query the MCP server to determine if the current user has permission to invoke the requested tool. Ensure that authorization checks are performed on the server-side to prevent bypassing on the client-side.
 
 ### Phase 5: UI Integration
-- [ ] Add `mcporter` entry to `agentLabels` in `src/routes/index.tsx`
-- [ ] Label: "QA Agent" / Description: "MCP-powered QA tools"
-- [ ] Shows in agent type selector when MCPorter available
+- [x] Add `mcporter` entry to `agentLabels` in `src/routes/index.tsx`
+- [x] Label: "QA Agent" / Description: "MCP-powered QA tools"
+- [x] Shows in agent type selector when MCPorter available
 
 ## Key Files
 - `src/lib/agent/types.ts` - add AgentType
@@ -99,21 +99,21 @@ New QA agent type using MCPorter for MCP tool discovery/invocation. Standalone a
 - Invalid input will be rejected with an error message indicating the specific validation failure. For example: "Invalid input: Parameter X must be a valid email address."
 
 ## Success Criteria
-- [ ] QA agent appears in agent selector on `/` route
-- [ ] Can spawn standalone session with user prompt
-- [ ] Discovers available MCP tools on startup
-    - [ ] Handle the case where no tools are discovered gracefully.
-    - [ ] If no MCP tools are discovered, the agent displays a message: "No MCP tools found. Please check your MCPorter configuration." and disables tool-related functionality.
-- [ ] Can invoke MCP tools via natural language
-    - [ ] Implement strict input validation and sanitization on the user's input before it's passed to the MCP tools.
-    - [ ] Examples of successful invocations:
+- [x] QA agent appears in agent selector on `/` route
+- [x] Can spawn standalone session with user prompt
+- [x] Discovers available MCP tools on startup
+    - [x] Handle the case where no tools are discovered gracefully.
+    - [x] If no MCP tools are discovered, the agent displays a message: "No MCP tools found. Please check your MCPorter configuration." and disables tool-related functionality.
+- [x] Can invoke MCP tools via natural language
+    - [x] Implement strict input validation and sanitization on the user's input before it's passed to the MCP tools.
+    - [x] Examples of successful invocations:
         - User: "Run tool X with parameter Y" - Expected: Tool X is invoked with parameter Y, and the result is returned to the user.
-    - [ ] Examples of failed invocations:
+    - [x] Examples of failed invocations:
         - User: "Run tool Z" (tool Z does not exist) - Expected: An error message is returned to the user indicating that the tool does not exist.
         - User: "Run tool X with invalid parameter Y" - Expected: An error message is returned to the user indicating that the parameter is invalid.
-- [ ] Standard lifecycle works (run/abort/resume)
-    - [ ] Verify that the agent session, including `mcporterMessages`, can be persisted and resumed correctly.
-    - [ ] Verify that on resume, the agent retains the previous conversation history and MCP tool list. If resume fails, the agent should start a new session and display an appropriate error message.
+- [x] Standard lifecycle works (run/abort/resume)
+    - [x] Verify that the agent session, including `mcporterMessages`, can be persisted and resumed correctly.
+    - [x] Verify that on resume, the agent retains the previous conversation history and MCP tool list. If resume fails, the agent should start a new session and display an appropriate error message.
 
 ## Test Cases for Error Scenarios
 - [ ] User provides an invalid parameter to Tool X -> Agent displays an error message indicating the parameter is invalid.

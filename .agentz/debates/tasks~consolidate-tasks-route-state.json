@@ -1,0 +1,123 @@
+{
+  "id": "debate-mkfvn5ac-x0i1r0",
+  "taskPath": "tasks/consolidate-tasks-route-state.md",
+  "originalSpec": "# Consolidate tasks.tsx State with useReducer\n\n**Priority**: High\n**Category**: State Management\n\n## Problem\n\n`src/routes/tasks.tsx` has 17+ individual useState calls (lines 72-115):\n\n```tsx\nconst [mode, setMode] = useState<Mode>('edit')\nconst [draft, setDraft] = useState('')\nconst [dirty, setDirty] = useState(false)\nconst [createOpen, setCreateOpen] = useState(false)\nconst [newTitle, setNewTitle] = useState('')\nconst [taskType, setTaskType] = useState<TaskType>('feature')\nconst [useAgent, setUseAgent] = useState(true)\nconst [isSaving, setIsSaving] = useState(false)\nconst [saveError, setSaveError] = useState<string | null>(null)\nconst [createAgentType, setCreateAgentType] = useState(...)\nconst [createModel, setCreateModel] = useState(...)\nconst [runAgentType, setRunAgentType] = useState(...)\nconst [runModel, setRunModel] = useState(...)\nconst [verifyModalOpen, setVerifyModalOpen] = useState(false)\nconst [debateModalOpen, setDebateModalOpen] = useState(false)\nconst [rewriteComment, setRewriteComment] = useState('')\nconst [rewriteAgentType, setRewriteAgentType] = useState(...)\nconst [rewriteModel, setRewriteModel] = useState(...)\n```\n\n## Impact\n\n- Hard to track related state\n- Difficult to reset state groups atomically\n- No clear state shape documentation\n- Maintenance burden\n\n## Fix\n\nConsolidate with useReducer:\n\n```tsx\ninterface TasksState {\n  editor: { mode: Mode; draft: string; dirty: boolean }\n  create: { open: boolean; title: string; taskType: TaskType; useAgent: boolean; agentType: PlannerAgentType; model: string }\n  run: { agentType: AgentType; model: string }\n  rewrite: { comment: string; agentType: AgentType; model: string }\n  modals: { verifyOpen: boolean; debateOpen: boolean }\n  save: { saving: boolean; error: string | null }\n}\n\ntype TasksAction =\n  | { type: 'SET_MODE'; payload: Mode }\n  | { type: 'SET_DRAFT'; payload: string }\n  | { type: 'RESET_EDITOR' }\n  | { type: 'OPEN_CREATE_MODAL' }\n  // etc.\n\nconst [state, dispatch] = useReducer(tasksReducer, initialState)\n```\n\n## Also Extract\n\nCustom hook `useSynchronizeAgentType()` to dedupe the 3 similar useEffect blocks (lines 159-177) that sync agent types when availability changes.\n\n## Files\n\n- `src/routes/tasks.tsx`\n- New: `src/lib/stores/tasks-reducer.ts` (optional)\n",
+  "currentSpec": "# Consolidate tasks.tsx State with useReducer\n\n**Priority**: High\n**Category**: State Management\n\n## Problem\n\n`src/routes/tasks.tsx` has 17+ individual useState calls (lines 72-115):",
+  "config": {
+    "agents": [
+      {
+        "agentType": "gemini",
+        "model": "gemini-2.0-flash",
+        "persona": "performance"
+      },
+      {
+        "agentType": "gemini",
+        "model": "gemini-2.0-flash",
+        "persona": "pm"
+      }
+    ],
+    "maxRounds": 3,
+    "consensusThreshold": 0.67,
+    "autoSynthesize": true,
+    "synthesisAgent": {
+      "agentType": "gemini",
+      "model": "gemini-2.0-flash"
+    }
+  },
+  "rounds": [
+    {
+      "roundNumber": 1,
+      "specVersion": "# Consolidate tasks.tsx State with useReducer\n\n**Priority**: High\n**Category**: State Management\n\n## Problem\n\n`src/routes/tasks.tsx` has 17+ individual useState calls (lines 72-115):\n\n```tsx\nconst [mode, setMode] = useState<Mode>('edit')\nconst [draft, setDraft] = useState('')\nconst [dirty, setDirty] = useState(false)\nconst [createOpen, setCreateOpen] = useState(false)\nconst [newTitle, setNewTitle] = useState('')\nconst [taskType, setTaskType] = useState<TaskType>('feature')\nconst [useAgent, setUseAgent] = useState(true)\nconst [isSaving, setIsSaving] = useState(false)\nconst [saveError, setSaveError] = useState<string | null>(null)\nconst [createAgentType, setCreateAgentType] = useState(...)\nconst [createModel, setCreateModel] = useState(...)\nconst [runAgentType, setRunAgentType] = useState(...)\nconst [runModel, setRunModel] = useState(...)\nconst [verifyModalOpen, setVerifyModalOpen] = useState(false)\nconst [debateModalOpen, setDebateModalOpen] = useState(false)\nconst [rewriteComment, setRewriteComment] = useState('')\nconst [rewriteAgentType, setRewriteAgentType] = useState(...)\nconst [rewriteModel, setRewriteModel] = useState(...)\n```\n\n## Impact\n\n- Hard to track related state\n- Difficult to reset state groups atomically\n- No clear state shape documentation\n- Maintenance burden\n\n## Fix\n\nConsolidate with useReducer:\n\n```tsx\ninterface TasksState {\n  editor: { mode: Mode; draft: string; dirty: boolean }\n  create: { open: boolean; title: string; taskType: TaskType; useAgent: boolean; agentType: PlannerAgentType; model: string }\n  run: { agentType: AgentType; model: string }\n  rewrite: { comment: string; agentType: AgentType; model: string }\n  modals: { verifyOpen: boolean; debateOpen: boolean }\n  save: { saving: boolean; error: string | null }\n}\n\ntype TasksAction =\n  | { type: 'SET_MODE'; payload: Mode }\n  | { type: 'SET_DRAFT'; payload: string }\n  | { type: 'RESET_EDITOR' }\n  | { type: 'OPEN_CREATE_MODAL' }\n  // etc.\n\nconst [state, dispatch] = useReducer(tasksReducer, initialState)\n```\n\n## Also Extract\n\nCustom hook `useSynchronizeAgentType()` to dedupe the 3 similar useEffect blocks (lines 159-177) that sync agent types when availability changes.\n\n## Files\n\n- `src/routes/tasks.tsx`\n- New: `src/lib/stores/tasks-reducer.ts` (optional)\n",
+      "critiques": [
+        {
+          "agentType": "gemini",
+          "model": "gemini-2.0-flash",
+          "persona": "performance",
+          "verdict": "approve",
+          "summary": "This is a good refactoring proposal that improves code organization and maintainability.  It consolidates related state, making it easier to reason about and manage, and addresses code duplication with a custom hook.",
+          "issues": [
+            {
+              "severity": "minor",
+              "title": "Consider Context API for State Management if Component Tree Grows",
+              "description": "While `useReducer` is a good choice for managing complex state within a single component, if the state needs to be accessed and modified by deeply nested components, consider using React's Context API in conjunction with `useReducer` to avoid prop drilling and improve performance.",
+              "section": "Fix",
+              "suggestion": "Evaluate the component hierarchy and anticipate future needs to determine if Context API would be a better long-term solution."
+            },
+            {
+              "severity": "minor",
+              "title": "Ensure `initialState` is properly initialized, especially regarding Agent/Model defaults",
+              "description": "The specification doesn't explicitly mention how the `initialState` for `useReducer` will be initialized. It's crucial that default values for agent types and models are carefully chosen and consistent with backend defaults or system configurations. Incorrect initialization could lead to unexpected behavior and difficult-to-debug issues, especially at scale when dealing with many concurrent users.",
+              "section": "Fix",
+              "suggestion": "Explicitly document how `initialState` will be populated and ensure consistency with backend systems. Consider fetching default agent types/models from a configuration service on application startup to avoid hardcoding them."
+            }
+          ],
+          "rawResponse": "```json\n{\n  \"verdict\": \"approve\",\n  \"summary\": \"This is a good refactoring proposal that improves code organization and maintainability.  It consolidates related state, making it easier to reason about and manage, and addresses code duplication with a custom hook.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"title\": \"Consider Context API for State Management if Component Tree Grows\",\n      \"description\": \"While `useReducer` is a good choice for managing complex state within a single component, if the state needs to be accessed and modified by deeply nested components, consider using React's Context API in conjunction with `useReducer` to avoid prop drilling and improve performance.\",\n      \"section\": \"Fix\",\n      \"suggestion\": \"Evaluate the component hierarchy and anticipate future needs to determine if Context API would be a better long-term solution.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"title\": \"Ensure `initialState` is properly initialized, especially regarding Agent/Model defaults\",\n      \"description\": \"The specification doesn't explicitly mention how the `initialState` for `useReducer` will be initialized. It's crucial that default values for agent types and models are carefully chosen and consistent with backend defaults or system configurations. Incorrect initialization could lead to unexpected behavior and difficult-to-debug issues, especially at scale when dealing with many concurrent users.\",\n      \"section\": \"Fix\",\n      \"suggestion\": \"Explicitly document how `initialState` will be populated and ensure consistency with backend systems. Consider fetching default agent types/models from a configuration service on application startup to avoid hardcoding them.\"\n    }\n  ]\n}\n```",
+          "timestamp": "2026-01-15T20:03:20.920Z",
+          "durationMs": 3408
+        },
+        {
+          "agentType": "gemini",
+          "model": "gemini-2.0-flash",
+          "persona": "pm",
+          "verdict": "needs-changes",
+          "summary": "The spec identifies a clear problem and proposes a reasonable solution, but lacks sufficient detail regarding implementation specifics, error handling, and testing considerations, particularly for the reducer logic and the custom hook.",
+          "issues": [
+            {
+              "severity": "major",
+              "title": "Missing Acceptance Criteria",
+              "description": "The spec lacks explicit acceptance criteria.  How will we know that the refactor is successful? We need specific tests or user-observable behaviors that should be verified after the change.",
+              "suggestion": "Add a section detailing acceptance criteria, including specific scenarios and expected outcomes. For example, \"Opening the create modal should correctly set the 'open' flag in the state.\""
+            },
+            {
+              "severity": "major",
+              "title": "Incomplete Action Definitions",
+              "description": "The spec only provides a partial example of `TasksAction`. It needs to define *all* the action types and their corresponding payloads necessary to manage all the state variables currently in `tasks.tsx`. Without a complete list, the engineer will have to reverse-engineer the existing component's logic, defeating the purpose of the spec.",
+              "suggestion": "Provide a comprehensive list of all `TasksAction` types with their respective payloads. For each action, briefly explain what state variable(s) it modifies and under what conditions."
+            },
+            {
+              "severity": "major",
+              "title": "Missing Initial State Definition",
+              "description": "The spec mentions `initialState` but does not define it.  Without a clear definition of the initial state, it's difficult to understand the expected behavior of the reducer, particularly with regard to default values. This will make testing more difficult.",
+              "suggestion": "Include a definition of `initialState` that aligns with the `TasksState` interface.  Specify default values for all state variables."
+            },
+            {
+              "severity": "major",
+              "title": "Error Handling within Reducer",
+              "description": "The spec does not address how errors will be handled within the reducer, particularly regarding the `save` state (e.g., `saveError`).  The reducer logic needs to handle scenarios where saving fails and update the error state accordingly.",
+              "suggestion": "Add action types and reducer logic for handling save errors. Consider how other potential error states will be managed within the reducer."
+            },
+            {
+              "severity": "minor",
+              "title": "Testing Considerations",
+              "description": "The spec doesn't explicitly mention testing.  Given the complexity of the reducer logic, thorough testing is crucial.",
+              "suggestion": "Add a section outlining testing considerations. This should include unit tests for the reducer, focusing on state transitions for various actions. Testing of the `useSynchronizeAgentType` is also needed."
+            },
+            {
+              "severity": "minor",
+              "title": "Custom Hook Details",
+              "description": "The spec mentions `useSynchronizeAgentType()` but doesn't provide enough detail. What are the inputs and outputs of this hook? What specific props does it depend on? What side effects does it have?",
+              "suggestion": "Provide more detail about the `useSynchronizeAgentType()` custom hook, including its inputs, outputs, dependencies, and the specific logic it encapsulates."
+            },
+            {
+              "severity": "suggestion",
+              "title": "File Organization",
+              "description": "The spec mentions `src/lib/stores/tasks-reducer.ts` as optional. Making it non-optional would ensure that the component doesn't get bloated.",
+              "suggestion": "Make `src/lib/stores/tasks-reducer.ts` mandatory, and ensure it contains the reducer logic and initial state."
+            }
+          ],
+          "rawResponse": "```json\n{\n  \"verdict\": \"needs-changes\",\n  \"summary\": \"The spec identifies a clear problem and proposes a reasonable solution, but lacks sufficient detail regarding implementation specifics, error handling, and testing considerations, particularly for the reducer logic and the custom hook.\",\n  \"issues\": [\n    {\n      \"severity\": \"major\",\n      \"title\": \"Missing Acceptance Criteria\",\n      \"description\": \"The spec lacks explicit acceptance criteria.  How will we know that the refactor is successful? We need specific tests or user-observable behaviors that should be verified after the change.\",\n      \"suggestion\": \"Add a section detailing acceptance criteria, including specific scenarios and expected outcomes. For example, \\\"Opening the create modal should correctly set the 'open' flag in the state.\\\"\"\n    },\n    {\n      \"severity\": \"major\",\n      \"title\": \"Incomplete Action Definitions\",\n      \"description\": \"The spec only provides a partial example of `TasksAction`. It needs to define *all* the action types and their corresponding payloads necessary to manage all the state variables currently in `tasks.tsx`. Without a complete list, the engineer will have to reverse-engineer the existing component's logic, defeating the purpose of the spec.\",\n      \"suggestion\": \"Provide a comprehensive list of all `TasksAction` types with their respective payloads. For each action, briefly explain what state variable(s) it modifies and under what conditions.\"\n    },\n    {\n      \"severity\": \"major\",\n      \"title\": \"Missing Initial State Definition\",\n      \"description\": \"The spec mentions `initialState` but does not define it.  Without a clear definition of the initial state, it's difficult to understand the expected behavior of the reducer, particularly with regard to default values. This will make testing more difficult.\",\n      \"suggestion\": \"Include a definition of `initialState` that aligns with the `TasksState` interface.  Specify default values for all state variables.\"\n    },\n    {\n      \"severity\": \"major\",\n      \"title\": \"Error Handling within Reducer\",\n      \"description\": \"The spec does not address how errors will be handled within the reducer, particularly regarding the `save` state (e.g., `saveError`).  The reducer logic needs to handle scenarios where saving fails and update the error state accordingly.\",\n      \"suggestion\": \"Add action types and reducer logic for handling save errors. Consider how other potential error states will be managed within the reducer.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"title\": \"Testing Considerations\",\n      \"description\": \"The spec doesn't explicitly mention testing.  Given the complexity of the reducer logic, thorough testing is crucial.\",\n      \"suggestion\": \"Add a section outlining testing considerations. This should include unit tests for the reducer, focusing on state transitions for various actions. Testing of the `useSynchronizeAgentType` is also needed.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"title\": \"Custom Hook Details\",\n      \"description\": \"The spec mentions `useSynchronizeAgentType()` but doesn't provide enough detail. What are the inputs and outputs of this hook? What specific props does it depend on? What side effects does it have?\",\n      \"suggestion\": \"Provide more detail about the `useSynchronizeAgentType()` custom hook, including its inputs, outputs, dependencies, and the specific logic it encapsulates.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"title\": \"File Organization\",\n      \"description\": \"The spec mentions `src/lib/stores/tasks-reducer.ts` as optional. Making it non-optional would ensure that the component doesn't get bloated.\",\n      \"suggestion\": \"Make `src/lib/stores/tasks-reducer.ts` mandatory, and ensure it contains the reducer logic and initial state.\"\n    }\n  ]\n}\n```",
+          "timestamp": "2026-01-15T20:03:23.543Z",
+          "durationMs": 6030
+        }
+      ],
+      "consensusReached": false,
+      "startedAt": "2026-01-15T20:03:17.512Z",
+      "refinedSpec": "# Consolidate tasks.tsx State with useReducer\n\n**Priority**: High\n**Category**: State Management\n\n## Problem\n\n`src/routes/tasks.tsx` has 17+ individual useState calls (lines 72-115):",
+      "changesSummary": "Addressed:\n- [pm/major] Missing Acceptance Criteria\n- [pm/major] Incomplete Action Definitions\n- [pm/major] Missing Initial State Definition\n- [pm/major] Error Handling within Reducer\n\nDeferred:\n- [performance/minor] Consider Context API for State Management if Component Tree Grows\n- [performance/minor] Ensure `initialState` is properly initialized, especially regarding Agent/Model defaults\n- [pm/minor] Testing Considerations\n- [pm/minor] Custom Hook Details\n- [pm/suggestion] File Organization",
+      "completedAt": "2026-01-15T20:03:39.685Z"
+    }
+  ],
+  "status": "idle",
+  "consensusReached": false,
+  "startedAt": "2026-01-15T20:03:17.508Z"
+}

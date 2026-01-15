@@ -76,6 +76,29 @@ export const SecurityConfig = {
 
   /** Maximum number of grep results to return */
   GREP_MAX_RESULTS: 50,
+
+  // === Rate Limiting ===
+
+  /** Maximum requests per user/session per minute */
+  RATE_LIMIT_REQUESTS_PER_MINUTE: 60,
+
+  /** Maximum tokens allowed per single request */
+  RATE_LIMIT_MAX_TOKENS_PER_REQUEST: 50_000,
+
+  /** Maximum total tokens per user/session per minute */
+  RATE_LIMIT_TOKENS_PER_MINUTE: 200_000,
+
+  /** Maximum total tokens per user/session per hour */
+  RATE_LIMIT_TOKENS_PER_HOUR: 1_000_000,
+
+  /** Duration to suspend account after rate limit violations (milliseconds) */
+  RATE_LIMIT_SUSPENSION_DURATION_MS: 15 * 60 * 1000, // 15 minutes
+
+  /** Number of violations before permanent suspension */
+  RATE_LIMIT_MAX_VIOLATIONS: 5,
+
+  /** Enable rate limiting */
+  RATE_LIMIT_ENABLED: true,
 } as const
 
 /**
@@ -115,6 +138,14 @@ export function validateConfig(): void {
 
   if (SecurityConfig.MAX_CONCURRENT_AGENTS < 1) {
     errors.push('MAX_CONCURRENT_AGENTS must be at least 1')
+  }
+
+  if (SecurityConfig.RATE_LIMIT_TOKENS_PER_MINUTE > SecurityConfig.RATE_LIMIT_TOKENS_PER_HOUR) {
+    errors.push('RATE_LIMIT_TOKENS_PER_MINUTE cannot exceed RATE_LIMIT_TOKENS_PER_HOUR')
+  }
+
+  if (SecurityConfig.RATE_LIMIT_REQUESTS_PER_MINUTE < 1) {
+    errors.push('RATE_LIMIT_REQUESTS_PER_MINUTE must be at least 1')
   }
 
   if (errors.length > 0) {

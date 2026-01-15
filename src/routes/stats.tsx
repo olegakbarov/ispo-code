@@ -12,6 +12,7 @@ import { ToolUsageChart } from '@/components/stats/tool-usage-chart'
 import { FileChangesTable } from '@/components/stats/file-changes-table'
 import { SessionBreakdown } from '@/components/stats/session-breakdown'
 import { TaskStatsTable } from '@/components/stats/task-stats-table'
+import { HotFilesTable } from '@/components/stats/hot-files-table'
 import { Activity, FileCode, Zap, Database } from 'lucide-react'
 
 export const Route = createFileRoute('/stats')({
@@ -22,11 +23,13 @@ function StatsPage() {
   // Load all stats data
   const overviewQuery = trpc.stats.getOverview.useQuery()
   const toolStatsQuery = trpc.stats.getToolStats.useQuery()
+  const toolDetailsQuery = trpc.stats.getToolCallDetails.useQuery()
+  const hotFilesQuery = trpc.stats.getHotFiles.useQuery()
   const fileChangesQuery = trpc.stats.getFileChanges.useQuery()
   const sessionStatsQuery = trpc.stats.getSessionStats.useQuery()
   const taskMetricsQuery = trpc.stats.getTaskMetrics.useQuery()
 
-  const isLoading = overviewQuery.isLoading || toolStatsQuery.isLoading || fileChangesQuery.isLoading || sessionStatsQuery.isLoading || taskMetricsQuery.isLoading
+  const isLoading = overviewQuery.isLoading || toolStatsQuery.isLoading || toolDetailsQuery.isLoading || hotFilesQuery.isLoading || fileChangesQuery.isLoading || sessionStatsQuery.isLoading || taskMetricsQuery.isLoading
 
   if (isLoading) {
     return (
@@ -38,6 +41,8 @@ function StatsPage() {
 
   const overview = overviewQuery.data
   const toolStats = toolStatsQuery.data
+  const toolDetails = toolDetailsQuery.data
+  const hotFiles = hotFilesQuery.data
   const fileChanges = fileChangesQuery.data
   const sessionStats = sessionStatsQuery.data
   const taskMetrics = taskMetricsQuery.data
@@ -86,9 +91,16 @@ function StatsPage() {
 
         {/* Tool Usage & Session Breakdown */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {toolStats && <ToolUsageChart data={toolStats} />}
+          {toolStats && <ToolUsageChart data={toolStats} details={toolDetails} />}
           {sessionStats && <SessionBreakdown data={sessionStats} />}
         </div>
+
+        {/* Hot Files Table */}
+        {hotFiles && (
+          <div>
+            <HotFilesTable data={hotFiles} />
+          </div>
+        )}
 
         {/* File Changes Table */}
         {fileChanges && (
