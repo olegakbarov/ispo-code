@@ -8,22 +8,24 @@
  */
 
 import { useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { useDebouncedCallback } from '@/lib/utils/debounce'
 import type { AgentType } from '@/lib/agent/types'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
-import { CreateTaskModal, type TaskType } from '@/components/tasks/create-task-modal'
+import { CreateTaskModal } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
 import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
 import { DebatePanel } from '@/components/debate'
-import { getDefaultModelId, type PlannerAgentType } from '@/lib/agent/config'
+import type { PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
 import { trpc } from '@/lib/trpc-client'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
+import { tasksReducer, createInitialState } from '@/lib/stores/tasks-reducer'
+import { useSynchronizeAgentType } from '@/lib/hooks/use-synchronize-agent-type'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -109,54 +111,12 @@ export function TasksPage({
     return candidates.filter((t) => availableTypes.includes(t))
   }, [availableTypes])
 
-  // Local state
-  const [draft, setDraft] = useState('')
-  const [dirty, setDirty] = useState(false)
+  // Consolidated state via reducer
+  const [state, dispatch] = useReducer(tasksReducer, initialCreateOpen, createInitialState)
   const lastLoadedPathRef = useRef<string | null>(null)
 
-  const [createOpen, setCreateOpen] = useState(initialCreateOpen)
-  const [newTitle, setNewTitle] = useState('')
-  const [taskType, setTaskType] = useState<TaskType>('feature')
-  const [useAgent, setUseAgent] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-
-  // Agent type for "Create task with agent" (planning only)
-  const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('claude')
-  const [createModel, setCreateModel] = useState(() => getDefaultModelId('claude'))
-
-  // Agent type for "Run with Agent"
-  const [runAgentType, setRunAgentType] = useState<AgentType>('claude')
-  const [runModel, setRunModel] = useState(() => getDefaultModelId('claude'))
-
-  // Verify modal state (Verify uses ReviewModal, Review uses inline DebatePanel)
-  const [verifyModalOpen, setVerifyModalOpen] = useState(false)
-
-  // Split modal state
-  const [splitModalOpen, setSplitModalOpen] = useState(false)
-
-  // Commit and archive modal state
-  const [commitArchiveOpen, setCommitArchiveOpen] = useState(false)
-
-  // Rewrite state
-  const [rewriteComment, setRewriteComment] = useState('')
-  const [rewriteAgentType, setRewriteAgentType] = useState<AgentType>('claude')
-  const [rewriteModel, setRewriteModel] = useState(() => getDefaultModelId('claude'))
-
-  // Confirm dialog state
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean
-    title: string
-    message: string
-    confirmText?: string
-    variant?: 'default' | 'danger'
-    onConfirm: () => void
-  }>({
-    open: false,
-    title: '',
-    message: '',
-    onConfirm: () => {},
-  })
+  // Destructure for convenience
+  const { editor, create, run, rewrite, save, modals, pendingCommit, confirmDialog } = state
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -199,44 +159,51 @@ export function TasksPage({
     }
   }, [activeSessionId, activeSessionInfo?.status, liveSession])
 
-  // Keep create-with-agent settings valid as available types change.
-  useEffect(() => {
-    if (availablePlannerTypes.length === 0) return
-    if (!availablePlannerTypes.includes(createAgentType)) {
-      const newType = availablePlannerTypes[0]
-      setCreateAgentType(newType)
-      setCreateModel(getDefaultModelId(newType))
-    }
-  }, [availablePlannerTypes, createAgentType])
-
-  // Keep run-with-agent setting valid as available types change.
-  useEffect(() => {
-    if (availableTypes.length === 0) return
-    if (availableTypes.includes(runAgentType)) return
-
-    const preferred: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'gemini']
-    const next = preferred.find((t) => availableTypes.includes(t)) ?? availableTypes[0]
-    setRunAgentType(next)
-    setRunModel(getDefaultModelId(next))
-  }, [availableTypes, runAgentType])
-
   // Handler for create agent type change
   const handleCreateAgentTypeChange = useCallback((newType: PlannerAgentType) => {
-    setCreateAgentType(newType)
-    setCreateModel(getDefaultModelId(newType))
+    dispatch({ type: 'SET_CREATE_AGENT_TYPE', payload: newType })
   }, [])
 
   // Handler for run agent type change
   const handleRunAgentTypeChange = useCallback((newType: AgentType) => {
-    setRunAgentType(newType)
-    setRunModel(getDefaultModelId(newType))
+    dispatch({ type: 'SET_RUN_AGENT_TYPE', payload: newType })
   }, [])
 
   // Handler for rewrite agent type change
   const handleRewriteAgentTypeChange = useCallback((newType: AgentType) => {
-    setRewriteAgentType(newType)
-    setRewriteModel(getDefaultModelId(newType))
+    dispatch({ type: 'SET_REWRITE_AGENT_TYPE', payload: newType })
   }, [])
+
+  // Synchronize agent type selections when availability changes
+  const plannerPreferredOrder: PlannerAgentType[] = useMemo(
+    () => ['claude', 'codex', 'cerebras', 'opencode'],
+    []
+  )
+  const agentPreferredOrder: AgentType[] = useMemo(
+    () => ['claude', 'codex', 'cerebras', 'opencode', 'gemini'],
+    []
+  )
+
+  useSynchronizeAgentType({
+    currentType: create.agentType,
+    availableTypes: availablePlannerTypes,
+    preferredOrder: plannerPreferredOrder,
+    onTypeChange: handleCreateAgentTypeChange,
+  })
+
+  useSynchronizeAgentType({
+    currentType: run.agentType,
+    availableTypes,
+    preferredOrder: agentPreferredOrder,
+    onTypeChange: handleRunAgentTypeChange,
+  })
+
+  useSynchronizeAgentType({
+    currentType: rewrite.agentType,
+    availableTypes,
+    preferredOrder: agentPreferredOrder,
+    onTypeChange: handleRewriteAgentTypeChange,
+  })
 
   // Build search params for navigation (preserves filter/sort)
   const buildSearchParams = useCallback(() => {
@@ -261,11 +228,11 @@ export function TasksPage({
 
       // 2. Snapshot current state for rollback
       const previousTask = utils.tasks.get.getData({ path })
-      const previousDirty = dirty
+      const previousDirty = editor.dirty
 
       // 3. Optimistically mark as clean (content already in draft)
-      setDirty(false)
-      setSaveError(null)
+      dispatch({ type: 'SET_DIRTY', payload: false })
+      dispatch({ type: 'SET_SAVE_ERROR', payload: null })
 
       // 4. Optimistically update cache with new content
       if (previousTask) {
@@ -283,9 +250,9 @@ export function TasksPage({
         utils.tasks.get.setData({ path: context.path }, context.previousTask)
       }
       if (context?.previousDirty !== undefined) {
-        setDirty(context.previousDirty)
+        dispatch({ type: 'SET_DIRTY', payload: context.previousDirty })
       }
-      setSaveError(err instanceof Error ? err.message : 'Failed to save')
+      dispatch({ type: 'SET_SAVE_ERROR', payload: err instanceof Error ? err.message : 'Failed to save' })
     },
     onSettled: (_data, _error, variables) => {
       // Always refetch to ensure consistency
@@ -546,7 +513,7 @@ export function TasksPage({
       utils.tasks.list.invalidate()
 
       // Close the modal
-      setSplitModalOpen(false)
+      dispatch({ type: 'SET_SPLIT_MODAL_OPEN', payload: false })
 
       // Navigate to first new task using route segment
       if (data.newPaths.length > 0) {
@@ -566,12 +533,12 @@ export function TasksPage({
 
     // Fetch content from server
     utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
-      setDraft(task.content)
-      setDirty(false)
+      dispatch({ type: 'SET_DRAFT', payload: task.content })
+      dispatch({ type: 'SET_DIRTY', payload: false })
       lastLoadedPathRef.current = selectedPath
     }).catch((err) => {
       console.error('Failed to load task:', err)
-      setDraft(`# Error\n\nFailed to load task content.`)
+      dispatch({ type: 'SET_DRAFT', payload: `# Error\n\nFailed to load task content.` })
       lastLoadedPathRef.current = selectedPath
     })
   }, [selectedPath, workingDir, utils.client.tasks.get])
@@ -580,19 +547,19 @@ export function TasksPage({
   useEffect(() => {
     if (!selectedPath || !workingDir) return
     if (!activeSessionId) return
-    if (dirty) return
+    if (editor.dirty) return
 
     const interval = globalThis.setInterval(() => {
       utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
-        setDraft(task.content)
-        setDirty(false)
+        dispatch({ type: 'SET_DRAFT', payload: task.content })
+        dispatch({ type: 'SET_DIRTY', payload: false })
       }).catch((err) => {
         console.error('Failed to refresh task:', err)
       })
     }, 2000)
 
     return () => globalThis.clearInterval(interval)
-  }, [selectedPath, workingDir, activeSessionId, dirty, utils.client.tasks.get])
+  }, [selectedPath, workingDir, activeSessionId, editor.dirty, utils.client.tasks.get])
 
   // One last refresh when an active agent finishes.
   const prevActiveSessionIdRef = useRef<string | null>(null)
@@ -604,50 +571,118 @@ export function TasksPage({
     prevActiveSessionIdRef.current = current
 
     if (!prev || current) return
-    if (dirty) return
+    if (editor.dirty) return
 
     utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
-      setDraft(task.content)
-      setDirty(false)
+      dispatch({ type: 'SET_DRAFT', payload: task.content })
+      dispatch({ type: 'SET_DIRTY', payload: false })
     }).catch((err) => {
       console.error('Failed to refresh task after agent completion:', err)
     })
-  }, [selectedPath, workingDir, activeSessionId, dirty, utils.client.tasks.get])
+  }, [selectedPath, workingDir, activeSessionId, editor.dirty, utils.client.tasks.get])
 
   const selectedSummary = useMemo(() => {
     if (!selectedPath) return null
     return tasks.find((t) => t.path === selectedPath) ?? null
   }, [selectedPath, tasks])
 
+  // Pre-generate commit message when agent completes
+  // (Pattern from use-audio-notification.ts - detect status transition)
+  const prevAgentStatusRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const prevStatus = prevAgentStatusRef.current
+    const currentStatus = agentSession?.status
+    prevAgentStatusRef.current = currentStatus
+
+    // Skip if no path, already generating, or message already exists
+    if (!selectedPath || pendingCommit.isGenerating || pendingCommit.message) return
+
+    // Skip initial mount (no previous status)
+    if (prevStatus === undefined) return
+
+    // Check for transition to 'completed' from an active state
+    const wasActive = prevStatus === 'running' || prevStatus === 'pending'
+    const isNowCompleted = currentStatus === 'completed'
+
+    if (wasActive && isNowCompleted) {
+      // Start generating commit message in background
+      dispatch({ type: 'SET_PENDING_COMMIT_GENERATING', payload: true })
+
+      // Get changed files and generate message
+      utils.client.tasks.getChangedFilesForTask
+        .query({ path: selectedPath })
+        .then((files) => {
+          if (files.length === 0) {
+            dispatch({ type: 'RESET_PENDING_COMMIT' })
+            return
+          }
+
+          const gitRelativeFiles = files.map(
+            (f) => f.repoRelativePath || f.relativePath || f.path
+          )
+          const taskTitle = selectedSummary?.title ?? 'Task'
+
+          return utils.client.git.generateCommitMessage
+            .mutate({
+              taskTitle,
+              taskDescription: editor.draft,
+              files: gitRelativeFiles,
+            })
+            .then((result) => {
+              dispatch({ type: 'SET_PENDING_COMMIT_MESSAGE', payload: result.message })
+            })
+        })
+        .catch((err) => {
+          console.error('Failed to pre-generate commit message:', err)
+        })
+        .finally(() => {
+          dispatch({ type: 'SET_PENDING_COMMIT_GENERATING', payload: false })
+        })
+    }
+  }, [
+    selectedPath,
+    agentSession?.status,
+    pendingCommit.isGenerating,
+    pendingCommit.message,
+    selectedSummary?.title,
+    editor.draft,
+    utils.client.tasks.getChangedFilesForTask,
+    utils.client.git.generateCommitMessage,
+  ])
+
+  // Reset pending commit message when task selection changes
+  useEffect(() => {
+    dispatch({ type: 'RESET_PENDING_COMMIT' })
+  }, [selectedPath])
+
   // Debounced autosave - triggers 500ms after user stops typing
   const debouncedSave = useDebouncedCallback(
     async (path: string, content: string) => {
-      setIsSaving(true)
+      dispatch({ type: 'SET_SAVING', payload: true })
       try {
         await saveMutation.mutateAsync({ path, content })
       } catch {
         // Error handled in onError callback
       } finally {
-        setIsSaving(false)
+        dispatch({ type: 'SET_SAVING', payload: false })
       }
     },
     500
   )
 
   const openCreate = useCallback(() => {
-    setNewTitle('')
-    setCreateOpen(true)
+    dispatch({ type: 'OPEN_CREATE_MODAL' })
   }, [])
 
   // Sync create modal state with props
   useEffect(() => {
-    if (initialCreateOpen && !createOpen) {
+    if (initialCreateOpen && !create.open) {
       openCreate()
     }
-  }, [initialCreateOpen, createOpen, openCreate])
+  }, [initialCreateOpen, create.open, openCreate])
 
   const handleCloseCreate = useCallback(() => {
-    setCreateOpen(false)
+    dispatch({ type: 'CLOSE_CREATE_MODAL' })
     // Navigate away from /tasks/new if we're there
     if (selectedPath) {
       navigate({
@@ -661,22 +696,21 @@ export function TasksPage({
   }, [navigate, selectedPath, buildSearchParams])
 
   const handleCreate = async () => {
-    const title = newTitle.trim()
+    const title = create.title.trim()
     if (!title) return
 
     try {
-      if (useAgent) {
+      if (create.useAgent) {
         await createWithAgentMutation.mutateAsync({
           title,
-          taskType,
-          agentType: createAgentType,
-          model: createModel || undefined,
+          taskType: create.taskType,
+          agentType: create.agentType,
+          model: create.model || undefined,
         })
       } else {
         await createMutation.mutateAsync({ title })
       }
-      setCreateOpen(false)
-      setNewTitle('')
+      dispatch({ type: 'RESET_CREATE_MODAL' })
     } catch (err) {
       console.error('Failed to create task:', err)
     }
@@ -685,18 +719,21 @@ export function TasksPage({
   const handleDelete = useCallback(async () => {
     if (!selectedPath) return
 
-    setConfirmDialog({
-      open: true,
-      title: 'Delete Task',
-      message: 'Are you sure you want to delete this task?',
-      confirmText: 'Delete',
-      variant: 'danger',
-      onConfirm: async () => {
-        try {
-          await deleteMutation.mutateAsync({ path: selectedPath })
-        } catch (err) {
-          console.error('Failed to delete task:', err)
-        }
+    dispatch({
+      type: 'SET_CONFIRM_DIALOG',
+      payload: {
+        open: true,
+        title: 'Delete Task',
+        message: 'Are you sure you want to delete this task?',
+        confirmText: 'Delete',
+        variant: 'danger',
+        onConfirm: async () => {
+          try {
+            await deleteMutation.mutateAsync({ path: selectedPath })
+          } catch (err) {
+            console.error('Failed to delete task:', err)
+          }
+        },
       },
     })
   }, [selectedPath, deleteMutation])
@@ -704,18 +741,21 @@ export function TasksPage({
   const handleArchive = useCallback(async () => {
     if (!selectedPath) return
 
-    setConfirmDialog({
-      open: true,
-      title: 'Archive Task',
-      message: 'Archive this task? It will be moved to tasks/archive/',
-      confirmText: 'Archive',
-      variant: 'default',
-      onConfirm: async () => {
-        try {
-          await archiveMutation.mutateAsync({ path: selectedPath })
-        } catch (err) {
-          console.error('Failed to archive task:', err)
-        }
+    dispatch({
+      type: 'SET_CONFIRM_DIALOG',
+      payload: {
+        open: true,
+        title: 'Archive Task',
+        message: 'Archive this task? It will be moved to tasks/archive/',
+        confirmText: 'Archive',
+        variant: 'default',
+        onConfirm: async () => {
+          try {
+            await archiveMutation.mutateAsync({ path: selectedPath })
+          } catch (err) {
+            console.error('Failed to archive task:', err)
+          }
+        },
       },
     })
   }, [selectedPath, archiveMutation])
@@ -734,39 +774,42 @@ export function TasksPage({
 
     const assignToAgent = async () => {
       // Save first if dirty
-      if (dirty) {
-        await saveMutation.mutateAsync({ path: selectedPath, content: draft })
-        setDirty(false)
+      if (editor.dirty) {
+        await saveMutation.mutateAsync({ path: selectedPath, content: editor.draft })
+        dispatch({ type: 'SET_DIRTY', payload: false })
       }
 
       try {
-        setSaveError(null)
+        dispatch({ type: 'SET_SAVE_ERROR', payload: null })
         await assignToAgentMutation.mutateAsync({
           path: selectedPath,
-          agentType: runAgentType,
-          model: runModel || undefined,
+          agentType: run.agentType,
+          model: run.model || undefined,
         })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
-        setSaveError(msg)
+        dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
         console.error('Failed to assign to agent:', err)
       }
     }
 
-    if (dirty) {
-      setConfirmDialog({
-        open: true,
-        title: 'Unsaved Changes',
-        message: 'You have unsaved changes. Save before assigning to agent?',
-        confirmText: 'Save & Assign',
-        variant: 'default',
-        onConfirm: assignToAgent,
+    if (editor.dirty) {
+      dispatch({
+        type: 'SET_CONFIRM_DIALOG',
+        payload: {
+          open: true,
+          title: 'Unsaved Changes',
+          message: 'You have unsaved changes. Save before assigning to agent?',
+          confirmText: 'Save & Assign',
+          variant: 'default',
+          onConfirm: assignToAgent,
+        },
       })
       return
     }
 
     await assignToAgent()
-  }, [selectedPath, dirty, draft, runAgentType, runModel, saveMutation, assignToAgentMutation])
+  }, [selectedPath, editor.dirty, editor.draft, run.agentType, run.model, saveMutation, assignToAgentMutation])
 
   const handleCancelAgent = useCallback(() => {
     // Use ref to get sessionId - more stable than state which can become undefined during transitions
@@ -797,7 +840,7 @@ export function TasksPage({
   }, [selectedPath, navigate, buildSearchParams])
 
   const handleVerify = useCallback(() => {
-    setVerifyModalOpen(true)
+    dispatch({ type: 'SET_VERIFY_MODAL_OPEN', payload: true })
   }, [])
 
   const handleCloseDebatePanel = useCallback(() => {
@@ -814,7 +857,7 @@ export function TasksPage({
     if (!selectedPath) return
 
     try {
-      setSaveError(null)
+      dispatch({ type: 'SET_SAVE_ERROR', payload: null })
       await verifyWithAgentMutation.mutateAsync({
         path: selectedPath,
         agentType,
@@ -826,29 +869,31 @@ export function TasksPage({
       // User stays on task page to maintain context
     } catch (err) {
       console.error('Failed to start verify:', err)
-      setSaveError(err instanceof Error ? err.message : 'Failed to start verify')
+      dispatch({ type: 'SET_SAVE_ERROR', payload: err instanceof Error ? err.message : 'Failed to start verify' })
       throw err // Re-throw so modal can handle it
     }
   }, [selectedPath, verifyWithAgentMutation])
 
   const handleCloseVerifyModal = useCallback(() => {
-    setVerifyModalOpen(false)
+    dispatch({ type: 'SET_VERIFY_MODAL_OPEN', payload: false })
   }, [])
 
   const handleOpenSplitModal = useCallback(() => {
-    setSplitModalOpen(true)
+    dispatch({ type: 'SET_SPLIT_MODAL_OPEN', payload: true })
   }, [])
 
   const handleOpenCommitArchiveModal = useCallback(() => {
-    setCommitArchiveOpen(true)
+    dispatch({ type: 'SET_COMMIT_ARCHIVE_OPEN', payload: true })
   }, [])
 
   const handleCloseCommitArchiveModal = useCallback(() => {
-    setCommitArchiveOpen(false)
+    dispatch({ type: 'SET_COMMIT_ARCHIVE_OPEN', payload: false })
+    dispatch({ type: 'RESET_PENDING_COMMIT' })
   }, [])
 
   const handleCommitArchiveSuccess = useCallback(() => {
-    setCommitArchiveOpen(false)
+    dispatch({ type: 'SET_COMMIT_ARCHIVE_OPEN', payload: false })
+    dispatch({ type: 'RESET_PENDING_COMMIT' })
     // Navigate to topmost non-archived task
     const topmostTask = tasks.find(
       (t) => !t.archived && t.path !== selectedPath
@@ -865,7 +910,7 @@ export function TasksPage({
   }, [tasks, selectedPath, navigate, buildSearchParams])
 
   const handleCloseSplitModal = useCallback(() => {
-    setSplitModalOpen(false)
+    dispatch({ type: 'SET_SPLIT_MODAL_OPEN', payload: false })
   }, [])
 
   const handleSplitTask = useCallback(async (sectionIndices: number[], archiveOriginal: boolean) => {
@@ -902,31 +947,31 @@ export function TasksPage({
     // Fetch and display updated content (following pattern from agent completion refresh)
     try {
       const task = await utils.client.tasks.get.query({ path: selectedPath })
-      setDraft(task.content)
-      setDirty(false)
+      dispatch({ type: 'SET_DRAFT', payload: task.content })
+      dispatch({ type: 'SET_DIRTY', payload: false })
     } catch (err) {
       console.error('Failed to refresh task after debate accept:', err)
     }
   }, [selectedPath, workingDir, utils])
 
   const handleRewritePlan = useCallback(async () => {
-    if (!selectedPath || !rewriteComment.trim()) return
+    if (!selectedPath || !rewrite.comment.trim()) return
 
     try {
-      setSaveError(null)
+      dispatch({ type: 'SET_SAVE_ERROR', payload: null })
       await rewriteWithAgentMutation.mutateAsync({
         path: selectedPath,
-        agentType: rewriteAgentType, // Use the rewrite-specific agent type
-        model: rewriteModel || undefined,
-        userComment: rewriteComment,
+        agentType: rewrite.agentType,
+        model: rewrite.model || undefined,
+        userComment: rewrite.comment,
       })
-      setRewriteComment('') // Clear comment after submitting
+      dispatch({ type: 'RESET_REWRITE' }) // Clear comment after submitting
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to rewrite plan'
-      setSaveError(msg)
+      dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
       console.error('Failed to rewrite plan:', err)
     }
-  }, [selectedPath, rewriteComment, rewriteAgentType, rewriteModel, rewriteWithAgentMutation])
+  }, [selectedPath, rewrite.comment, rewrite.agentType, rewrite.model, rewriteWithAgentMutation])
 
   const editorTitle = selectedSummary?.title ?? (selectedPath ? selectedPath : 'Tasks')
 
@@ -976,8 +1021,8 @@ export function TasksPage({
                   title={editorTitle}
                   path={selectedPath}
                   mode={mode}
-                  draft={draft}
-                  taskDescription={draft}
+                  draft={editor.draft}
+                  taskDescription={editor.draft}
                   isArchived={selectedSummary?.archived ?? false}
                   isArchiving={archiveMutation.isPending}
                   isRestoring={restoreMutation.isPending}
@@ -986,8 +1031,8 @@ export function TasksPage({
                   onCommitAndArchive={handleOpenCommitArchiveModal}
                   onModeChange={handleModeChange}
                   onDraftChange={(newDraft) => {
-                    setDraft(newDraft)
-                    setDirty(true)
+                    dispatch({ type: 'SET_DRAFT', payload: newDraft })
+                    dispatch({ type: 'SET_DIRTY', payload: true })
                     // Trigger autosave after 500ms of inactivity
                     if (selectedPath) {
                       debouncedSave(selectedPath, newDraft)
@@ -999,15 +1044,17 @@ export function TasksPage({
               {/* Footer with rewrite controls - only show in edit mode */}
               {mode === 'edit' && (
                 <TaskFooter
-                  rewriteComment={rewriteComment}
-                  rewriteAgentType={rewriteAgentType}
-                  rewriteModel={rewriteModel}
+                  rewriteComment={rewrite.comment}
+                  rewriteAgentType={rewrite.agentType}
+                  rewriteModel={rewrite.model}
                   isRewriting={rewriteWithAgentMutation.isPending}
                   availableTypes={availableTypes}
                   agentSession={agentSession}
-                  onRewriteCommentChange={setRewriteComment}
+                  canSplit={sectionsData?.canSplit}
+                  onSplit={handleOpenSplitModal}
+                  onRewriteCommentChange={(comment) => dispatch({ type: 'SET_REWRITE_COMMENT', payload: comment })}
                   onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
-                  onRewriteModelChange={setRewriteModel}
+                  onRewriteModelChange={(model) => dispatch({ type: 'SET_REWRITE_MODEL', payload: model })}
                   onRewritePlan={handleRewritePlan}
                 />
               )}
@@ -1020,24 +1067,19 @@ export function TasksPage({
           <div className="w-80 shrink-0 border-l border-border overflow-hidden">
             <TaskSidebar
               mode={mode}
-              isSaving={isSaving}
+              isSaving={save.saving}
               isDeleting={deleteMutation.isPending}
               isAssigning={assignToAgentMutation.isPending}
-              saveError={saveError}
-              runAgentType={runAgentType}
-              availableTypes={availableTypes}
+              saveError={save.error}
               agentSession={agentSession}
               taskSessions={taskSessions}
-              canSplit={sectionsData?.canSplit}
               splitFrom={taskData?.splitFrom}
-              onSplit={handleOpenSplitModal}
               onNavigateToSplitFrom={handleNavigateToSplitFrom}
               hasActiveDebate={!!activeDebate}
               onDelete={handleDelete}
               onReview={handleReview}
               onVerify={handleVerify}
               onAssignToAgent={handleAssignToAgent}
-              onRunAgentTypeChange={handleRunAgentTypeChange}
               onCancelAgent={handleCancelAgent}
             />
           </div>
@@ -1045,31 +1087,31 @@ export function TasksPage({
       </div>
 
       <CreateTaskModal
-        isOpen={createOpen}
+        isOpen={create.open}
         isCreating={createMutation.isPending || createWithAgentMutation.isPending}
-        newTitle={newTitle}
-        taskType={taskType}
-        useAgent={useAgent}
-        createAgentType={createAgentType}
-        createModel={createModel}
+        newTitle={create.title}
+        taskType={create.taskType}
+        useAgent={create.useAgent}
+        createAgentType={create.agentType}
+        createModel={create.model}
         availableTypes={availableTypes}
         availablePlannerTypes={availablePlannerTypes}
         onClose={handleCloseCreate}
         onCreate={handleCreate}
-        onTitleChange={setNewTitle}
-        onTaskTypeChange={setTaskType}
-        onUseAgentChange={setUseAgent}
+        onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
+        onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
+        onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
         onAgentTypeChange={handleCreateAgentTypeChange}
-        onModelChange={setCreateModel}
+        onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
       />
 
       {/* Verify uses ReviewModal (single agent) */}
       <ReviewModal
-        isOpen={verifyModalOpen}
+        isOpen={modals.verifyOpen}
         mode="verify"
         taskTitle={editorTitle}
-        agentType={runAgentType}
-        model={runModel}
+        agentType={run.agentType}
+        model={run.model}
         availableTypes={availableTypes}
         onClose={handleCloseVerifyModal}
         onStart={handleStartVerify}
@@ -1077,7 +1119,7 @@ export function TasksPage({
 
       {/* Split Task Modal */}
       <SplitTaskModal
-        isOpen={splitModalOpen}
+        isOpen={modals.splitOpen}
         isSplitting={splitTaskMutation.isPending}
         taskTitle={editorTitle}
         sections={sectionsData?.sections ?? []}
@@ -1088,10 +1130,12 @@ export function TasksPage({
       {/* Commit and Archive Modal */}
       {selectedPath && (
         <CommitArchiveModal
-          isOpen={commitArchiveOpen}
+          isOpen={modals.commitArchiveOpen}
           taskPath={selectedPath}
           taskTitle={editorTitle}
-          taskContent={draft}
+          taskContent={editor.draft}
+          initialMessage={pendingCommit.message}
+          isGeneratingInitial={pendingCommit.isGenerating}
           onClose={handleCloseCommitArchiveModal}
           onSuccess={handleCommitArchiveSuccess}
         />
@@ -1099,7 +1143,9 @@ export function TasksPage({
 
       <ConfirmDialog
         open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
+        onOpenChange={(open) => {
+          if (!open) dispatch({ type: 'CLOSE_CONFIRM_DIALOG' })
+        }}
         title={confirmDialog.title}
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
