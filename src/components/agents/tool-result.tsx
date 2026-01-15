@@ -5,11 +5,15 @@
 
 import { memo, useState } from "react"
 import { ChevronDown, ChevronUp, CheckCircle2, XCircle, Copy } from "lucide-react"
+import { SyntaxHighlightedCode } from "./syntax-highlighted-code"
+import { detectLanguage, type SupportedLanguage } from "@/lib/utils/syntax-highlighter"
 
 interface ToolResultProps {
   content: string
   success?: boolean
   toolName?: string
+  /** File path for better language detection (from read/write tools) */
+  filePath?: string
 }
 
 /**
@@ -28,18 +32,47 @@ function isJSON(content: string): boolean {
   return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))
 }
 
+type ContentType = "file" | "json" | "shell" | "error" | "plain"
+
 /**
- * Detect content type for styling
+ * Detect content type for styling and highlighting
  */
-function detectContentType(content: string): "file" | "json" | "error" | "plain" {
-  if (content.startsWith("error:")) return "error"
+function detectContentType(content: string, toolName?: string): ContentType {
+  if (content.startsWith("error:") || content.startsWith("Error:")) return "error"
   if (hasLineNumbers(content)) return "file"
   if (isJSON(content)) return "json"
+  // Shell output from bash/exec tools
+  if (toolName && (toolName.toLowerCase().includes("bash") || toolName.toLowerCase().includes("exec") || toolName.toLowerCase().includes("shell"))) {
+    return "shell"
+  }
   return "plain"
 }
 
-export const ToolResult = memo(function ToolResult({ content, success = true, toolName }: ToolResultProps) {
-  const contentType = detectContentType(content)
+/**
+ * Get language for highlighting based on content type and file path
+ */
+function getLanguageForContent(contentType: ContentType, filePath?: string, content?: string): SupportedLanguage {
+  switch (contentType) {
+    case "json":
+      return "json"
+    case "shell":
+      return "bash"
+    case "file":
+      return detectLanguage(filePath, content)
+    default:
+      return "plain"
+  }
+}
+
+/**
+ * Determine if syntax highlighting should be applied
+ */
+function shouldHighlight(contentType: ContentType): boolean {
+  return contentType === "file" || contentType === "json" || contentType === "shell"
+}
+
+export const ToolResult = memo(function ToolResult({ content, success = true, toolName, filePath }: ToolResultProps) {
+  const contentType = detectContentType(content, toolName)
   const isError = !success || contentType === "error"
 
   const [expanded, setExpanded] = useState(content.length <= 500)
@@ -56,6 +89,8 @@ export const ToolResult = memo(function ToolResult({ content, success = true, to
   }
 
   const resultColor = isError ? "var(--color-error)" : "var(--color-accent-dim)"
+  const useHighlighting = shouldHighlight(contentType) && !isError
+  const language = getLanguageForContent(contentType, filePath, content)
 
   return (
     <div
@@ -111,13 +146,23 @@ export const ToolResult = memo(function ToolResult({ content, success = true, to
       )}
 
       {/* Result content */}
-      <pre
-        className={`text-xs overflow-x-auto whitespace-pre-wrap ${
-          isError ? "text-error" : "text-text-secondary"
-        } ${contentType === "file" ? "font-mono" : ""}`}
-      >
-        {displayContent}
-      </pre>
+      {useHighlighting ? (
+        <SyntaxHighlightedCode
+          content={displayContent}
+          filePath={filePath}
+          language={language}
+          showLineNumbers={contentType === "file"}
+          className="text-text-secondary"
+        />
+      ) : (
+        <pre
+          className={`text-xs overflow-x-auto whitespace-pre-wrap font-mono ${
+            isError ? "text-error" : "text-text-secondary"
+          }`}
+        >
+          {displayContent}
+        </pre>
+      )}
 
       {/* Show more indicator */}
       {shouldTruncate && (
