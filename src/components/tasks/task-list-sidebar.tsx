@@ -5,7 +5,7 @@
 
 import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { ArrowUp, ArrowDown } from 'lucide-react'
+import { Play } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
@@ -37,80 +37,104 @@ interface TaskItemProps {
   isActive: boolean
   agentSession?: ActiveAgentSession
   onSelect: (path: string) => void
+  onRunImpl: (path: string) => void
+  onRunVerify: (path: string) => void
+  onNavigateReview: (path: string) => void
 }
 
-const TaskItem = memo(function TaskItem({ task, isActive, agentSession, onSelect }: TaskItemProps) {
-  const total = task.progress.total
-  const done = task.progress.done
-  const inProgress = task.progress.inProgress
-  const showProgress = total > 0
-  const hasActiveAgent = !!agentSession
+const TaskItem = memo(function TaskItem({ task, isActive, agentSession, onSelect, onRunImpl, onRunVerify, onNavigateReview }: TaskItemProps) {
+  // Simplified rendering for archived tasks - just title with muted styling
+  if (task.archived) {
+    return (
+      <div
+        onClick={() => onSelect(task.path)}
+        className={`w-full text-left px-3 py-3 cursor-pointer transition-colors border-t border-border/40 ${
+          isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground/60'
+        }`}
+      >
+        <div className="text-xs font-vcr truncate">{task.title}</div>
+      </div>
+    )
+  }
 
-  // Calculate percentages for progress bar
+  const hasActiveAgent = !!agentSession
+  const { total, done } = task.progress
+  const showProgress = total > 0
   const donePercent = total > 0 ? (done / total) * 100 : 0
-  const inProgressPercent = total > 0 ? (inProgress / total) * 100 : 0
+
+  // Determine task state for action button
+  // - plan ready: done === 0 → run impl
+  // - impl done: 0 < done < total → run verify
+  // - all done: done === total → navigate to review
+  const isComplete = total > 0 && done === total
+  const needsVerify = done > 0 && done < total
+
+  const handleAction = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (hasActiveAgent) return
+
+    if (isComplete) {
+      onNavigateReview(task.path)
+    } else if (needsVerify) {
+      onRunVerify(task.path)
+    } else {
+      onRunImpl(task.path)
+    }
+  }
+
+  // Determine action title based on state
+  let actionTitle = "Run implementation"
+  if (isComplete) {
+    actionTitle = "Review & commit"
+  } else if (needsVerify) {
+    actionTitle = "Run verification"
+  }
 
   return (
-    <button
+    <div
       onClick={() => onSelect(task.path)}
-      className={`w-full text-left px-3 py-2 cursor-pointer transition-colors border-t border-border/40 ${
+      className={`w-full text-left px-3 py-3 cursor-pointer transition-colors border-t border-border/40 flex items-center gap-2 ${
         isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground'
       }`}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        {/* Agent status indicator */}
-        {hasActiveAgent && (
-          <div
-            className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse"
-            title={`Agent ${agentSession.status}`}
-          />
-        )}
-        <div className="text-xs font-vcr truncate flex-1">{task.title}</div>
-        {task.archived && (
-          <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-vcr">
-            ARCHIVED
-          </span>
-        )}
+      {/* Title and progress bar */}
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-vcr truncate">{task.title}</div>
         {showProgress && (
-          <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-vcr">
-            <span className="text-accent">{done}/{total}</span>
-            <span className="text-muted-foreground">
-              {Math.round(donePercent)}%
-            </span>
+          <div className="mt-1.5 flex gap-0.5">
+            {Array.from({ length: total }).map((_, i) => (
+              <div
+                key={i}
+                className={`h-1 flex-1 rounded-full ${
+                  i < done
+                    ? donePercent < 50
+                      ? 'bg-yellow-500'
+                      : 'bg-accent'
+                    : 'bg-border/30'
+                }`}
+              />
+            ))}
           </div>
         )}
       </div>
 
-      {/* Progress bar */}
-      {showProgress && (
-        <div className="mt-1.5 h-1 bg-border/50 rounded-full overflow-hidden flex">
-          {donePercent > 0 && (
-            <div
-              className="h-full bg-accent transition-all duration-300"
-              style={{ width: `${donePercent}%` }}
-            />
-          )}
-          {inProgressPercent > 0 && (
-            <div
-              className="h-full bg-warning transition-all duration-300"
-              style={{ width: `${inProgressPercent}%` }}
-            />
-          )}
-        </div>
-      )}
-
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <div className="text-[10px] text-muted-foreground truncate min-w-0">{task.path}</div>
-        <div className="shrink-0 flex items-center gap-1">
-          {hasActiveAgent && (
-            <span className="text-[10px] font-vcr text-accent">
-              {agentSession.status === 'working' ? 'working' : agentSession.status}
-            </span>
-          )}
-          <span className="text-[10px] text-muted-foreground">{task.source}</span>
-        </div>
+      {/* Single action button - shows spinner when agent running */}
+      <div className="shrink-0">
+        {hasActiveAgent ? (
+          <div className="p-1">
+            <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <button
+            onClick={handleAction}
+            className="p-1 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors"
+            title={actionTitle}
+          >
+            <Play className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
-    </button>
+    </div>
   )
 })
 
@@ -215,28 +239,31 @@ export function TaskListSidebar() {
     }
   }, [navigate, selectedPath, sortBy, sortDir])
 
-  const handleSortChange = useCallback((newSortBy: SortOption) => {
-    // If same sort option clicked, toggle direction; otherwise use desc default
-    const newDir = newSortBy === sortBy ? (sortDir === 'desc' ? 'asc' : 'desc') : 'desc'
-    if (selectedPath) {
-      navigate({
-        to: '/tasks/$',
-        params: { _splat: encodeTaskPath(selectedPath) },
-        search: { archiveFilter, sortBy: newSortBy, sortDir: newDir },
-      })
-    } else {
-      navigate({
-        to: '/tasks',
-        search: { archiveFilter, sortBy: newSortBy, sortDir: newDir },
-      })
-    }
-  }, [navigate, selectedPath, archiveFilter, sortBy, sortDir])
-
   const handleTaskSelect = useCallback((path: string) => {
     // Navigate to /tasks/<encoded-path> with search params
     navigate({
       to: '/tasks/$',
       params: { _splat: encodeTaskPath(path) },
+      search: { archiveFilter, sortBy, sortDir },
+    })
+  }, [navigate, archiveFilter, sortBy, sortDir])
+
+  // Mutations for running implementation and verification
+  const assignToAgentMutation = trpc.tasks.assignToAgent.useMutation()
+  const verifyWithAgentMutation = trpc.tasks.verifyWithAgent.useMutation()
+
+  const handleRunImpl = useCallback((path: string) => {
+    assignToAgentMutation.mutate({ path })
+  }, [assignToAgentMutation])
+
+  const handleRunVerify = useCallback((path: string) => {
+    verifyWithAgentMutation.mutate({ path })
+  }, [verifyWithAgentMutation])
+
+  const handleNavigateReview = useCallback((path: string) => {
+    // Navigate to task review page for commit & archive
+    navigate({
+      to: `/tasks/${encodeTaskPath(path)}/review` as '/tasks/$',
       search: { archiveFilter, sortBy, sortDir },
     })
   }, [navigate, archiveFilter, sortBy, sortDir])
@@ -251,9 +278,9 @@ export function TaskListSidebar() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="px-3 border-b border-border">
+      <div className="px-3 py-2 border-b border-border flex items-center gap-2">
         {/* Archive filter tabs */}
-        <div className="pt-2 pb-1 flex items-center gap-1" role="tablist" aria-label="Task filter">
+        <div className="flex items-center gap-1 shrink-0" role="tablist" aria-label="Task filter">
           <button
             onClick={() => handleArchiveFilterChange('all')}
             role="tab"
@@ -295,54 +322,14 @@ export function TaskListSidebar() {
           </button>
         </div>
 
-        {/* Filter input + Sort buttons */}
-        <div className="pb-2 flex items-center gap-2">
-          <Input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter tasks..."
-            variant="sm"
-            className="bg-background border-t border-l border-border/60 flex-1"
-          />
-
-          {/* Sort buttons */}
-          <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Sort options">
-            {(['updated', 'title', 'progress'] as const).map((option) => {
-              const isActive = sortBy === option
-              const labels: Record<SortOption, string> = {
-                updated: 'Date',
-                title: 'Name',
-                progress: '%',
-              }
-              const ariaLabels: Record<SortOption, string> = {
-                updated: 'Sort by date',
-                title: 'Sort by name',
-                progress: 'Sort by progress',
-              }
-              return (
-                <button
-                  key={option}
-                  onClick={() => handleSortChange(option)}
-                  aria-label={`${ariaLabels[option]}${isActive ? `, currently ${sortDir === 'asc' ? 'ascending' : 'descending'}` : ''}`}
-                  aria-pressed={isActive}
-                  className={`px-1.5 py-1 rounded text-[10px] font-vcr transition-colors flex items-center gap-0.5 ${
-                    isActive
-                      ? 'bg-accent/20 text-accent'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                  }`}
-                  title={`Sort by ${option}${isActive ? ` (${sortDir === 'asc' ? 'ascending' : 'descending'})` : ''}`}
-                >
-                  {labels[option]}
-                  {isActive && (
-                    sortDir === 'asc'
-                      ? <ArrowUp className="w-2.5 h-2.5" aria-hidden="true" />
-                      : <ArrowDown className="w-2.5 h-2.5" aria-hidden="true" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        {/* Filter input */}
+        <Input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter..."
+          variant="sm"
+          className="bg-background border-t border-l border-border/60 flex-1"
+        />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -361,6 +348,9 @@ export function TaskListSidebar() {
                 isActive={t.path === selectedPath}
                 agentSession={(activeAgentSessions as Record<string, ActiveAgentSession>)?.[t.path]}
                 onSelect={handleTaskSelect}
+                onRunImpl={handleRunImpl}
+                onRunVerify={handleRunVerify}
+                onNavigateReview={handleNavigateReview}
               />
             ))}
           </div>
