@@ -10,8 +10,10 @@ import type { AgentType } from '@/lib/agent/types'
 import { Scissors, ExternalLink } from 'lucide-react'
 
 interface TaskSidebarProps {
+  // Mode - hide sessions/controls in review/debate mode
+  mode: 'edit' | 'review' | 'debate'
+
   // Control state
-  dirty: boolean
   isSaving: boolean
   isDeleting: boolean
   isAssigning: boolean
@@ -42,17 +44,17 @@ interface TaskSidebarProps {
   onNavigateToSplitFrom?: () => void
 
   // Handlers
-  onSave: () => void
   onDelete: () => void
   onReview: () => void
   onVerify: () => void
   onAssignToAgent: () => void
   onRunAgentTypeChange: (agentType: AgentType) => void
   onRunModelChange: (model: string) => void
+  onCancelAgent?: () => void
 }
 
 export function TaskSidebar({
-  dirty,
+  mode,
   isSaving,
   isDeleting,
   isAssigning,
@@ -66,32 +68,60 @@ export function TaskSidebar({
   splitFrom,
   onSplit,
   onNavigateToSplitFrom,
-  onSave,
   onDelete,
   onReview,
   onVerify,
   onAssignToAgent,
   onRunAgentTypeChange,
   onRunModelChange,
+  onCancelAgent,
 }: TaskSidebarProps) {
+  // Hide sessions and controls in review mode
+  if (mode === 'review') {
+    return null
+  }
+
   return (
     <div className="w-full bg-panel overflow-y-auto">
-      <div className="p-3 space-y-6">
-        {/* Controls Section */}
-        <div className="space-y-3">
+      <div className="p-3 space-y-4">
+        {/* Sessions Section - Most Prominent */}
+        <div className="space-y-2">
           <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
-            Controls
+            Sessions
           </h3>
+          {taskSessions ? (
+            <TaskSessions
+              planning={taskSessions.grouped.planning}
+              review={taskSessions.grouped.review}
+              verify={taskSessions.grouped.verify}
+              execution={taskSessions.grouped.execution}
+              rewrite={taskSessions.grouped.rewrite}
+              comment={taskSessions.grouped.comment}
+              onCancelSession={onCancelAgent ? () => onCancelAgent() : undefined}
+            />
+          ) : (
+            <div className="p-4 border border-border/40 rounded text-center">
+              <p className="text-xs text-text-muted">No sessions yet</p>
+              <p className="text-[10px] text-text-muted mt-1">
+                Sessions will appear here when you run an agent
+              </p>
+            </div>
+          )}
+        </div>
 
-          {/* Save Button */}
-          <button
-            onClick={onSave}
-            disabled={!dirty || isSaving}
-            className="w-full px-3 py-2 rounded text-xs font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={dirty ? 'Save (Cmd/Ctrl+S)' : 'Saved'}
-          >
-            {isSaving ? 'Saving...' : dirty ? 'Save' : 'Saved'}
-          </button>
+        {/* Controls Section */}
+        <div className="space-y-3 pt-2 border-t border-border/50">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
+              Controls
+            </h3>
+            {/* Autosave status indicator */}
+            {isSaving && (
+              <span className="text-[10px] text-text-muted animate-pulse">
+                Saving...
+              </span>
+            )}
+          </div>
 
           {saveError && (
             <div className="p-2 bg-error/10 border border-error/30 rounded text-xs text-error">
@@ -187,23 +217,6 @@ export function TaskSidebar({
             </button>
           </div>
         </div>
-
-        {/* Task Sessions */}
-        {taskSessions && (
-          <div className="space-y-3">
-            <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
-              Related Sessions
-            </h3>
-            <TaskSessions
-              planning={taskSessions.grouped.planning}
-              review={taskSessions.grouped.review}
-              verify={taskSessions.grouped.verify}
-              execution={taskSessions.grouped.execution}
-              rewrite={taskSessions.grouped.rewrite}
-              comment={taskSessions.grouped.comment}
-            />
-          </div>
-        )}
 
         {/* Delete Button */}
         <button
