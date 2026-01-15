@@ -77,7 +77,7 @@ const initialState = {
   saveError: null,
   runAgentType: 'claude' as AgentType,
   runModel: '',
-  createAgentType: 'cerebras' as PlannerAgentType,
+  createAgentType: 'claude' as PlannerAgentType,
   createModel: '',
   rewriteAgentType: 'claude' as AgentType,
   rewriteModel: '',
