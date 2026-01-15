@@ -43,6 +43,13 @@ interface TaskSidebarProps {
   onSplit?: () => void
   onNavigateToSplitFrom?: () => void
 
+  // Commit and archive
+  hasUncommittedChanges?: boolean
+  onCommitAndArchive?: () => void
+
+  // Debate state
+  hasActiveDebate?: boolean
+
   // Handlers
   onDelete: () => void
   onReview: () => void
@@ -68,6 +75,7 @@ export function TaskSidebar({
   splitFrom,
   onSplit,
   onNavigateToSplitFrom,
+  hasActiveDebate,
   onDelete,
   onReview,
   onVerify,
@@ -134,10 +142,14 @@ export function TaskSidebar({
             <button
               onClick={onReview}
               disabled={!!agentSession}
-              className="flex-1 px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Review spec quality (clarity, completeness, actionability)"
+              className={`flex-1 px-3 py-2 rounded text-xs font-vcr border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                hasActiveDebate
+                  ? 'border-accent/50 text-accent hover:bg-accent/10'
+                  : 'border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover'
+              }`}
+              title={hasActiveDebate ? "Resume active spec review" : "Review spec quality (clarity, completeness, actionability)"}
             >
-              Review
+              {hasActiveDebate ? 'Resume Review' : 'Review'}
             </button>
 
             <button

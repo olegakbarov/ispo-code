@@ -17,6 +17,7 @@ import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskModal, type TaskType } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
+import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
 import { DebatePanel } from '@/components/debate'
 import { getDefaultModelId, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
@@ -94,16 +95,17 @@ export function TasksPage({
   )
 
   // Get active debate for current task (if any)
+  // Query always when task is selected - needed to show "Resume Review" in sidebar
   const { data: activeDebate } = trpc.debate.getForTask.useQuery(
     { path: selectedPath ?? '' },
     {
-      enabled: !!selectedPath && !!workingDir && mode === 'debate',
-      refetchInterval: mode === 'debate' ? 2000 : false, // Poll while in debate mode
+      enabled: !!selectedPath && !!workingDir,
+      refetchInterval: mode === 'debate' ? 2000 : false, // Poll faster while in debate mode
     }
   )
 
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
-    const candidates: PlannerAgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
+    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode']
     return candidates.filter((t) => availableTypes.includes(t))
   }, [availableTypes])
 
@@ -120,8 +122,8 @@ export function TasksPage({
   const [saveError, setSaveError] = useState<string | null>(null)
 
   // Agent type for "Create task with agent" (planning only)
-  const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('cerebras')
-  const [createModel, setCreateModel] = useState(() => getDefaultModelId('cerebras'))
+  const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('claude')
+  const [createModel, setCreateModel] = useState(() => getDefaultModelId('claude'))
 
   // Agent type for "Run with Agent"
   const [runAgentType, setRunAgentType] = useState<AgentType>('claude')
@@ -132,6 +134,9 @@ export function TasksPage({
 
   // Split modal state
   const [splitModalOpen, setSplitModalOpen] = useState(false)
+
+  // Commit and archive modal state
+  const [commitArchiveOpen, setCommitArchiveOpen] = useState(false)
 
   // Rewrite state
   const [rewriteComment, setRewriteComment] = useState('')
@@ -410,14 +415,22 @@ export function TasksPage({
 
       return { previousList, path }
     },
-    onSuccess: (data) => {
+    onSuccess: (_data, _variables, context) => {
       utils.tasks.list.invalidate()
-      // Navigate to the archived task
-      navigate({
-        to: '/tasks/$',
-        params: { _splat: encodeTaskPath(data.path) },
-        search: buildSearchParams(),
-      })
+      // Navigate to topmost non-archived task, or tasks list if none
+      const currentList = context?.previousList ?? tasks
+      const topmostTask = currentList.find(
+        (t) => !t.archived && t.path !== context?.path
+      )
+      if (topmostTask) {
+        navigate({
+          to: '/tasks/$',
+          params: { _splat: encodeTaskPath(topmostTask.path) },
+          search: buildSearchParams(),
+        })
+      } else {
+        navigate({ to: '/tasks', search: buildSearchParams() })
+      }
     },
     onError: (_err, _variables, context) => {
       // Rollback on error
@@ -826,6 +839,31 @@ export function TasksPage({
     setSplitModalOpen(true)
   }, [])
 
+  const handleOpenCommitArchiveModal = useCallback(() => {
+    setCommitArchiveOpen(true)
+  }, [])
+
+  const handleCloseCommitArchiveModal = useCallback(() => {
+    setCommitArchiveOpen(false)
+  }, [])
+
+  const handleCommitArchiveSuccess = useCallback(() => {
+    setCommitArchiveOpen(false)
+    // Navigate to topmost non-archived task
+    const topmostTask = tasks.find(
+      (t) => !t.archived && t.path !== selectedPath
+    )
+    if (topmostTask) {
+      navigate({
+        to: '/tasks/$',
+        params: { _splat: encodeTaskPath(topmostTask.path) },
+        search: buildSearchParams(),
+      })
+    } else {
+      navigate({ to: '/tasks', search: buildSearchParams() })
+    }
+  }, [tasks, selectedPath, navigate, buildSearchParams])
+
   const handleCloseSplitModal = useCallback(() => {
     setSplitModalOpen(false)
   }, [])
@@ -927,6 +965,7 @@ export function TasksPage({
               taskTitle={editorTitle}
               availableTypes={availableTypes}
               existingDebate={activeDebate}
+              onBack={handleCloseDebatePanel}
               onClose={handleCloseDebatePanel}
               onAccept={handleDebateAccept}
             />
@@ -944,6 +983,7 @@ export function TasksPage({
                   isRestoring={restoreMutation.isPending}
                   onArchive={handleArchive}
                   onRestore={handleRestore}
+                  onCommitAndArchive={handleOpenCommitArchiveModal}
                   onModeChange={handleModeChange}
                   onDraftChange={(newDraft) => {
                     setDraft(newDraft)
@@ -993,6 +1033,7 @@ export function TasksPage({
               splitFrom={taskData?.splitFrom}
               onSplit={handleOpenSplitModal}
               onNavigateToSplitFrom={handleNavigateToSplitFrom}
+              hasActiveDebate={!!activeDebate}
               onDelete={handleDelete}
               onReview={handleReview}
               onVerify={handleVerify}
@@ -1045,6 +1086,18 @@ export function TasksPage({
         onClose={handleCloseSplitModal}
         onSplit={handleSplitTask}
       />
+
+      {/* Commit and Archive Modal */}
+      {selectedPath && (
+        <CommitArchiveModal
+          isOpen={commitArchiveOpen}
+          taskPath={selectedPath}
+          taskTitle={editorTitle}
+          taskContent={draft}
+          onClose={handleCloseCommitArchiveModal}
+          onSuccess={handleCommitArchiveSuccess}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmDialog.open}
