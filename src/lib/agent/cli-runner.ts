@@ -808,10 +808,15 @@ export class CLIAgentRunner extends EventEmitter {
             } else if (blockObj.type === "thinking" && blockObj.thinking) {
               this.emitChunk("thinking", String(blockObj.thinking))
             } else if (blockObj.type === "tool_use") {
+              const toolName = blockObj.name as string
               this.emitChunk("tool_use", JSON.stringify({
-                name: blockObj.name,
+                name: toolName,
                 input: blockObj.input,
-              }), { tool: blockObj.name as string })
+              }), { tool: toolName })
+              // AskUserQuestion tool requires user input
+              if (toolName === "AskUserQuestion") {
+                this.emitWaitingInput()
+              }
             }
           }
         }
@@ -839,12 +844,18 @@ export class CLIAgentRunner extends EventEmitter {
         break
       }
 
-      case "tool_use":
+      case "tool_use": {
+        const toolName = json.name as string
         this.emitChunk("tool_use", JSON.stringify({
-          name: json.name,
+          name: toolName,
           input: json.input,
-        }), { tool: json.name as string })
+        }), { tool: toolName })
+        // AskUserQuestion tool requires user input
+        if (toolName === "AskUserQuestion") {
+          this.emitWaitingInput()
+        }
         break
+      }
 
       case "tool_result":
         this.emitChunk("tool_result", String(json.content ?? json.output ?? ""))

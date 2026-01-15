@@ -127,6 +127,7 @@ samp,
   --tool-file-ops: oklch(0.65 0.18 160);
   --tool-search: oklch(0.70 0.15 220);
   --tool-execution: oklch(0.75 0.15 85);
+  --tool-interaction: oklch(0.70 0.18 300);
   --tool-other: oklch(0.65 0.15 var(--brand-hue));
 }
 

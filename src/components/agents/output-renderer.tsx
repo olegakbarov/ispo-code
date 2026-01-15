@@ -8,6 +8,7 @@ import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import { SimpleErrorBoundary } from '@/components/ui/error-boundary'
 import { ToolCall } from '@/components/agents/tool-call'
 import { ToolResult } from '@/components/agents/tool-result'
+import { AskUserQuestionDisplay } from '@/components/agents/ask-user-question-display'
 import { ImageAttachmentPreview } from '@/components/agents/image-attachment-input'
 import { isImageAttachments } from '@/lib/utils/type-guards'
 import type { AgentOutputChunk } from '@/lib/agent/types'
@@ -69,6 +70,11 @@ export const OutputChunk = memo(function OutputChunk({ chunk }: { chunk: AgentOu
   if (type === 'tool_use' && parsedToolPayload) {
     const toolName = parsedToolPayload.name || (metadata?.tool as string | undefined) || 'unknown'
     const toolInput = parsedToolPayload.input ?? parsedToolPayload.args
+
+    // Special rendering for AskUserQuestion tool
+    if (toolName === 'AskUserQuestion') {
+      return <AskUserQuestionDisplay toolInput={toolInput} />
+    }
 
     return <ToolCall toolName={toolName} toolInput={toolInput} metadata={metadata} />
   }

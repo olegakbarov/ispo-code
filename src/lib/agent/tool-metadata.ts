@@ -10,10 +10,11 @@ import {
   FolderSearch,
   Search,
   Terminal,
+  CircleHelp,
   type LucideIcon,
 } from "lucide-react"
 
-export type ToolCategory = "file-ops" | "search" | "execution" | "other"
+export type ToolCategory = "file-ops" | "search" | "execution" | "interaction" | "other"
 
 export interface ToolMetadata {
   name: string
@@ -38,6 +39,10 @@ export const TOOL_CATEGORIES: Record<ToolCategory, { color: string; label: strin
   execution: {
     color: "var(--tool-execution)",
     label: "Execute",
+  },
+  interaction: {
+    color: "var(--tool-interaction)",
+    label: "Question",
   },
   other: {
     color: "var(--tool-other)",
@@ -97,6 +102,13 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
     icon: Terminal,
     description: "Run shell command",
     color: TOOL_CATEGORIES.execution.color,
+  },
+  AskUserQuestion: {
+    name: "AskUserQuestion",
+    category: "interaction",
+    icon: CircleHelp,
+    description: "Ask user a question with options",
+    color: TOOL_CATEGORIES.interaction.color,
   },
 }
 
