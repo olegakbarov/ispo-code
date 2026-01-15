@@ -6,6 +6,8 @@
 import { Select } from '@/components/ui/select'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
+import type { AgentSession } from './agent-types'
+import { Scissors } from 'lucide-react'
 
 interface TaskFooterProps {
   // Rewrite controls
@@ -14,7 +16,11 @@ interface TaskFooterProps {
   rewriteModel: string
   isRewriting: boolean
   availableTypes: AgentType[] | undefined
-  agentSession: any | null
+  agentSession: AgentSession | null
+
+  // Split task
+  canSplit?: boolean
+  onSplit?: () => void
 
   // Handlers
   onRewriteCommentChange: (comment: string) => void
@@ -30,6 +36,8 @@ export function TaskFooter({
   isRewriting,
   availableTypes,
   agentSession,
+  canSplit,
+  onSplit,
   onRewriteCommentChange,
   onRewriteAgentTypeChange,
   onRewriteModelChange,
@@ -83,6 +91,18 @@ export function TaskFooter({
                 </option>
               ))}
             </Select>
+          )}
+
+          {/* Split Task Button */}
+          {canSplit && onSplit && (
+            <button
+              onClick={onSplit}
+              className="w-full py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors flex items-center justify-center gap-2"
+              title="Split this task into multiple subtasks"
+            >
+              <Scissors className="w-3 h-3" />
+              Split Task
+            </button>
           )}
 
           {/* Rewrite Button */}

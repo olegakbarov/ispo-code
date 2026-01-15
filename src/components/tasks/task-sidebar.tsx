@@ -3,11 +3,9 @@
  * Contains all task controls, rewrite panel, commit panel, and sessions list
  */
 
-import { Select } from '@/components/ui/select'
-import { TaskSessions } from './task-sessions'
-import { agentTypeLabel } from '@/lib/agent/config'
-import type { AgentType } from '@/lib/agent/types'
-import { Scissors, ExternalLink } from 'lucide-react'
+import { TaskSessions, type TaskSessionsGrouped } from './task-sessions'
+import type { AgentSession } from './agent-types'
+import { ExternalLink } from 'lucide-react'
 
 interface TaskSidebarProps {
   // Mode - hide sessions/controls in review/debate mode
@@ -19,27 +17,16 @@ interface TaskSidebarProps {
   isAssigning: boolean
   saveError: string | null
 
-  // Run controls
-  runAgentType: AgentType
-  availableTypes: AgentType[] | undefined
-  agentSession: any | null
+  // Agent session
+  agentSession: AgentSession | null
 
   // Sessions list
   taskSessions?: {
-    grouped: {
-      planning: any[]
-      review: any[]
-      verify: any[]
-      execution: any[]
-      rewrite: any[]
-      comment: any[]
-    }
+    grouped: TaskSessionsGrouped
   }
 
-  // Split task
-  canSplit?: boolean
+  // Split from badge
   splitFrom?: string
-  onSplit?: () => void
   onNavigateToSplitFrom?: () => void
 
   // Commit and archive
@@ -54,7 +41,6 @@ interface TaskSidebarProps {
   onReview: () => void
   onVerify: () => void
   onAssignToAgent: () => void
-  onRunAgentTypeChange: (agentType: AgentType) => void
   onCancelAgent?: () => void
 }
 
@@ -64,20 +50,15 @@ export function TaskSidebar({
   isDeleting,
   isAssigning,
   saveError,
-  runAgentType,
-  availableTypes,
   agentSession,
   taskSessions,
-  canSplit,
   splitFrom,
-  onSplit,
   onNavigateToSplitFrom,
   hasActiveDebate,
   onDelete,
   onReview,
   onVerify,
   onAssignToAgent,
-  onRunAgentTypeChange,
   onCancelAgent,
 }: TaskSidebarProps) {
   // Hide sessions and controls in review mode
@@ -86,10 +67,10 @@ export function TaskSidebar({
   }
 
   return (
-    <div className="w-full bg-panel overflow-y-auto">
-      <div className="p-3 space-y-4">
+    <div className="w-full h-full bg-panel overflow-y-auto flex flex-col">
+      <div className="p-3 flex-1 flex flex-col">
         {/* Sessions Section - Most Prominent */}
-        <div className="space-y-2">
+        <div className="space-y-2 mb-4">
           <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
             Sessions
           </h3>
@@ -148,24 +129,9 @@ export function TaskSidebar({
               {hasActiveDebate ? 'Resume Review' : 'Review'}
             </button>
 
-            {/* Implement with Agent */}
-            <Select
-              value={runAgentType}
-              onChange={(e) => onRunAgentTypeChange(e.target.value as AgentType)}
-              variant="sm"
-              disabled={isAssigning || !!agentSession}
-              className="w-full bg-background text-xs py-1.5"
-            >
-              {(Object.keys(agentTypeLabel) as AgentType[]).map((t) => (
-                <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
-                  {agentTypeLabel[t]}
-                </option>
-              ))}
-            </Select>
-
             <button
               onClick={onAssignToAgent}
-              disabled={isAssigning || !!agentSession || (availableTypes ? !availableTypes.includes(runAgentType) : false)}
+              disabled={isAssigning || !!agentSession}
               className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Assign this task to an AI agent for implementation"
             >
@@ -182,19 +148,6 @@ export function TaskSidebar({
             </button>
           </div>
 
-          {/* Split Task Button */}
-          {canSplit && onSplit && (
-            <button
-              onClick={onSplit}
-              disabled={!!agentSession}
-              className="w-full px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center justify-center gap-2"
-              title="Split this task into multiple subtasks"
-            >
-              <Scissors className="w-3 h-3" />
-              Split Task
-            </button>
-          )}
-
           {/* Split From Badge */}
           {splitFrom && onNavigateToSplitFrom && (
             <button
@@ -208,8 +161,8 @@ export function TaskSidebar({
           )}
         </div>
 
-        {/* Delete Button - at bottom */}
-        <div className="pt-2 border-t border-border/50">
+        {/* Delete Button - pushed to bottom */}
+        <div className="mt-auto pt-4 border-t border-border/50">
           <button
             onClick={onDelete}
             disabled={isDeleting}

@@ -8,7 +8,7 @@ import { useNavigate } from '@tanstack/react-router'
 import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { Spinner } from '@/components/ui/spinner'
 
-interface TaskSession {
+export interface TaskSession {
   sessionId: string
   agentType: AgentType
   title: string
@@ -22,6 +22,18 @@ interface TaskSession {
   sourceLine?: number
   /** Output chunks for showing progress */
   output?: Array<{ type: string; content: string }>
+}
+
+/**
+ * Grouped task sessions by type for sidebar display
+ */
+export interface TaskSessionsGrouped {
+  planning: TaskSession[]
+  review: TaskSession[]
+  verify: TaskSession[]
+  execution: TaskSession[]
+  rewrite: TaskSession[]
+  comment: TaskSession[]
 }
 
 interface TaskSessionsProps {
