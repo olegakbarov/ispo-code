@@ -8,6 +8,7 @@ import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
 import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug } from "@/lib/agent/task-service"
+import { resolveTaskSessionIdsFromRegistry } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
@@ -551,12 +552,9 @@ export const tasksRouter = router({
       // Check for uncommitted changes before archiving
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
+      const task = getTask(ctx.workingDir, input.path)
 
-      const taskSessionIds = registryEvents
-        .filter((event): event is Extract<RegistryEvent, { type: "session_created" }> =>
-          event.type === "session_created" && event.taskPath === input.path
-        )
-        .map((event) => event.sessionId)
+      const taskSessionIds = resolveTaskSessionIdsFromRegistry(registryEvents, input.path, task.splitFrom)
 
       if (taskSessionIds.length > 0) {
         const changedFilePaths = new Set<string>()
@@ -1113,16 +1111,13 @@ export const tasksRouter = router({
     .input(z.object({
       path: z.string().min(1),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
+      const task = getTask(ctx.workingDir, input.path)
 
-      // Find all session_created events for this task
-      const taskSessionIds = registryEvents
-        .filter((event): event is Extract<RegistryEvent, { type: "session_created" }> =>
-          event.type === "session_created" && event.taskPath === input.path
-        )
-        .map((event) => event.sessionId)
+      // Find all session_created events for this task (fallback to splitFrom when needed)
+      const taskSessionIds = resolveTaskSessionIdsFromRegistry(registryEvents, input.path, task.splitFrom)
 
       // Aggregate changed files from all sessions
       const allFiles = new Map<string, {
@@ -1182,13 +1177,10 @@ export const tasksRouter = router({
     .query(async ({ ctx, input }) => {
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
+      const task = getTask(ctx.workingDir, input.path)
 
-      // Find all session_created events for this task
-      const taskSessionIds = registryEvents
-        .filter((event): event is Extract<RegistryEvent, { type: "session_created" }> =>
-          event.type === "session_created" && event.taskPath === input.path
-        )
-        .map((event) => event.sessionId)
+      // Find all session_created events for this task (fallback to splitFrom when needed)
+      const taskSessionIds = resolveTaskSessionIdsFromRegistry(registryEvents, input.path, task.splitFrom)
 
       if (taskSessionIds.length === 0) {
         return { hasUncommitted: false, uncommittedCount: 0, uncommittedFiles: [] }

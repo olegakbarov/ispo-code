@@ -171,16 +171,23 @@ Implement **Option 1 + Option 3** (badge + expand by default when instructions p
 ### Files Modified
 
 1. ✅ `src/streams/schemas.ts` - Added `instructions?: string` to SessionCreatedEvent
+   - ✓ Verified: Line 32-33 contains `/** Custom user instructions for review/verify tasks */ instructions?: string`
 2. ✅ `src/lib/agent/types.ts` - Added `instructions?: string` to AgentSession
+   - ✓ Verified: Line 289-290 contains `/** Custom user instructions for review/verify tasks */ instructions?: string`
 3. ✅ `src/daemon/agent-daemon.ts` - Added `instructions` to DaemonConfig and pass to registry
+   - ✓ Verified: Line 46-47 in DaemonConfig, Line 139 passes `instructions` to `createRegistryEvent.created`
 4. ✅ `src/trpc/tasks.ts` - Pass `instructions` to spawnDaemon for review/verify
+   - ✓ Verified: Lines 817, 825, 843 for reviewWithAgent; Lines 862, 870, 888 for verifyWithAgent
 5. ✅ `src/trpc/agent.ts` - Extract `instructions` from createdEvent in reconstructSession
+   - ✓ Verified: Line 161 extracts `instructions: createdEvent.instructions`
 6. ✅ `src/components/agents/prompt-display.tsx`:
    - Added `instructions` prop
    - Auto-expand when instructions present
    - Show "Custom Instructions" badge
    - Increased max height: max-h-48 → max-h-96
+   - ✓ Verified: Line 17 prop, Line 24 auto-expand, Lines 73-78 badge, Line 56 max-h-96
 7. ✅ `src/routes/agents/$sessionId.tsx` - Pass `instructions` to PromptDisplay
+   - ✓ Verified: Line 473 passes `instructions={session.instructions}`
 
 ## Implementation Summary
 
@@ -206,3 +213,35 @@ To test:
    - Blue "Custom Instructions" badge appears
    - Prompt is auto-expanded
    - Custom instructions visible in prompt text
+
+## Status: COMPLETE
+
+All implementation steps have been verified:
+- Build passes without type errors
+- All 7 files modified as planned
+- UX improvements for visibility of custom instructions are in place
+
+## Verification Results
+
+**Verification Date:** 2026-01-15
+
+### Summary
+All 7 completed items have been verified as correctly implemented.
+
+### Detailed Verification
+
+| File | Status | Evidence |
+|------|--------|----------|
+| `src/streams/schemas.ts` | ✅ VERIFIED | Line 32-33: `instructions?: string` in SessionCreatedEvent |
+| `src/lib/agent/types.ts` | ✅ VERIFIED | Line 289-290: `instructions?: string` in AgentSession |
+| `src/daemon/agent-daemon.ts` | ✅ VERIFIED | Line 47: DaemonConfig has `instructions`, Line 139: passes to registry |
+| `src/trpc/tasks.ts` | ✅ VERIFIED | Lines 817, 825, 843 (reviewWithAgent), Lines 862, 870, 888 (verifyWithAgent) |
+| `src/trpc/agent.ts` | ✅ VERIFIED | Line 161: extracts `instructions` in reconstructSessionFromStreams |
+| `src/components/agents/prompt-display.tsx` | ✅ VERIFIED | Line 17 (prop), Line 24 (auto-expand), Lines 73-78 (badge), Line 56 (max-h-96) |
+| `src/routes/agents/$sessionId.tsx` | ✅ VERIFIED | Line 473: passes `instructions={session.instructions}` |
+
+### Build Verification
+- ✅ `npm run build` completes successfully with no type errors
+
+### No Issues Found
+All code changes match the implementation plan. The UX improvements for visibility of custom instructions are correctly implemented.
