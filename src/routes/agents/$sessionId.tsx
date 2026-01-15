@@ -9,9 +9,9 @@ import { z } from 'zod'
 import { PromptDisplay } from '@/components/agents/prompt-display'
 import { StatusDot } from '@/components/agents/session-primitives'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
-import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { OutputRenderer } from '@/components/agents/output-renderer'
-import type { AgentOutputChunk, SessionStatus } from '@/lib/agent/types'
+import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
+import type { AgentOutputChunk, SessionStatus, ImageAttachment } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
 
 export const Route = createFileRoute('/agents/$sessionId')({
@@ -67,6 +67,7 @@ function AgentSessionPage() {
 
   const [messageInput, setMessageInput] = useState('')
   const [messageQueue, setMessageQueue] = useState<string[]>([])
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const outputRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -143,14 +144,33 @@ function AgentSessionPage() {
   })
 
   const spawnMutation = trpc.agent.spawn.useMutation({
+    onMutate: async () => {
+      // Cancel outgoing refetches
+      await utils.agent.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.agent.list.getData()
+      return { previousList }
+    },
     onSuccess: (data) => {
       navigate({ to: '/agents/$sessionId', params: { sessionId: data.sessionId } })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.agent.list.setData(undefined, context.previousList)
+      }
+    },
+    onSettled: () => {
+      // Refetch to ensure consistency
+      utils.agent.list.invalidate()
     },
   })
 
   const sendMessageMutation = trpc.agent.sendMessage.useMutation({
     onSuccess: () => {
       setMessageInput('')
+      setAttachments([]) // Clear attachments after sending
       setMessageQueue((prevQueue) => prevQueue.length > 0 ? prevQueue.slice(1) : prevQueue)
       utils.agent.get.invalidate({ id: sessionId })
     },
@@ -199,7 +219,11 @@ function AgentSessionPage() {
     const trimmedMessage = messageInput.trim()
 
     if (canSendMessage) {
-      sendMessageMutation.mutate({ sessionId, message: trimmedMessage })
+      sendMessageMutation.mutate({
+        sessionId,
+        message: trimmedMessage,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      })
     } else {
       setMessageQueue([...messageQueue, trimmedMessage])
       setMessageInput('')
@@ -238,15 +262,21 @@ function AgentSessionPage() {
       )
     }
 
-    // Exhausted retries - show not found
+    // Exhausted retries - show error state with retry option
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <span className="font-vcr text-sm text-destructive">Session not found</span>
+        <span className="font-vcr text-sm text-destructive">Session not found or failed to load</span>
+        <button
+          onClick={() => setRetryCount(0)}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-vcr hover:bg-primary/90 cursor-pointer"
+        >
+          Retry
+        </button>
         <Link
           to="/"
-          className="px-4 py-2 bg-card border border-border rounded text-sm font-vcr text-foreground hover:border-primary cursor-pointer"
+          className="text-sm text-accent hover:underline"
         >
-          New Agent
+          Return to dashboard
         </Link>
       </div>
     )
@@ -257,16 +287,6 @@ function AgentSessionPage() {
 
   return (
     <div className="flex h-full">
-      {/* Left sidebar - Task list (only when session has taskPath) */}
-      {session.taskPath && (
-        <div className="w-64 border-r border-border bg-card flex flex-col min-h-0">
-          <div className="px-3 py-2 border-b border-border">
-            <span className="font-vcr text-[10px] text-accent">TASKS</span>
-          </div>
-          <TaskListSidebar />
-        </div>
-      )}
-
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Task planning context banner */}
@@ -338,27 +358,50 @@ function AgentSessionPage() {
 
         {/* Unified input + metadata footer */}
         <div className="border-t border-border bg-card">
-          {/* Textarea - only for active sessions */}
+          {/* Textarea with image attachments - only for active sessions */}
           {!isDone && (
             <form onSubmit={handleSendMessage}>
-              <textarea
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    if (canSendMessage) {
-                      handleSendMessage(e)
-                    } else {
-                      handleEnqueueMessage()
+              {/* Image attachment preview */}
+              {attachments.length > 0 && (
+                <div className="px-3 pt-2 border-b border-border/40">
+                  <ImageAttachmentInput
+                    attachments={attachments}
+                    onChange={setAttachments}
+                    disabled={isMutating}
+                  />
+                </div>
+              )}
+              <div className="flex items-end gap-2 border-b border-border/40">
+                <textarea
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      if (canSendMessage) {
+                        handleSendMessage(e)
+                      } else {
+                        handleEnqueueMessage()
+                      }
                     }
-                  }
-                }}
-                placeholder={canSendMessage ? "Message... (Enter to send)" : messageQueue.length > 0 ? `Queue (${messageQueue.length}) - Enter to queue message` : "Agent working... (Enter to queue message)"}
-                disabled={isMutating}
-                rows={2}
-                className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed border-b border-border/40"
-              />
+                  }}
+                  placeholder={canSendMessage ? "Message... (Enter to send)" : messageQueue.length > 0 ? `Queue (${messageQueue.length}) - Enter to queue message` : "Agent working... (Enter to queue message)"}
+                  disabled={isMutating}
+                  rows={2}
+                  className="flex-1 px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                {/* Compact image attachment button */}
+                {attachments.length === 0 && (
+                  <div className="pb-2 pr-2">
+                    <ImageAttachmentInput
+                      attachments={attachments}
+                      onChange={setAttachments}
+                      disabled={isMutating}
+                      compact
+                    />
+                  </div>
+                )}
+              </div>
             </form>
           )}
 
