@@ -1025,7 +1025,6 @@ export function TasksPage({
               isAssigning={assignToAgentMutation.isPending}
               saveError={saveError}
               runAgentType={runAgentType}
-              runModel={runModel}
               availableTypes={availableTypes}
               agentSession={agentSession}
               taskSessions={taskSessions}
@@ -1039,7 +1038,6 @@ export function TasksPage({
               onVerify={handleVerify}
               onAssignToAgent={handleAssignToAgent}
               onRunAgentTypeChange={handleRunAgentTypeChange}
-              onRunModelChange={setRunModel}
               onCancelAgent={handleCancelAgent}
             />
           </div>
