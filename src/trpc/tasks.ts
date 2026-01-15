@@ -7,7 +7,7 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections } from "@/lib/agent/task-service"
+import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug } from "@/lib/agent/task-service"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
@@ -18,21 +18,59 @@ import type { RegistryEvent } from "@/streams/schemas"
 /**
  * System prompt for debugging task with systematic-debugging skill.
  * Invokes the systematic-debugging skill to investigate and fix bugs.
+ * Searches archived tasks for related bug patterns to provide context.
  */
 function buildTaskDebugPrompt(params: {
   title: string
   taskPath: string
   workingDir: string
 }): string {
+  // Search archived tasks for related bugs
+  const relatedBugs = searchArchivedTasks(params.workingDir, params.title, 3)
+
+  // Build related bugs section if matches found
+  let relatedBugsSection = ""
+  if (relatedBugs.length > 0) {
+    const bugEntries = relatedBugs.map((bug) => {
+      const lines = [`### ${bug.title}`, `Path: \`${bug.path}\``]
+
+      if (bug.context) {
+        if (bug.context.rootCause) {
+          lines.push(`**Root Cause**: ${bug.context.rootCause}`)
+        }
+        if (bug.context.solution) {
+          lines.push(`**Solution**: ${bug.context.solution}`)
+        }
+        if (bug.context.keyFiles.length > 0) {
+          lines.push(`**Key Files**: ${bug.context.keyFiles.map((f) => `\`${f}\``).join(", ")}`)
+        }
+      } else if (bug.snippet) {
+        lines.push(`**Snippet**: ${bug.snippet}`)
+      }
+
+      return lines.join("\n")
+    })
+
+    relatedBugsSection = `
+## Related Archived Bugs
+
+The following previously fixed bugs may be relevant. Review them before investigating:
+
+${bugEntries.join("\n\n")}
+
+---
+`
+  }
+
   return `You are investigating and fixing a bug. Use the systematic-debugging skill to methodically diagnose and resolve the issue.
 
 ## Bug Report
 "${params.title}"
-
+${relatedBugsSection}
 ## Instructions
-1. Use the Skill tool to invoke systematic-debugging: skill: "systematic-debugging", args: "${params.title}"
-2. Follow the systematic debugging methodology (four phases)
-3. **CRITICAL: Write findings to ${params.taskPath} after EACH phase**
+1. ${relatedBugs.length > 0 ? "Review the related archived bugs above for patterns and prior solutions\n2. " : ""}Use the Skill tool to invoke systematic-debugging: skill: "systematic-debugging", args: "${params.title}"
+${relatedBugs.length > 0 ? "3" : "2"}. Follow the systematic debugging methodology (four phases)
+${relatedBugs.length > 0 ? "4" : "3"}. **CRITICAL: Write findings to ${params.taskPath} after EACH phase**
 
 ## Documentation Requirements
 
@@ -86,7 +124,7 @@ After each phase, update ${params.taskPath} with your findings using this struct
 ## Working Directory
 ${params.workingDir}
 
-Begin by invoking the systematic-debugging skill now. Remember to update ${params.taskPath} after each phase completes.`
+Begin by ${relatedBugs.length > 0 ? "reviewing the related bugs, then " : ""}invoking the systematic-debugging skill now. Remember to update ${params.taskPath} after each phase completes.`
 }
 
 /**
@@ -443,7 +481,7 @@ export const tasksRouter = router({
     .input(z.object({
       title: z.string().min(1),
       taskType: z.enum(["bug", "feature"]).default("feature"),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -676,6 +714,9 @@ export const tasksRouter = router({
       // Create new tasks for selected sections
       const newPaths: string[] = []
 
+      // Generate prefix from original task title for subtask filenames
+      const prefix = generateShortSlug(task.title)
+
       for (const idx of input.sectionIndices) {
         const section = sections[idx]
 
@@ -704,10 +745,11 @@ export const tasksRouter = router({
         }
         newContent.push("")
 
-        // Create the new task
+        // Create the new task with prefix from parent task
         const result = createTask(ctx.workingDir, {
           title: section.title,
           content: newContent.join("\n"),
+          prefix,
         })
         newPaths.push(result.path)
       }
@@ -732,7 +774,7 @@ export const tasksRouter = router({
   assignToAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -774,7 +816,7 @@ export const tasksRouter = router({
   reviewWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -819,7 +861,7 @@ export const tasksRouter = router({
   verifyWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -864,7 +906,7 @@ export const tasksRouter = router({
   rewriteWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
       userComment: z.string().min(1),
     }))

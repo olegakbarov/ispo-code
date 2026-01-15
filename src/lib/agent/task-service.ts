@@ -20,6 +20,7 @@ export interface TaskProgress {
 export interface TaskSummary {
   path: string
   title: string
+  createdAt: string
   updatedAt: string
   source: TaskSource
   progress: TaskProgress
@@ -233,9 +234,13 @@ export function listTasks(cwd: string): TaskSummary[] {
       const archived = relPath.startsWith("tasks/archive/")
       const archivedAt = archived ? new Date(stat.mtimeMs).toISOString() : undefined
 
+      // Use birthtime if available, fall back to mtime
+      const createdAtMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs
+
       tasks.push({
         path: relPath,
         title,
+        createdAt: new Date(createdAtMs).toISOString(),
         updatedAt: new Date(stat.mtimeMs).toISOString(),
         source: sources.get(relPath) ?? sourceForPath(relPath),
         progress,
@@ -275,9 +280,13 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
   const archived = relPath.startsWith("tasks/archive/")
   const archivedAt = archived ? new Date(stat.mtimeMs).toISOString() : undefined
 
+  // Use birthtime if available, fall back to mtime
+  const createdAtMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs
+
   return {
     path: relPath,
     title,
+    createdAt: new Date(createdAtMs).toISOString(),
     updatedAt: new Date(stat.mtimeMs).toISOString(),
     source: sourceForPath(relPath),
     progress,
@@ -307,9 +316,39 @@ function slugifyTitle(title: string): string {
   return slug || "task"
 }
 
+/**
+ * Generate a short slug from a task title for use as filename prefix.
+ * Extracts first 3 meaningful words (skipping common stop words).
+ * Example: "implement auth system with oauth" -> "implement-auth-system"
+ */
+export function generateShortSlug(title: string, maxWords = 3): string {
+  const stopWords = new Set([
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "must", "shall", "can", "need", "to", "of",
+    "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
+    "during", "before", "after", "above", "below", "between", "under",
+    "again", "further", "then", "once", "here", "there", "when", "where",
+    "why", "how", "all", "each", "few", "more", "most", "other", "some",
+    "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
+    "very", "just", "and", "but", "if", "or", "because", "until", "while",
+    "this", "that", "these", "those", "it", "we", "you", "they",
+  ])
+
+  const words = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 1 && !stopWords.has(word))
+    .slice(0, maxWords)
+
+  const slug = words.join("-")
+  return slug || "task"
+}
+
 export function createTask(
   cwd: string,
-  params: { title: string; content?: string }
+  params: { title: string; content?: string; prefix?: string }
 ): { path: string } {
   const title = params.title.trim()
   if (!title) throw new Error("Title is required")
@@ -318,10 +357,12 @@ export function createTask(
   mkdirSync(baseDir, { recursive: true })
 
   const slugBase = slugifyTitle(title)
-  let candidate = `tasks/${slugBase}.md`
+  // If prefix provided, prepend it to the filename
+  const fullSlug = params.prefix ? `${params.prefix}-${slugBase}` : slugBase
+  let candidate = `tasks/${fullSlug}.md`
   let i = 2
   while (existsSync(path.join(cwd, candidate))) {
-    candidate = `tasks/${slugBase}-${i}.md`
+    candidate = `tasks/${fullSlug}-${i}.md`
     i++
   }
 
@@ -424,4 +465,238 @@ export function restoreTask(cwd: string, archivePath: string): { path: string } 
   renameSync(absPath, restoredAbsPath)
 
   return { path: restoredPath }
+}
+
+/**
+ * Result of searching archived tasks
+ */
+export interface ArchivedTaskMatch {
+  path: string
+  title: string
+  snippet: string
+  context: BugContext | null
+}
+
+/**
+ * Extracted context from a bug task
+ */
+export interface BugContext {
+  rootCause: string | null
+  solution: string | null
+  keyFiles: string[]
+}
+
+/**
+ * Extract keywords from a bug title for searching
+ */
+function extractKeywords(title: string): string[] {
+  // Remove common stop words and split into words
+  const stopWords = new Set([
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "must", "shall", "can", "need", "dare",
+    "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
+    "from", "as", "into", "through", "during", "before", "after", "above",
+    "below", "between", "under", "again", "further", "then", "once", "here",
+    "there", "when", "where", "why", "how", "all", "each", "few", "more",
+    "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+    "same", "so", "than", "too", "very", "just", "and", "but", "if", "or",
+    "because", "until", "while", "this", "that", "these", "those", "it",
+    "bug", "fix", "issue", "problem", "error", "doesn't", "don't", "didn't",
+    "won't", "can't", "cannot", "work", "working", "broken",
+  ])
+
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !stopWords.has(word))
+}
+
+/**
+ * Search archived tasks for bugs similar to the given query.
+ * Uses simple keyword matching on title and content.
+ * Returns top matches with extracted context.
+ */
+export function searchArchivedTasks(
+  cwd: string,
+  query: string,
+  maxResults = 5
+): ArchivedTaskMatch[] {
+  const keywords = extractKeywords(query)
+  if (keywords.length === 0) return []
+
+  // Glob for archived tasks
+  const archivePattern = "tasks/archive/**/*.md"
+  const archivePaths = globSync(archivePattern, { cwd, nodir: true, dot: true })
+
+  const matches: Array<{
+    path: string
+    title: string
+    content: string
+    score: number
+  }> = []
+
+  for (const relPath of archivePaths) {
+    try {
+      const absPath = path.join(cwd, relPath)
+      const content = readFileSync(absPath, "utf-8")
+      const title = parseTitleFromMarkdown(content, path.basename(relPath, ".md"))
+
+      // Score based on keyword matches in title (weighted 3x) and content
+      const titleLower = title.toLowerCase()
+      const contentLower = content.toLowerCase()
+
+      let score = 0
+      for (const keyword of keywords) {
+        // Title matches worth more
+        if (titleLower.includes(keyword)) {
+          score += 3
+        }
+        // Content matches
+        const contentMatches = (contentLower.match(new RegExp(keyword, "g")) || []).length
+        score += Math.min(contentMatches, 3) // Cap at 3 per keyword to avoid spam
+      }
+
+      if (score > 0) {
+        matches.push({ path: relPath, title, content, score })
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  // Sort by score descending, take top results
+  matches.sort((a, b) => b.score - a.score)
+  const topMatches = matches.slice(0, maxResults)
+
+  // Extract context and snippets from top matches
+  return topMatches.map((match) => {
+    const context = extractBugContext(match.content)
+    const snippet = extractSnippet(match.content, keywords)
+
+    return {
+      path: match.path,
+      title: match.title,
+      snippet,
+      context,
+    }
+  })
+}
+
+/**
+ * Extract a relevant snippet from content based on keywords
+ */
+function extractSnippet(content: string, keywords: string[]): string {
+  const lines = content.split("\n")
+
+  // Find lines containing keywords
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase()
+    if (keywords.some((kw) => line.includes(kw))) {
+      // Return this line and next 2, trimmed
+      const snippetLines = lines.slice(i, i + 3)
+      const snippet = snippetLines.join(" ").trim()
+      if (snippet.length > 200) {
+        return snippet.substring(0, 197) + "..."
+      }
+      return snippet
+    }
+  }
+
+  // Fallback: first non-empty content line
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed && !trimmed.startsWith("#")) {
+      return trimmed.length > 200 ? trimmed.substring(0, 197) + "..." : trimmed
+    }
+  }
+
+  return ""
+}
+
+/**
+ * Extract bug context from task content.
+ * Looks for root cause, solution, and key files sections.
+ */
+export function extractBugContext(content: string): BugContext | null {
+  const lines = content.split("\n")
+
+  let rootCause: string | null = null
+  let solution: string | null = null
+  const keyFiles: string[] = []
+
+  let currentSection: "root-cause" | "solution" | "files" | null = null
+  let sectionContent: string[] = []
+
+  const saveSection = () => {
+    if (currentSection && sectionContent.length > 0) {
+      const text = sectionContent.join(" ").trim()
+      if (currentSection === "root-cause" && !rootCause) {
+        rootCause = text.length > 300 ? text.substring(0, 297) + "..." : text
+      } else if (currentSection === "solution" && !solution) {
+        solution = text.length > 300 ? text.substring(0, 297) + "..." : text
+      }
+    }
+    sectionContent = []
+  }
+
+  for (const line of lines) {
+    const lineLower = line.toLowerCase().trim()
+
+    // Detect section headers
+    if (lineLower.match(/^#+\s*(root\s*cause|cause)/)) {
+      saveSection()
+      currentSection = "root-cause"
+      continue
+    }
+    if (lineLower.match(/^#+\s*(solution|fix|resolution|changes?\s*made)/)) {
+      saveSection()
+      currentSection = "solution"
+      continue
+    }
+    if (lineLower.match(/^#+\s*(files?\s*(modified|changed)|key\s*files)/)) {
+      saveSection()
+      currentSection = "files"
+      continue
+    }
+    // New section resets current
+    if (lineLower.match(/^#+\s/)) {
+      saveSection()
+      currentSection = null
+      continue
+    }
+
+    // Collect content for current section
+    if (currentSection === "root-cause" || currentSection === "solution") {
+      const trimmed = line.trim()
+      if (trimmed && !trimmed.startsWith("```")) {
+        // Skip code blocks and empty lines
+        sectionContent.push(trimmed)
+      }
+    }
+
+    // Extract file paths from files section or inline references
+    if (currentSection === "files" || line.includes(".ts") || line.includes(".tsx")) {
+      const fileMatches = line.match(/`([^`]+\.(ts|tsx|js|jsx|md))`/g)
+      if (fileMatches) {
+        for (const match of fileMatches) {
+          const filePath = match.replace(/`/g, "")
+          if (!keyFiles.includes(filePath) && keyFiles.length < 5) {
+            keyFiles.push(filePath)
+          }
+        }
+      }
+    }
+  }
+
+  // Save last section
+  saveSection()
+
+  // Return null if no useful context found
+  if (!rootCause && !solution && keyFiles.length === 0) {
+    return null
+  }
+
+  return { rootCause, solution, keyFiles }
 }
