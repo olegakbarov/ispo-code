@@ -292,6 +292,8 @@ export interface AgentSession {
   sourceFile?: string
   /** Source line number if session originated from an inline comment */
   sourceLine?: number
+  /** Debug run ID for grouping multi-agent debug sessions */
+  debugRunId?: string
   /** Whether this session can be resumed */
   resumable?: boolean
   /** Timestamp of last resume attempt */

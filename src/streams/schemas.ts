@@ -35,6 +35,8 @@ export interface SessionCreatedEvent {
   sourceFile?: string
   /** Source line number if session originated from an inline comment */
   sourceLine?: number
+  /** Debug run ID for grouping multi-agent debug sessions */
+  debugRunId?: string
   timestamp: string
 }
 

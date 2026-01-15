@@ -175,6 +175,7 @@ function reconstructSessionFromStreams(
     taskPath: createdEvent.taskPath,
     sourceFile: createdEvent.sourceFile,
     sourceLine: createdEvent.sourceLine,
+    debugRunId: createdEvent.debugRunId,
     resumable: status !== "cancelled",
   }
 }

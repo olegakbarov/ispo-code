@@ -50,6 +50,8 @@ export interface DaemonConfig {
   sourceFile?: string
   /** Source line number if session originated from an inline comment */
   sourceLine?: number
+  /** Debug run ID for grouping multi-agent debug sessions */
+  debugRunId?: string
   streamServerUrl?: string
   isResume?: boolean
   cliSessionId?: string
@@ -116,7 +118,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, isResume, cliSessionId } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId } =
       this.config
     const { daemonNonce } = this.config
 
@@ -141,6 +143,7 @@ export class AgentDaemon {
             instructions,
             sourceFile,
             sourceLine,
+            debugRunId,
           })
         )
       }

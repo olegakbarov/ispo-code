@@ -7,6 +7,7 @@
  * - Easier state tracking and debugging
  */
 
+import { match } from 'ts-pattern'
 import type { AgentType } from '@/lib/agent/types'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import { getDefaultModelId } from '@/lib/agent/config'
@@ -65,6 +66,16 @@ export interface ModalsState {
   splitOpen: boolean
   commitArchiveOpen: boolean
   implementOpen: boolean
+  orchestratorOpen: boolean
+}
+
+export interface OrchestratorState {
+  /** Debug run ID being orchestrated */
+  debugRunId: string | null
+  /** Session ID of the orchestrator (codex) */
+  sessionId: string | null
+  /** Whether the orchestrator has been triggered for this debug run */
+  triggered: boolean
 }
 
 export interface PendingCommitEntry {
@@ -93,6 +104,7 @@ export interface TasksState {
   modals: ModalsState
   pendingCommit: PendingCommitState
   confirmDialog: ConfirmDialogState
+  orchestrator: OrchestratorState
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +163,12 @@ export type TasksAction =
   | { type: 'SET_CONFIRM_DIALOG'; payload: ConfirmDialogState }
   | { type: 'CLOSE_CONFIRM_DIALOG' }
 
+  // Orchestrator actions
+  | { type: 'SET_ORCHESTRATOR_MODAL_OPEN'; payload: boolean }
+  | { type: 'SET_ORCHESTRATOR'; payload: { debugRunId: string; sessionId: string } }
+  | { type: 'SET_ORCHESTRATOR_TRIGGERED'; payload: string }
+  | { type: 'RESET_ORCHESTRATOR' }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Initial State
 // ─────────────────────────────────────────────────────────────────────────────
@@ -191,6 +209,7 @@ export const initialTasksState: TasksState = {
     splitOpen: false,
     commitArchiveOpen: false,
     implementOpen: false,
+    orchestratorOpen: false,
   },
   pendingCommit: {},
   confirmDialog: {
@@ -199,6 +218,11 @@ export const initialTasksState: TasksState = {
     message: '',
     onConfirm: () => {},
   },
+  orchestrator: {
+    debugRunId: null,
+    sessionId: null,
+    triggered: false,
+  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,210 +230,241 @@ export const initialTasksState: TasksState = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function tasksReducer(state: TasksState, action: TasksAction): TasksState {
-  switch (action.type) {
+  return match(action)
     // Editor actions
-    case 'SET_DRAFT':
-      return { ...state, editor: { ...state.editor, draft: action.payload } }
-
-    case 'SET_DIRTY':
-      return { ...state, editor: { ...state.editor, dirty: action.payload } }
-
-    case 'RESET_EDITOR':
-      return { ...state, editor: { draft: '', dirty: false } }
+    .with({ type: 'SET_DRAFT' }, ({ payload }) => ({
+      ...state,
+      editor: { ...state.editor, draft: payload },
+    }))
+    .with({ type: 'SET_DIRTY' }, ({ payload }) => ({
+      ...state,
+      editor: { ...state.editor, dirty: payload },
+    }))
+    .with({ type: 'RESET_EDITOR' }, () => ({
+      ...state,
+      editor: { draft: '', dirty: false },
+    }))
 
     // Create modal actions
-    case 'OPEN_CREATE_MODAL':
-      return { ...state, create: { ...state.create, open: true, title: '' } }
-
-    case 'CLOSE_CREATE_MODAL':
-      return { ...state, create: { ...state.create, open: false } }
-
-    case 'SET_CREATE_TITLE':
-      return { ...state, create: { ...state.create, title: action.payload } }
-
-    case 'SET_CREATE_TASK_TYPE':
-      return { ...state, create: { ...state.create, taskType: action.payload } }
-
-    case 'SET_CREATE_USE_AGENT':
-      return { ...state, create: { ...state.create, useAgent: action.payload } }
-
-    case 'SET_CREATE_AGENT_TYPE':
-      return {
-        ...state,
-        create: {
-          ...state.create,
-          agentType: action.payload,
-          model: getDefaultModelId(action.payload),
-        },
-      }
-
-    case 'SET_CREATE_MODEL':
-      return { ...state, create: { ...state.create, model: action.payload } }
-
-    case 'RESET_CREATE_MODAL':
-      return {
-        ...state,
-        create: {
-          ...initialTasksState.create,
-          agentType: state.create.agentType, // Preserve current agent selection
-          model: state.create.model,
-          debugAgents: state.create.debugAgents.map((da) => ({ ...da, selected: false })),
-        },
-      }
-
-    case 'TOGGLE_DEBUG_AGENT':
-      return {
-        ...state,
-        create: {
-          ...state.create,
-          debugAgents: state.create.debugAgents.map((da) =>
-            da.agentType === action.payload
-              ? { ...da, selected: !da.selected }
-              : da
-          ),
-        },
-      }
-
-    case 'SET_DEBUG_AGENT_MODEL':
-      return {
-        ...state,
-        create: {
-          ...state.create,
-          debugAgents: state.create.debugAgents.map((da) =>
-            da.agentType === action.payload.agentType
-              ? { ...da, model: action.payload.model }
-              : da
-          ),
-        },
-      }
-
-    case 'INIT_DEBUG_AGENTS':
-      return {
-        ...state,
-        create: {
-          ...state.create,
-          debugAgents: action.payload.map((agentType) => ({
-            agentType,
-            model: getDefaultModelId(agentType),
-            selected: false,
-          })),
-        },
-      }
+    .with({ type: 'OPEN_CREATE_MODAL' }, () => ({
+      ...state,
+      create: { ...state.create, open: true, title: '' },
+    }))
+    .with({ type: 'CLOSE_CREATE_MODAL' }, () => ({
+      ...state,
+      create: { ...state.create, open: false },
+    }))
+    .with({ type: 'SET_CREATE_TITLE' }, ({ payload }) => ({
+      ...state,
+      create: { ...state.create, title: payload },
+    }))
+    .with({ type: 'SET_CREATE_TASK_TYPE' }, ({ payload }) => ({
+      ...state,
+      create: { ...state.create, taskType: payload },
+    }))
+    .with({ type: 'SET_CREATE_USE_AGENT' }, ({ payload }) => ({
+      ...state,
+      create: { ...state.create, useAgent: payload },
+    }))
+    .with({ type: 'SET_CREATE_AGENT_TYPE' }, ({ payload }) => ({
+      ...state,
+      create: {
+        ...state.create,
+        agentType: payload,
+        model: getDefaultModelId(payload),
+      },
+    }))
+    .with({ type: 'SET_CREATE_MODEL' }, ({ payload }) => ({
+      ...state,
+      create: { ...state.create, model: payload },
+    }))
+    .with({ type: 'RESET_CREATE_MODAL' }, () => ({
+      ...state,
+      create: {
+        ...initialTasksState.create,
+        agentType: state.create.agentType,
+        model: state.create.model,
+        debugAgents: state.create.debugAgents.map((da) => ({ ...da, selected: false })),
+      },
+    }))
+    .with({ type: 'TOGGLE_DEBUG_AGENT' }, ({ payload }) => ({
+      ...state,
+      create: {
+        ...state.create,
+        debugAgents: state.create.debugAgents.map((da) =>
+          da.agentType === payload ? { ...da, selected: !da.selected } : da
+        ),
+      },
+    }))
+    .with({ type: 'SET_DEBUG_AGENT_MODEL' }, ({ payload }) => ({
+      ...state,
+      create: {
+        ...state.create,
+        debugAgents: state.create.debugAgents.map((da) =>
+          da.agentType === payload.agentType ? { ...da, model: payload.model } : da
+        ),
+      },
+    }))
+    .with({ type: 'INIT_DEBUG_AGENTS' }, ({ payload }) => ({
+      ...state,
+      create: {
+        ...state.create,
+        debugAgents: payload.map((agentType) => ({
+          agentType,
+          model: getDefaultModelId(agentType),
+          selected: false,
+        })),
+      },
+    }))
 
     // Run agent actions
-    case 'SET_RUN_AGENT_TYPE':
-      return {
-        ...state,
-        run: {
-          agentType: action.payload,
-          model: getDefaultModelId(action.payload),
-        },
-      }
-
-    case 'SET_RUN_MODEL':
-      return { ...state, run: { ...state.run, model: action.payload } }
+    .with({ type: 'SET_RUN_AGENT_TYPE' }, ({ payload }) => ({
+      ...state,
+      run: {
+        agentType: payload,
+        model: getDefaultModelId(payload),
+      },
+    }))
+    .with({ type: 'SET_RUN_MODEL' }, ({ payload }) => ({
+      ...state,
+      run: { ...state.run, model: payload },
+    }))
 
     // Verify agent actions
-    case 'SET_VERIFY_AGENT_TYPE':
-      return {
-        ...state,
-        verify: {
-          agentType: action.payload,
-          model: getDefaultModelId(action.payload),
-        },
-      }
-
-    case 'SET_VERIFY_MODEL':
-      return { ...state, verify: { ...state.verify, model: action.payload } }
+    .with({ type: 'SET_VERIFY_AGENT_TYPE' }, ({ payload }) => ({
+      ...state,
+      verify: {
+        agentType: payload,
+        model: getDefaultModelId(payload),
+      },
+    }))
+    .with({ type: 'SET_VERIFY_MODEL' }, ({ payload }) => ({
+      ...state,
+      verify: { ...state.verify, model: payload },
+    }))
 
     // Rewrite actions
-    case 'SET_REWRITE_COMMENT':
-      return { ...state, rewrite: { ...state.rewrite, comment: action.payload } }
-
-    case 'SET_REWRITE_AGENT_TYPE':
-      return {
-        ...state,
-        rewrite: {
-          ...state.rewrite,
-          agentType: action.payload,
-          model: getDefaultModelId(action.payload),
-        },
-      }
-
-    case 'SET_REWRITE_MODEL':
-      return { ...state, rewrite: { ...state.rewrite, model: action.payload } }
-
-    case 'RESET_REWRITE':
-      return {
-        ...state,
-        rewrite: {
-          ...initialTasksState.rewrite,
-          agentType: state.rewrite.agentType, // Preserve current agent selection
-          model: state.rewrite.model,
-        },
-      }
+    .with({ type: 'SET_REWRITE_COMMENT' }, ({ payload }) => ({
+      ...state,
+      rewrite: { ...state.rewrite, comment: payload },
+    }))
+    .with({ type: 'SET_REWRITE_AGENT_TYPE' }, ({ payload }) => ({
+      ...state,
+      rewrite: {
+        ...state.rewrite,
+        agentType: payload,
+        model: getDefaultModelId(payload),
+      },
+    }))
+    .with({ type: 'SET_REWRITE_MODEL' }, ({ payload }) => ({
+      ...state,
+      rewrite: { ...state.rewrite, model: payload },
+    }))
+    .with({ type: 'RESET_REWRITE' }, () => ({
+      ...state,
+      rewrite: {
+        ...initialTasksState.rewrite,
+        agentType: state.rewrite.agentType,
+        model: state.rewrite.model,
+      },
+    }))
 
     // Save actions
-    case 'SET_SAVING':
-      return { ...state, save: { ...state.save, saving: action.payload } }
-
-    case 'SET_SAVE_ERROR':
-      return { ...state, save: { ...state.save, error: action.payload } }
+    .with({ type: 'SET_SAVING' }, ({ payload }) => ({
+      ...state,
+      save: { ...state.save, saving: payload },
+    }))
+    .with({ type: 'SET_SAVE_ERROR' }, ({ payload }) => ({
+      ...state,
+      save: { ...state.save, error: payload },
+    }))
 
     // Modal actions
-    case 'SET_VERIFY_MODAL_OPEN':
-      return { ...state, modals: { ...state.modals, verifyOpen: action.payload } }
-
-    case 'SET_SPLIT_MODAL_OPEN':
-      return { ...state, modals: { ...state.modals, splitOpen: action.payload } }
-
-    case 'SET_COMMIT_ARCHIVE_OPEN':
-      return { ...state, modals: { ...state.modals, commitArchiveOpen: action.payload } }
-
-    case 'SET_IMPLEMENT_MODAL_OPEN':
-      return { ...state, modals: { ...state.modals, implementOpen: action.payload } }
+    .with({ type: 'SET_VERIFY_MODAL_OPEN' }, ({ payload }) => ({
+      ...state,
+      modals: { ...state.modals, verifyOpen: payload },
+    }))
+    .with({ type: 'SET_SPLIT_MODAL_OPEN' }, ({ payload }) => ({
+      ...state,
+      modals: { ...state.modals, splitOpen: payload },
+    }))
+    .with({ type: 'SET_COMMIT_ARCHIVE_OPEN' }, ({ payload }) => ({
+      ...state,
+      modals: { ...state.modals, commitArchiveOpen: payload },
+    }))
+    .with({ type: 'SET_IMPLEMENT_MODAL_OPEN' }, ({ payload }) => ({
+      ...state,
+      modals: { ...state.modals, implementOpen: payload },
+    }))
 
     // Pending commit actions
-    case 'SET_PENDING_COMMIT_MESSAGE':
-      return {
-        ...state,
-        pendingCommit: {
-          ...state.pendingCommit,
-          [action.payload.path]: {
-            ...(state.pendingCommit[action.payload.path] ?? { message: null, isGenerating: false }),
-            message: action.payload.message,
-          },
+    .with({ type: 'SET_PENDING_COMMIT_MESSAGE' }, ({ payload }) => ({
+      ...state,
+      pendingCommit: {
+        ...state.pendingCommit,
+        [payload.path]: {
+          ...(state.pendingCommit[payload.path] ?? { message: null, isGenerating: false }),
+          message: payload.message,
         },
-      }
-
-    case 'SET_PENDING_COMMIT_GENERATING':
-      return {
-        ...state,
-        pendingCommit: {
-          ...state.pendingCommit,
-          [action.payload.path]: {
-            ...(state.pendingCommit[action.payload.path] ?? { message: null, isGenerating: false }),
-            isGenerating: action.payload.isGenerating,
-          },
+      },
+    }))
+    .with({ type: 'SET_PENDING_COMMIT_GENERATING' }, ({ payload }) => ({
+      ...state,
+      pendingCommit: {
+        ...state.pendingCommit,
+        [payload.path]: {
+          ...(state.pendingCommit[payload.path] ?? { message: null, isGenerating: false }),
+          isGenerating: payload.isGenerating,
         },
-      }
-
-    case 'RESET_PENDING_COMMIT':
-      {
-        const { [action.payload.path]: _removed, ...rest } = state.pendingCommit
-        return { ...state, pendingCommit: rest }
-      }
+      },
+    }))
+    .with({ type: 'RESET_PENDING_COMMIT' }, ({ payload }) => {
+      const { [payload.path]: _removed, ...rest } = state.pendingCommit
+      return { ...state, pendingCommit: rest }
+    })
 
     // Confirm dialog actions
-    case 'SET_CONFIRM_DIALOG':
-      return { ...state, confirmDialog: action.payload }
+    .with({ type: 'SET_CONFIRM_DIALOG' }, ({ payload }) => ({
+      ...state,
+      confirmDialog: payload,
+    }))
+    .with({ type: 'CLOSE_CONFIRM_DIALOG' }, () => ({
+      ...state,
+      confirmDialog: { ...state.confirmDialog, open: false },
+    }))
 
-    case 'CLOSE_CONFIRM_DIALOG':
-      return { ...state, confirmDialog: { ...state.confirmDialog, open: false } }
-
-    default:
-      return state
-  }
+    // Orchestrator actions
+    .with({ type: 'SET_ORCHESTRATOR_MODAL_OPEN' }, ({ payload }) => ({
+      ...state,
+      modals: { ...state.modals, orchestratorOpen: payload },
+    }))
+    .with({ type: 'SET_ORCHESTRATOR' }, ({ payload }) => ({
+      ...state,
+      orchestrator: {
+        debugRunId: payload.debugRunId,
+        sessionId: payload.sessionId,
+        triggered: true,
+      },
+      modals: { ...state.modals, orchestratorOpen: true },
+    }))
+    .with({ type: 'SET_ORCHESTRATOR_TRIGGERED' }, ({ payload }) => ({
+      ...state,
+      orchestrator: {
+        ...state.orchestrator,
+        debugRunId: payload,
+        triggered: true,
+      },
+    }))
+    .with({ type: 'RESET_ORCHESTRATOR' }, () => ({
+      ...state,
+      orchestrator: {
+        debugRunId: null,
+        sessionId: null,
+        triggered: false,
+      },
+      modals: { ...state.modals, orchestratorOpen: false },
+    }))
+    .exhaustive()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

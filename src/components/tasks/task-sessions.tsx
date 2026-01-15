@@ -14,7 +14,7 @@ export interface TaskSession {
   title: string
   status: SessionStatus
   timestamp: string
-  sessionType: 'planning' | 'review' | 'verify' | 'execution' | 'rewrite' | 'comment'
+  sessionType: 'planning' | 'review' | 'verify' | 'execution' | 'rewrite' | 'comment' | 'orchestrator'
   model?: string
   /** Source file if session originated from a file comment */
   sourceFile?: string
@@ -22,6 +22,8 @@ export interface TaskSession {
   sourceLine?: number
   /** Output chunks for showing progress */
   output?: Array<{ type: string; content: string }>
+  /** Debug run ID for grouping debug sessions */
+  debugRunId?: string
 }
 
 /**
@@ -34,6 +36,7 @@ export interface TaskSessionsGrouped {
   execution: TaskSession[]
   rewrite: TaskSession[]
   comment: TaskSession[]
+  orchestrator: TaskSession[]
 }
 
 interface TaskSessionsProps {
@@ -43,6 +46,7 @@ interface TaskSessionsProps {
   execution: TaskSession[]
   rewrite: TaskSession[]
   comment: TaskSession[]
+  orchestrator: TaskSession[]
   onCancelSession?: (sessionId: string) => void
 }
 
@@ -56,6 +60,17 @@ const STATUS_COLORS: Record<SessionStatus, string> = {
   completed: 'text-success',
   failed: 'text-error',
   cancelled: 'text-text-muted',
+}
+
+/** Flow type labels and colors for active session display */
+const FLOW_TYPE_CONFIG: Record<TaskSession['sessionType'], { label: string; color: string }> = {
+  planning: { label: 'PLAN', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  execution: { label: 'IMPL', color: 'bg-accent/20 text-accent border-accent/30' },
+  review: { label: 'REVIEW', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
+  verify: { label: 'VERIFY', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+  rewrite: { label: 'REWRITE', color: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
+  comment: { label: 'COMMENT', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' },
+  orchestrator: { label: 'ORCH', color: 'bg-pink-500/20 text-pink-400 border-pink-500/30' },
 }
 
 const STATUS_ICONS: Record<SessionStatus, string | null> = {
@@ -150,6 +165,9 @@ function ActiveSessionCard({
           )}
           <span className={`text-xs font-vcr ${statusColor}`}>
             {getStatusLabel(session.status)}
+          </span>
+          <span className={`text-[9px] font-vcr px-1.5 py-0.5 rounded border ${FLOW_TYPE_CONFIG[session.sessionType].color}`}>
+            {FLOW_TYPE_CONFIG[session.sessionType].label}
           </span>
           {toolUseCount > 0 && (
             <span className="text-[10px] text-text-muted">
@@ -273,9 +291,10 @@ export function TaskSessions({
   execution,
   rewrite,
   comment,
+  orchestrator,
   onCancelSession
 }: TaskSessionsProps) {
-  const allSessions = [...planning, ...review, ...verify, ...execution, ...rewrite, ...comment]
+  const allSessions = [...planning, ...review, ...verify, ...execution, ...rewrite, ...comment, ...orchestrator]
 
   // Find active sessions
   const activeSessions = allSessions.filter(s => ACTIVE_STATUSES.includes(s.status))
@@ -287,9 +306,11 @@ export function TaskSessions({
   const completedExecution = execution.filter(s => !ACTIVE_STATUSES.includes(s.status))
   const completedRewrite = rewrite.filter(s => !ACTIVE_STATUSES.includes(s.status))
   const completedComment = comment.filter(s => !ACTIVE_STATUSES.includes(s.status))
+  const completedOrchestrator = orchestrator.filter(s => !ACTIVE_STATUSES.includes(s.status))
 
   const hasCompletedSessions = completedPlanning.length + completedReview.length +
-    completedVerify.length + completedExecution.length + completedRewrite.length + completedComment.length > 0
+    completedVerify.length + completedExecution.length + completedRewrite.length +
+    completedComment.length + completedOrchestrator.length > 0
 
   if (allSessions.length === 0) {
     return (
@@ -320,6 +341,7 @@ export function TaskSessions({
       {/* Completed Sessions - Grouped */}
       {hasCompletedSessions && (
         <div className="space-y-1">
+          <SessionGroup title="Orchestrator" sessions={completedOrchestrator} />
           <SessionGroup title="Planning" sessions={completedPlanning} />
           <SessionGroup title="Rewrite" sessions={completedRewrite} />
           <SessionGroup title="Execution" sessions={completedExecution} />

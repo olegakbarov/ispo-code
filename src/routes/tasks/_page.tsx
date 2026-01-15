@@ -48,6 +48,8 @@ interface TasksPageProps {
   sortBy?: 'updated' | 'title' | 'progress'
   /** Sort direction from search params */
   sortDir?: 'asc' | 'desc'
+  /** Selected file in review mode (git-relative path) */
+  reviewFile?: string
 }
 
 export function TasksPage({
@@ -57,6 +59,7 @@ export function TasksPage({
   archiveFilter,
   sortBy,
   sortDir,
+  reviewFile,
 }: TasksPageProps) {
   const navigate = useNavigate()
   const { data: workingDir } = trpc.system.workingDir.useQuery()
@@ -323,20 +326,45 @@ export function TasksPage({
     availableTypes,
   ])
 
-  // Build search params for navigation (preserves filter/sort)
-  const buildSearchParams = useCallback(() => {
-    return { archiveFilter, sortBy, sortDir }
-  }, [archiveFilter, sortBy, sortDir])
+  // Build search params for navigation (preserves filter/sort and reviewFile in review mode)
+  const buildSearchParams = useCallback((overrideReviewFile?: string | null) => {
+    const params: {
+      archiveFilter: typeof archiveFilter
+      sortBy?: typeof sortBy
+      sortDir?: typeof sortDir
+      reviewFile?: string
+    } = { archiveFilter, sortBy, sortDir }
+
+    // Include reviewFile if provided or if we're in review mode with an existing value
+    const fileToUse = overrideReviewFile !== undefined ? overrideReviewFile : reviewFile
+    if (fileToUse) {
+      params.reviewFile = fileToUse
+    }
+    return params
+  }, [archiveFilter, sortBy, sortDir, reviewFile])
 
   // Navigate to change mode (edit/review) via URL
   const handleModeChange = useCallback((newMode: Mode) => {
     if (!selectedPath) return
+    // Clear reviewFile when leaving review mode
+    const searchParams = newMode === 'review' ? buildSearchParams() : buildSearchParams(null)
     navigate({
       to: '/tasks/$',
       params: { _splat: `${encodeTaskPath(selectedPath)}/${newMode}` },
-      search: buildSearchParams(),
+      search: searchParams,
     })
   }, [selectedPath, navigate, buildSearchParams])
+
+  // Update reviewFile in URL when a file is selected in review panel
+  const handleReviewFileChange = useCallback((file: string | null) => {
+    if (!selectedPath || mode !== 'review') return
+    navigate({
+      to: '/tasks/$',
+      params: { _splat: `${encodeTaskPath(selectedPath)}/review` },
+      search: buildSearchParams(file),
+      replace: true, // Replace history entry to avoid polluting back button
+    })
+  }, [selectedPath, mode, navigate, buildSearchParams])
 
   // Mutations
   const saveMutation = trpc.tasks.save.useMutation({
@@ -1469,6 +1497,8 @@ export function TasksPage({
                   onCommitAndArchive={handleOpenCommitArchiveModal}
                   activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
                   isPlanningActive={isActivePlanningSession}
+                  reviewFile={reviewFile}
+                  onReviewFileChange={handleReviewFileChange}
                   onModeChange={handleModeChange}
                   onDraftChange={(newDraft) => {
                     dispatch({ type: 'SET_DRAFT', payload: newDraft })
@@ -1526,27 +1556,30 @@ export function TasksPage({
         )}
       </div>
 
-      <CreateTaskModal
-        isOpen={create.open}
-        isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
-        newTitle={create.title}
-        taskType={create.taskType}
-        useAgent={create.useAgent}
-        createAgentType={create.agentType}
-        createModel={create.model}
-        availableTypes={availableTypes}
-        availablePlannerTypes={availablePlannerTypes}
-        debugAgents={create.debugAgents}
-        onClose={handleCloseCreate}
-        onCreate={handleCreate}
-        onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
-        onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
-        onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
-        onAgentTypeChange={handleCreateAgentTypeChange}
-        onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
-        onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
-        onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
-      />
+      {/* Only render modal when a task is selected - otherwise the inline form is shown */}
+      {selectedPath && (
+        <CreateTaskModal
+          isOpen={create.open}
+          isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
+          newTitle={create.title}
+          taskType={create.taskType}
+          useAgent={create.useAgent}
+          createAgentType={create.agentType}
+          createModel={create.model}
+          availableTypes={availableTypes}
+          availablePlannerTypes={availablePlannerTypes}
+          debugAgents={create.debugAgents}
+          onClose={handleCloseCreate}
+          onCreate={handleCreate}
+          onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
+          onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
+          onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
+          onAgentTypeChange={handleCreateAgentTypeChange}
+          onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
+          onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
+          onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
+        />
+      )}
 
       {/* Verify uses ReviewModal (single agent) - defaults to codex */}
       <ReviewModal
