@@ -57,10 +57,12 @@ export interface ModalsState {
   commitArchiveOpen: boolean
 }
 
-export interface PendingCommitState {
+export interface PendingCommitEntry {
   message: string | null
   isGenerating: boolean
 }
+
+export type PendingCommitState = Record<string, PendingCommitEntry>
 
 export interface ConfirmDialogState {
   open: boolean
@@ -127,9 +129,9 @@ export type TasksAction =
   | { type: 'SET_COMMIT_ARCHIVE_OPEN'; payload: boolean }
 
   // Pending commit actions
-  | { type: 'SET_PENDING_COMMIT_MESSAGE'; payload: string | null }
-  | { type: 'SET_PENDING_COMMIT_GENERATING'; payload: boolean }
-  | { type: 'RESET_PENDING_COMMIT' }
+  | { type: 'SET_PENDING_COMMIT_MESSAGE'; payload: { path: string; message: string | null } }
+  | { type: 'SET_PENDING_COMMIT_GENERATING'; payload: { path: string; isGenerating: boolean } }
+  | { type: 'RESET_PENDING_COMMIT'; payload: { path: string } }
 
   // Confirm dialog actions
   | { type: 'SET_CONFIRM_DIALOG'; payload: ConfirmDialogState }
@@ -149,12 +151,12 @@ export const initialTasksState: TasksState = {
     title: '',
     taskType: 'feature',
     useAgent: true,
-    agentType: 'claude',
-    model: getDefaultModelId('claude'),
+    agentType: 'codex',
+    model: getDefaultModelId('codex'),
   },
   run: {
-    agentType: 'claude',
-    model: getDefaultModelId('claude'),
+    agentType: 'codex',
+    model: getDefaultModelId('codex'),
   },
   verify: {
     agentType: 'codex',
@@ -162,8 +164,8 @@ export const initialTasksState: TasksState = {
   },
   rewrite: {
     comment: '',
-    agentType: 'claude',
-    model: getDefaultModelId('claude'),
+    agentType: 'codex',
+    model: getDefaultModelId('codex'),
   },
   save: {
     saving: false,
@@ -174,10 +176,7 @@ export const initialTasksState: TasksState = {
     splitOpen: false,
     commitArchiveOpen: false,
   },
-  pendingCommit: {
-    message: null,
-    isGenerating: false,
-  },
+  pendingCommit: {},
   confirmDialog: {
     open: false,
     title: '',
@@ -313,13 +312,34 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
 
     // Pending commit actions
     case 'SET_PENDING_COMMIT_MESSAGE':
-      return { ...state, pendingCommit: { ...state.pendingCommit, message: action.payload } }
+      return {
+        ...state,
+        pendingCommit: {
+          ...state.pendingCommit,
+          [action.payload.path]: {
+            ...(state.pendingCommit[action.payload.path] ?? { message: null, isGenerating: false }),
+            message: action.payload.message,
+          },
+        },
+      }
 
     case 'SET_PENDING_COMMIT_GENERATING':
-      return { ...state, pendingCommit: { ...state.pendingCommit, isGenerating: action.payload } }
+      return {
+        ...state,
+        pendingCommit: {
+          ...state.pendingCommit,
+          [action.payload.path]: {
+            ...(state.pendingCommit[action.payload.path] ?? { message: null, isGenerating: false }),
+            isGenerating: action.payload.isGenerating,
+          },
+        },
+      }
 
     case 'RESET_PENDING_COMMIT':
-      return { ...state, pendingCommit: { message: null, isGenerating: false } }
+      {
+        const { [action.payload.path]: _removed, ...rest } = state.pendingCommit
+        return { ...state, pendingCommit: rest }
+      }
 
     // Confirm dialog actions
     case 'SET_CONFIRM_DIALOG':
