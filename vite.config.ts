@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import tailwindcss from '@tailwindcss/vite'
@@ -16,5 +17,13 @@ export default defineConfig({
   },
   server: {
     port: 4200,
+  },
+  test: {
+    // Exclude worktree directories from test discovery
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.agentz/worktrees/**',
+    ],
   },
 })
