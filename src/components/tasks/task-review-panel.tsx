@@ -182,16 +182,6 @@ export function TaskReviewPanel({
   // Generate commit message mutation
   const generateMessageMutation = trpc.git.generateCommitMessage.useMutation()
 
-  // Group files by session
-  const filesBySession = useMemo(() => {
-    const grouped = new Map<string, typeof changedFiles>()
-    for (const file of changedFiles) {
-      const existing = grouped.get(file.sessionId) || []
-      grouped.set(file.sessionId, [...existing, file])
-    }
-    return grouped
-  }, [changedFiles])
-
   // Get git-relative paths for all changed files
   const gitRelativeFiles = useMemo(() => {
     return changedFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
@@ -210,10 +200,29 @@ export function TaskReviewPanel({
   )
 
   // Derive "all committed" state:
-  // - changedFiles.length === 0 (no uncommitted changes in session)
-  // - uncommittedStatus exists and hasUncommitted is false
-  // - This means task had sessions but all changes are committed
-  const allCommitted = changedFiles.length === 0 && uncommittedStatus && !uncommittedStatus.hasUncommitted
+  // - changedFiles.length > 0 (sessions have produced files - work was done)
+  // - uncommittedStatus.hasUncommitted is false (all those files are now committed)
+  const allCommitted = changedFiles.length > 0 && uncommittedStatus && !uncommittedStatus.hasUncommitted
+
+  // Filter changedFiles to only show uncommitted files in the UI
+  const uncommittedFiles = useMemo(() => {
+    if (!uncommittedStatus?.uncommittedFiles) return changedFiles
+    const uncommittedSet = new Set(uncommittedStatus.uncommittedFiles)
+    return changedFiles.filter(f => {
+      const gitPath = f.repoRelativePath || f.relativePath || f.path
+      return uncommittedSet.has(gitPath)
+    })
+  }, [changedFiles, uncommittedStatus])
+
+  // Group files by session (only uncommitted files)
+  const filesBySession = useMemo(() => {
+    const grouped = new Map<string, typeof uncommittedFiles>()
+    for (const file of uncommittedFiles) {
+      const existing = grouped.get(file.sessionId) || []
+      grouped.set(file.sessionId, [...existing, file])
+    }
+    return grouped
+  }, [uncommittedFiles])
 
   // Transform git status for DiffPanel
   const diffPanelStatus: GitStatus | undefined = gitStatus ? {
@@ -233,11 +242,11 @@ export function TaskReviewPanel({
   }
 
   const toggleAll = () => {
-    if (selectedFiles.size === changedFiles.length) {
+    if (selectedFiles.size === uncommittedFiles.length) {
       setSelectedFiles(new Map())
     } else {
       const allFiles = new Map<string, string>()
-      for (const file of changedFiles) {
+      for (const file of uncommittedFiles) {
         const gitPath = file.repoRelativePath || file.relativePath || file.path
         allFiles.set(file.path, gitPath)
       }
@@ -379,7 +388,7 @@ export function TaskReviewPanel({
   }
 
   // Show "No files changed yet" only when truly empty (not when all committed)
-  if (changedFiles.length === 0 && !allCommitted) {
+  if (uncommittedFiles.length === 0 && !allCommitted) {
     return (
       <div className="flex items-center justify-center p-8 text-muted-foreground text-sm">
         No files changed yet
@@ -463,11 +472,11 @@ export function TaskReviewPanel({
               onClick={toggleAll}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
-              {selectedFiles.size === changedFiles.length ? "Deselect All" : "Select All"}
+              {selectedFiles.size === uncommittedFiles.length ? "Deselect All" : "Select All"}
             </button>
           </div>
           <div className="text-xs text-muted-foreground">
-            {changedFiles.length} file{changedFiles.length === 1 ? "" : "s"} • {filesBySession.size} session{filesBySession.size === 1 ? "" : "s"}
+            {uncommittedFiles.length} file{uncommittedFiles.length === 1 ? "" : "s"} • {filesBySession.size} session{filesBySession.size === 1 ? "" : "s"}
           </div>
         </div>
 
@@ -658,7 +667,7 @@ export function TaskReviewPanel({
 
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              {selectedFiles.size} of {changedFiles.length} files selected
+              {selectedFiles.size} of {uncommittedFiles.length} files selected
             </div>
             <button
               onClick={handleCommit}
