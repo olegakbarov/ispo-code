@@ -16,6 +16,7 @@ import { useSettingsStore } from "@/lib/stores/settings"
 import { isTerminalStatus, ACTIVE_STATUSES } from "@/lib/agent/status"
 import type { SessionStatus } from "@/lib/agent/types"
 import { trpc } from "@/lib/trpc-client"
+import { isAudioUnlocked } from "@/lib/audio/audio-unlock"
 
 interface UseAudioNotificationOptions {
   /** Current session status */
@@ -55,6 +56,12 @@ export function useAudioNotification({
     async (type: "completed" | "failed") => {
       if (!selectedVoiceId) return
 
+      // Check if audio has been unlocked by user interaction
+      if (!isAudioUnlocked()) {
+        console.warn("[AudioNotification] Audio not unlocked - user needs to interact with page first")
+        return
+      }
+
       try {
         const result = await generateNotification.mutateAsync({
           voiceId: selectedVoiceId,
@@ -69,7 +76,12 @@ export function useAudioNotification({
         audioRef.current.src = result.audioDataUrl
         await audioRef.current.play()
       } catch (error) {
-        console.error("[AudioNotification] Failed to play:", error)
+        // Check if this is an autoplay policy error
+        if (error instanceof DOMException && error.name === "NotAllowedError") {
+          console.warn("[AudioNotification] Autoplay blocked - user needs to interact with page first")
+        } else {
+          console.error("[AudioNotification] Failed to play:", error)
+        }
       }
     },
     [selectedVoiceId, generateNotification]

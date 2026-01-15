@@ -16,6 +16,7 @@ import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { useSettingsStore, applyBrandHue } from '@/lib/stores/settings'
 import { AppErrorFallback } from '@/components/ui/app-error-fallback'
 import { Sidebar } from '@/components/layout/sidebar'
+import { initAudioUnlock } from '@/lib/audio/audio-unlock'
 
 
 export const Route = createRootRouteWithContext<RouterContext>()({
@@ -39,6 +40,11 @@ function RootDocument() {
   useEffect(() => {
     applyBrandHue(brandHue)
   }, [brandHue])
+
+  // Initialize audio unlock listeners for notification sounds
+  useEffect(() => {
+    initAudioUnlock()
+  }, [])
 
   return (
     <html lang="en" suppressHydrationWarning>
