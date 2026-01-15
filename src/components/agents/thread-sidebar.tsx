@@ -14,6 +14,7 @@ import { Link } from '@tanstack/react-router'
 import { GitCommit, Loader2, Check, X, Sparkles, FileCode, ExternalLink } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { sessionTrpcOptions } from '@/lib/trpc-session'
+import { encodeTaskPath } from '@/lib/utils/task-routing'
 import {
   Section,
   InfoRow,
@@ -103,8 +104,9 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
               </div>
               {session.taskPath && (
                 <Link
-                  to="/tasks"
-                  search={{ path: session.taskPath, archiveFilter: 'active' }}
+                  to="/tasks/$"
+                  params={{ _splat: encodeTaskPath(session.taskPath) }}
+                  search={{ archiveFilter: 'active' }}
                   className="flex items-center gap-1.5 text-[10px] font-vcr text-muted-foreground hover:text-primary transition-colors"
                 >
                   <ExternalLink className="w-3 h-3" />

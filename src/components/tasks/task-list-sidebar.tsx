@@ -8,6 +8,7 @@ import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { ArrowUp, ArrowDown } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
+import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
 
 interface TaskSummary {
   path: string
@@ -36,14 +37,23 @@ export function TaskListSidebar() {
   const routerState = useRouterState()
   const [filter, setFilter] = useState('')
 
-  // Get current search params from URL
+  // Extract selected task from URL path (new format: /tasks/<encoded-path>)
+  const pathname = routerState.location.pathname
+  const selectedPath = useMemo(() => {
+    // Match /tasks/<something> but not /tasks/new
+    const match = pathname.match(/^\/tasks\/(.+)$/)
+    if (match && match[1] !== 'new') {
+      return decodeTaskPath(match[1])
+    }
+    return null
+  }, [pathname])
+
+  // Get search params for filter/sort state
   const searchParams = routerState.location.search as {
-    path?: string
     archiveFilter?: ArchiveFilter
     sortBy?: SortOption
     sortDir?: SortDirection
   }
-  const selectedPath = searchParams.path ?? null
   const archiveFilter = searchParams.archiveFilter ?? 'active'
   const sortBy = searchParams.sortBy ?? 'updated'
   const sortDir = searchParams.sortDir ?? 'desc'
@@ -108,25 +118,44 @@ export function TaskListSidebar() {
   }, [filter, tasks, archiveFilter, sortBy, sortDir])
 
   const handleArchiveFilterChange = useCallback((newFilter: ArchiveFilter) => {
-    navigate({
-      to: '/tasks',
-      search: { path: selectedPath ?? undefined, archiveFilter: newFilter, sortBy, sortDir },
-    })
+    // Navigate to the same task (if any) but with new filter
+    if (selectedPath) {
+      navigate({
+        to: '/tasks/$',
+        params: { _splat: encodeTaskPath(selectedPath) },
+        search: { archiveFilter: newFilter, sortBy, sortDir },
+      })
+    } else {
+      navigate({
+        to: '/tasks',
+        search: { archiveFilter: newFilter, sortBy, sortDir },
+      })
+    }
   }, [navigate, selectedPath, sortBy, sortDir])
 
   const handleSortChange = useCallback((newSortBy: SortOption) => {
     // If same sort option clicked, toggle direction; otherwise use desc default
     const newDir = newSortBy === sortBy ? (sortDir === 'desc' ? 'asc' : 'desc') : 'desc'
-    navigate({
-      to: '/tasks',
-      search: { path: selectedPath ?? undefined, archiveFilter, sortBy: newSortBy, sortDir: newDir },
-    })
+    if (selectedPath) {
+      navigate({
+        to: '/tasks/$',
+        params: { _splat: encodeTaskPath(selectedPath) },
+        search: { archiveFilter, sortBy: newSortBy, sortDir: newDir },
+      })
+    } else {
+      navigate({
+        to: '/tasks',
+        search: { archiveFilter, sortBy: newSortBy, sortDir: newDir },
+      })
+    }
   }, [navigate, selectedPath, archiveFilter, sortBy, sortDir])
 
   const handleTaskSelect = useCallback((path: string) => {
+    // Navigate to /tasks/<encoded-path> with search params
     navigate({
-      to: '/tasks',
-      search: { path, archiveFilter, sortBy, sortDir },
+      to: '/tasks/$',
+      params: { _splat: encodeTaskPath(path) },
+      search: { archiveFilter, sortBy, sortDir },
     })
   }, [navigate, archiveFilter, sortBy, sortDir])
 

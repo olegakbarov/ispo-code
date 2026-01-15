@@ -3,18 +3,25 @@
  */
 
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, RefreshCw, Image } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { ImageAttachmentPreview } from '@/components/agents/image-attachment-input'
+import type { ImageAttachment } from '@/lib/agent/types'
+import { encodeTaskPath } from '@/lib/utils/task-routing'
 
 interface PromptDisplayProps {
   prompt: string
   planPath?: string
   taskPath?: string
   isResumable?: boolean
+  instructions?: string
+  /** Image attachments for the initial prompt */
+  attachments?: ImageAttachment[]
 }
 
-export function PromptDisplay({ prompt, planPath, taskPath, isResumable }: PromptDisplayProps) {
-  const [expanded, setExpanded] = useState(false)
+export function PromptDisplay({ prompt, planPath, taskPath, isResumable, instructions, attachments }: PromptDisplayProps) {
+  // Auto-expand if custom instructions are present or attachments exist
+  const [expanded, setExpanded] = useState(!!instructions || (attachments && attachments.length > 0))
 
   // Determine if we should show a link (either to plan or task)
   const linkPath = planPath || taskPath
@@ -46,10 +53,29 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable }: Promp
 
         {/* Prompt text */}
         <div className="flex-1 min-w-0">
-          <div className={`text-xs text-text-secondary ${expanded ? 'whitespace-pre-wrap max-h-48 overflow-y-auto' : 'line-clamp-2'}`}>
+          <div className={`text-xs text-text-secondary ${expanded ? 'whitespace-pre-wrap max-h-96 overflow-y-auto' : 'line-clamp-2'}`}>
             {displayPrompt}
           </div>
+          {/* Show image attachments when expanded */}
+          {expanded && attachments && attachments.length > 0 && (
+            <ImageAttachmentPreview attachments={attachments} />
+          )}
         </div>
+
+        {/* Attachments badge */}
+        {attachments && attachments.length > 0 && (
+          <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 border border-primary/30 rounded text-[10px] font-vcr text-primary flex-shrink-0">
+            <Image className="w-3 h-3" />
+            <span>{attachments.length}</span>
+          </div>
+        )}
+
+        {/* Custom instructions badge */}
+        {instructions && (
+          <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/30 rounded text-[10px] font-vcr text-blue-400 flex-shrink-0">
+            <span>Custom Instructions</span>
+          </div>
+        )}
 
         {/* Resumable badge */}
         {isResumable && (
@@ -62,8 +88,9 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable }: Promp
         {/* Plan/Task link */}
         {linkPath && linkLabel && (
           <Link
-            to="/tasks"
-            search={{ path: linkPath }}
+            to="/tasks/$"
+            params={{ _splat: encodeTaskPath(linkPath) }}
+            search={{ archiveFilter: 'active' }}
             className="flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-[10px] font-vcr text-accent hover:bg-accent/20 transition-colors flex-shrink-0 cursor-pointer"
             title={`View ${planPath ? 'plan' : 'task'} file`}
           >
