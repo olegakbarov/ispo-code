@@ -121,6 +121,9 @@ export function TasksPage({
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
   const activeSessionId = activeSessionInfo?.sessionId
+  const pendingCommitForSelected = selectedPath ? pendingCommit[selectedPath] : undefined
+  const pendingCommitMessage = pendingCommitForSelected?.message ?? null
+  const pendingCommitGenerating = pendingCommitForSelected?.isGenerating ?? false
 
   // Store sessionId in ref so cancel handler always has access, even if query state changes
   const activeSessionIdRef = useRef<string | undefined>(undefined)
@@ -746,14 +749,16 @@ export function TasksPage({
 
   // Pre-generate commit message when agent completes
   // (Pattern from use-audio-notification.ts - detect status transition)
-  const prevAgentStatusRef = useRef<string | undefined>(undefined)
+  const prevAgentStatusRef = useRef<Record<string, string | undefined>>({})
   useEffect(() => {
-    const prevStatus = prevAgentStatusRef.current
+    if (!selectedPath) return
+
+    const prevStatus = prevAgentStatusRef.current[selectedPath]
     const currentStatus = agentSession?.status
-    prevAgentStatusRef.current = currentStatus
+    prevAgentStatusRef.current[selectedPath] = currentStatus
 
     // Skip if no path, already generating, or message already exists
-    if (!selectedPath || pendingCommit.isGenerating || pendingCommit.message) return
+    if (pendingCommitGenerating || pendingCommitMessage) return
 
     // Skip initial mount (no previous status)
     if (prevStatus === undefined) return
@@ -764,14 +769,17 @@ export function TasksPage({
 
     if (wasActive && isNowCompleted) {
       // Start generating commit message in background
-      dispatch({ type: 'SET_PENDING_COMMIT_GENERATING', payload: true })
+      dispatch({
+        type: 'SET_PENDING_COMMIT_GENERATING',
+        payload: { path: selectedPath, isGenerating: true },
+      })
 
       // Get changed files and generate message
       utils.client.tasks.getChangedFilesForTask
         .query({ path: selectedPath })
         .then((files) => {
           if (files.length === 0) {
-            dispatch({ type: 'RESET_PENDING_COMMIT' })
+            dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
             return
           }
 
@@ -787,31 +795,32 @@ export function TasksPage({
               files: gitRelativeFiles,
             })
             .then((result) => {
-              dispatch({ type: 'SET_PENDING_COMMIT_MESSAGE', payload: result.message })
+              dispatch({
+                type: 'SET_PENDING_COMMIT_MESSAGE',
+                payload: { path: selectedPath, message: result.message },
+              })
             })
         })
         .catch((err) => {
           console.error('Failed to pre-generate commit message:', err)
         })
         .finally(() => {
-          dispatch({ type: 'SET_PENDING_COMMIT_GENERATING', payload: false })
+          dispatch({
+            type: 'SET_PENDING_COMMIT_GENERATING',
+            payload: { path: selectedPath, isGenerating: false },
+          })
         })
     }
   }, [
     selectedPath,
     agentSession?.status,
-    pendingCommit.isGenerating,
-    pendingCommit.message,
+    pendingCommitGenerating,
+    pendingCommitMessage,
     selectedSummary?.title,
     editor.draft,
     utils.client.tasks.getChangedFilesForTask,
     utils.client.git.generateCommitMessage,
   ])
-
-  // Reset pending commit message when task selection changes
-  useEffect(() => {
-    dispatch({ type: 'RESET_PENDING_COMMIT' })
-  }, [selectedPath])
 
   // Debounced autosave - triggers 500ms after user stops typing
   const debouncedSave = useDebouncedCallback(
@@ -1046,12 +1055,16 @@ export function TasksPage({
 
   const handleCloseCommitArchiveModal = useCallback(() => {
     dispatch({ type: 'SET_COMMIT_ARCHIVE_OPEN', payload: false })
-    dispatch({ type: 'RESET_PENDING_COMMIT' })
-  }, [])
+    if (selectedPath) {
+      dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
+    }
+  }, [selectedPath])
 
   const handleCommitArchiveSuccess = useCallback(() => {
     dispatch({ type: 'SET_COMMIT_ARCHIVE_OPEN', payload: false })
-    dispatch({ type: 'RESET_PENDING_COMMIT' })
+    if (selectedPath) {
+      dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
+    }
     // Navigate to topmost non-archived task
     const topmostTask = tasks.find(
       (t) => !t.archived && t.path !== selectedPath
@@ -1294,8 +1307,8 @@ export function TasksPage({
           taskPath={selectedPath}
           taskTitle={editorTitle}
           taskContent={editor.draft}
-          initialMessage={pendingCommit.message}
-          isGeneratingInitial={pendingCommit.isGenerating}
+          initialMessage={pendingCommitMessage}
+          isGeneratingInitial={pendingCommitGenerating}
           onClose={handleCloseCommitArchiveModal}
           onSuccess={handleCommitArchiveSuccess}
         />

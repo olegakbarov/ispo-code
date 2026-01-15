@@ -12,6 +12,10 @@ interface CommitArchiveModalProps {
   taskPath: string
   taskTitle: string
   taskContent?: string
+  /** Pre-generated commit message (from completion detection) */
+  initialMessage?: string | null
+  /** Whether the initial message is still being generated */
+  isGeneratingInitial?: boolean
   onClose: () => void
   onSuccess: () => void
 }
@@ -21,6 +25,8 @@ export function CommitArchiveModal({
   taskPath,
   taskTitle,
   taskContent,
+  initialMessage,
+  isGeneratingInitial,
   onClose,
   onSuccess,
 }: CommitArchiveModalProps) {
@@ -58,27 +64,61 @@ export function CommitArchiveModal({
 
   // Archive mutation
   const archiveMutation = trpc.tasks.archive.useMutation({
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Optimistically mark task as archived
+      if (previousList) {
+        utils.tasks.list.setData(undefined, previousList.map((task) =>
+          task.path === path
+            ? { ...task, archived: true, archivedAt: new Date().toISOString() }
+            : task
+        ))
+      }
+
+      return { previousList, path }
+    },
     onSuccess: () => {
       utils.tasks.list.invalidate()
       utils.tasks.getChangedFilesForTask.invalidate()
       utils.tasks.hasUncommittedChanges.invalidate()
       onSuccess()
     },
-    onError: (err) => {
+    onError: (err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
       setError(`Archive failed: ${err.message}`)
     },
   })
 
-  // Auto-generate commit message when files load
+  // Use initial message if provided, otherwise auto-generate
   useEffect(() => {
-    if (isOpen && gitRelativeFiles.length > 0 && !commitMessage && !generateMutation.isPending) {
+    if (!isOpen) return
+
+    // If we have a pre-generated message, use it
+    if (initialMessage && !commitMessage) {
+      setCommitMessage(initialMessage)
+      return
+    }
+
+    // Skip auto-generation if initial message is still being generated
+    if (isGeneratingInitial) return
+
+    // Auto-generate only if no message yet and not already generating
+    if (gitRelativeFiles.length > 0 && !commitMessage && !generateMutation.isPending) {
       generateMutation.mutate({
         taskTitle,
         taskDescription: taskContent,
         files: gitRelativeFiles,
       })
     }
-  }, [isOpen, gitRelativeFiles.length])
+  }, [isOpen, gitRelativeFiles.length, initialMessage, isGeneratingInitial])
 
   // Reset state when modal closes
   const handleClose = () => {
