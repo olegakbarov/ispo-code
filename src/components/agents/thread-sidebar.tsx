@@ -34,8 +34,12 @@ const MultiFileDiff = lazy(() =>
   import('@pierre/diffs/react').then((mod) => ({ default: mod.MultiFileDiff }))
 )
 
+import type { SessionWithMetadata } from '@/routes/agents/$sessionId'
+
 interface ThreadSidebarProps {
   sessionId: string
+  /** Session data from parent - single source of truth to avoid duplicate polling */
+  session: SessionWithMetadata | null | undefined
 }
 
 /** Extract filename from path */
@@ -43,12 +47,9 @@ function getFileName(path: string): string {
   return path.split('/').pop() || path
 }
 
-export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
-  // Use combined query for better performance (single query instead of two)
-  const { data: sessionWithMetadata } = trpc.agent.getSessionWithMetadata.useQuery(
-    { id: sessionId },
-    { refetchInterval: 2000 } // Update every 2s for live stats
-  )
+export function ThreadSidebar({ sessionId, session: sessionWithMetadata }: ThreadSidebarProps) {
+  // Session data is passed from parent component (single source of truth)
+  // This eliminates duplicate polling - parent handles all fetching
 
   if (!sessionWithMetadata) {
     return (
@@ -135,7 +136,7 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
         )}
 
         {/* 3. GIT + CHANGED FILES - Consolidated view */}
-        <GitSection sessionId={sessionId} />
+        <GitSection sessionId={sessionId} session={session} />
 
         {/* Error State */}
         {session.error && (
@@ -167,15 +168,15 @@ function dedupeEditedFiles(editedFiles: EditedFileInfo[]): EditedFileInfo[] {
   return Array.from(byPath.values())
 }
 
-function GitSection({ sessionId }: { sessionId: string }) {
+function GitSection({ sessionId, session }: { sessionId: string; session: SessionWithMetadata }) {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitMessage, setCommitMessage] = useState("")
   const [diffFile, setDiffFile] = useState<string | null>(null)
   const utils = trpc.useUtils()
   const sessionTrpc = sessionTrpcOptions(sessionId)
 
-  // Fetch session to check for worktree info
-  const { data: session } = trpc.agent.get.useQuery({ id: sessionId })
+  // Session data is passed from parent - no need to fetch here
+  // This eliminates the duplicate trpc.agent.get call
 
   // Git status query - automatically scoped to session's worktree via tRPC context
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
