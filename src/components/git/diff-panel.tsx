@@ -24,6 +24,7 @@ export interface DiffData {
   newContent: string
   isBinary?: boolean
   isDeleted?: boolean
+  isImage?: boolean
 }
 
 type GitFileStatusType = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied'
@@ -575,6 +576,42 @@ export function DiffPanel({
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
           No diff data
         </div>
+      ) : diffData.isImage ? (
+        <div className="flex-1 overflow-auto p-4">
+          <div className="space-y-4">
+            {diffData.oldContent && (
+              <div className="space-y-2">
+                <div className="text-sm font-vcr text-muted-foreground">Before (HEAD)</div>
+                <div className="border border-border rounded-lg p-4 bg-background flex items-center justify-center">
+                  <img
+                    src={diffData.oldContent}
+                    alt="Before"
+                    className="max-w-full max-h-[600px] object-contain"
+                  />
+                </div>
+              </div>
+            )}
+            {diffData.newContent && (
+              <div className="space-y-2">
+                <div className="text-sm font-vcr text-muted-foreground">
+                  {diffData.oldContent ? "After (Current)" : "New Image"}
+                </div>
+                <div className="border border-border rounded-lg p-4 bg-background flex items-center justify-center">
+                  <img
+                    src={diffData.newContent}
+                    alt="After"
+                    className="max-w-full max-h-[600px] object-contain"
+                  />
+                </div>
+              </div>
+            )}
+            {!diffData.oldContent && !diffData.newContent && (
+              <div className="text-muted-foreground text-sm text-center">
+                No image content available
+              </div>
+            )}
+          </div>
+        </div>
       ) : diffData.isBinary ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
           Binary file - cannot display diff
@@ -604,6 +641,7 @@ export function DiffPanel({
                 {activeFile && (commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0) > 0 && (
                   <button
                     onClick={openSendModalForActiveFile}
+                    aria-label={`Submit ${commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0} comments for current file`}
                     className="px-2 py-1 rounded text-[10px] font-vcr bg-primary text-primary-foreground cursor-pointer hover:opacity-90 whitespace-nowrap"
                     title="Submit comments for this file"
                   >
@@ -614,6 +652,7 @@ export function DiffPanel({
                 {toAgentCommentCount > 0 && (
                   <button
                     onClick={openSendModal}
+                    aria-label={`Submit all ${toAgentCommentCount} comments from ${toAgentFileCount} files`}
                     className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
                     title="Submit all commented files"
                   >
@@ -770,6 +809,7 @@ export function DiffPanel({
                 onClick={() => {
                   if (!isSpawning) setSendOpen(false)
                 }}
+                aria-label="Close dialog"
                 className="px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
                 title="Close"
               >
@@ -945,7 +985,7 @@ function DiffTabsHeader({
   return (
     <div className="border-b border-border bg-card">
       <div className="flex items-center gap-2 px-2 py-1.5">
-        <div className="flex-1 overflow-x-auto">
+        <div className="flex-1 overflow-x-auto" role="tablist" aria-label="Open files">
           <div className="flex items-center gap-1 min-w-fit">
             {openFiles.length === 0 ? (
               <span className="font-vcr text-[10px] text-muted-foreground px-2 py-1">
@@ -958,7 +998,17 @@ function DiffTabsHeader({
                 return (
                   <div
                     key={file}
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-label={`${fileBaseName(file)}${count > 0 ? `, ${count} comments` : ''}`}
+                    tabIndex={isActive ? 0 : -1}
                     onClick={() => onSelectFile(file)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSelectFile(file)
+                      }
+                    }}
                     className={`group flex items-center gap-1 px-2 py-1 rounded cursor-pointer border transition-colors ${
                       isActive
                         ? 'bg-secondary border-primary text-primary'
@@ -970,7 +1020,7 @@ function DiffTabsHeader({
                       {fileBaseName(file)}
                     </span>
                     {count > 0 && (
-                      <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-vcr">
+                      <span className="ml-1 px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-vcr" aria-hidden="true">
                         {count}
                       </span>
                     )}
@@ -979,6 +1029,7 @@ function DiffTabsHeader({
                         e.stopPropagation()
                         onCloseFile(file)
                       }}
+                      aria-label={`Close ${fileBaseName(file)}`}
                       className={`ml-1 px-1 text-xs leading-none cursor-pointer transition-opacity ${
                         isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                       } text-muted-foreground hover:text-foreground`}
@@ -994,9 +1045,12 @@ function DiffTabsHeader({
         </div>
 
         {activeFile && canToggleView && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1" role="tablist" aria-label="Diff view type">
             <button
               onClick={() => onViewChange('working')}
+              role="tab"
+              aria-selected={activeView === 'working'}
+              aria-label="Show working tree diff"
               className={`px-2 py-1 rounded text-[10px] font-vcr border cursor-pointer transition-colors ${
                 activeView === 'working'
                   ? 'border-primary text-primary bg-secondary'
@@ -1008,6 +1062,9 @@ function DiffTabsHeader({
             </button>
             <button
               onClick={() => onViewChange('staged')}
+              role="tab"
+              aria-selected={activeView === 'staged'}
+              aria-label="Show staged diff"
               className={`px-2 py-1 rounded text-[10px] font-vcr border cursor-pointer transition-colors ${
                 activeView === 'staged'
                   ? 'border-primary text-primary bg-secondary'
@@ -1023,6 +1080,7 @@ function DiffTabsHeader({
         {toAgentFileCount > 0 && (
           <button
             onClick={onOpenSendToAgent}
+            aria-label={`Send ${toAgentFileCount} files with ${toAgentCommentCount} comments to agent`}
             className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
             title="Send commented files to an agent"
           >
@@ -1033,6 +1091,7 @@ function DiffTabsHeader({
         {openFiles.length > 0 && (
           <button
             onClick={onCloseAll}
+            aria-label="Close all open files"
             className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
             title="Close all diffs"
           >

@@ -90,8 +90,8 @@ export function TaskReviewPanel({
   const [selectedFiles, setSelectedFiles] = useState<Map<string, string>>(new Map())
   const [commitMessage, setCommitMessage] = useState("")
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false)
-  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
-  const [showCommitHistory, setShowCommitHistory] = useState(false)
+  const [expandedSessions, setExpandedSessions] = useState<Set<string> | null>(null)
+  const [showCommitHistory, setShowCommitHistory] = useState(true)
   const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set())
 
   // Diff panel state
@@ -224,6 +224,12 @@ export function TaskReviewPanel({
     return grouped
   }, [uncommittedFiles])
 
+  // Derive effective expanded sessions (default all expanded)
+  const effectiveExpandedSessions = useMemo(() => {
+    if (expandedSessions !== null) return expandedSessions
+    return new Set(filesBySession.keys())
+  }, [expandedSessions, filesBySession])
+
   // Transform git status for DiffPanel
   const diffPanelStatus: GitStatus | undefined = gitStatus ? {
     staged: gitStatus.staged,
@@ -255,7 +261,7 @@ export function TaskReviewPanel({
   }
 
   const toggleSession = (sessionId: string) => {
-    const newExpanded = new Set(expandedSessions)
+    const newExpanded = new Set(effectiveExpandedSessions)
     if (newExpanded.has(sessionId)) {
       newExpanded.delete(sessionId)
     } else {
@@ -420,16 +426,17 @@ export function TaskReviewPanel({
             <button
               onClick={onRestore}
               disabled={isRestoring}
+              aria-label={isRestoring ? "Restoring task" : "Restore this task"}
               className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
             >
               {isRestoring ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                   Restoring...
                 </>
               ) : (
                 <>
-                  <RotateCcw className="w-4 h-4" />
+                  <RotateCcw className="w-4 h-4" aria-hidden="true" />
                   Restore Task
                 </>
               )}
@@ -440,16 +447,17 @@ export function TaskReviewPanel({
             <button
               onClick={onArchive}
               disabled={isArchiving}
+              aria-label={isArchiving ? "Archiving task" : "Archive this task"}
               className="w-full px-4 py-3 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
             >
               {isArchiving ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                   Archiving...
                 </>
               ) : (
                 <>
-                  <Archive className="w-4 h-4" />
+                  <Archive className="w-4 h-4" aria-hidden="true" />
                   Archive Task
                 </>
               )}
@@ -470,6 +478,8 @@ export function TaskReviewPanel({
             <h3 className="font-vcr text-sm text-foreground">Changed Files</h3>
             <button
               onClick={toggleAll}
+              aria-label={selectedFiles.size === uncommittedFiles.length ? "Deselect all files" : "Select all files"}
+              aria-pressed={selectedFiles.size === uncommittedFiles.length}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
               {selectedFiles.size === uncommittedFiles.length ? "Deselect All" : "Select All"}
@@ -486,12 +496,14 @@ export function TaskReviewPanel({
             <div key={sessionId} className="border-b border-border">
               <button
                 onClick={() => toggleSession(sessionId)}
-                className="w-full px-4 py-2 flex items-center gap-2 hover:bg-accent text-left"
+                aria-expanded={effectiveExpandedSessions.has(sessionId)}
+                aria-label={`Session ${sessionId.slice(0, 8)}, ${files.length} file${files.length === 1 ? "" : "s"}`}
+                className="w-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-accent text-left"
               >
-                {expandedSessions.has(sessionId) ? (
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                {effectiveExpandedSessions.has(sessionId) ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
                 )}
                 <span className="text-xs font-mono text-muted-foreground flex-1">
                   Session {sessionId.slice(0, 8)}
@@ -501,11 +513,11 @@ export function TaskReviewPanel({
                 </span>
               </button>
 
-              {expandedSessions.has(sessionId) && (
-                <div className="space-y-1 pb-2">
+              {effectiveExpandedSessions.has(sessionId) && (
+                <div className="pb-1">
                   {files.map((file) => (
-                    <div key={file.path} className="px-4 pl-10">
-                      <label className="flex items-center gap-3 p-2 rounded hover:bg-accent cursor-pointer">
+                    <div key={file.path} className="px-2 pl-8">
+                      <label className="flex items-center gap-2 py-1 px-2 rounded hover:bg-accent cursor-pointer">
                         <input
                           type="checkbox"
                           checked={selectedFiles.has(file.path)}
@@ -513,7 +525,7 @@ export function TaskReviewPanel({
                             const gitPath = file.repoRelativePath || file.relativePath || file.path
                             toggleFile(file.path, gitPath)
                           }}
-                          className="w-4 h-4 rounded border-gray-300"
+                          className="w-3.5 h-3.5 rounded border-gray-300"
                         />
                         <div
                           className="flex-1 min-w-0 cursor-pointer"
@@ -525,10 +537,10 @@ export function TaskReviewPanel({
                             handleFileClick(gitPath, "working")
                           }}
                         >
-                          <div className="text-sm font-mono truncate">
+                          <div className="text-xs font-mono truncate">
                             {file.relativePath || file.path}
                           </div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
                             <span className={`${
                               file.operation === "create" ? "text-green-600 dark:text-green-400" :
                               file.operation === "edit" ? "text-blue-600 dark:text-blue-400" :
@@ -552,14 +564,16 @@ export function TaskReviewPanel({
           <div className="border-t border-border">
             <button
               onClick={() => setShowCommitHistory(!showCommitHistory)}
-              className="w-full px-4 py-3 flex items-center gap-2 hover:bg-accent text-left"
+              aria-expanded={showCommitHistory}
+              aria-label={`Commit history, ${commits.length} commit${commits.length === 1 ? "" : "s"}`}
+              className="w-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-accent text-left"
             >
               {showCommitHistory ? (
-                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
               ) : (
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
               )}
-              <History className="w-4 h-4 text-muted-foreground" />
+              <History className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
               <span className="text-xs font-medium text-foreground flex-1">
                 Commit History
               </span>
@@ -586,13 +600,15 @@ export function TaskReviewPanel({
                       <div key={commit.hash} className="px-4">
                         <button
                           onClick={() => toggleCommit(commit.hash)}
+                          aria-expanded={expandedCommits.has(commit.hash)}
+                          aria-label={`Commit ${commit.hash}: ${commit.message.slice(0, 50)}`}
                           className="w-full text-left p-2 rounded hover:bg-accent"
                         >
                           <div className="flex items-start gap-2">
                             {expandedCommits.has(commit.hash) ? (
-                              <ChevronDown className="w-3 h-3 mt-1 text-muted-foreground shrink-0" />
+                              <ChevronDown className="w-3 h-3 mt-1 text-muted-foreground shrink-0" aria-hidden="true" />
                             ) : (
-                              <ChevronRight className="w-3 h-3 mt-1 text-muted-foreground shrink-0" />
+                              <ChevronRight className="w-3 h-3 mt-1 text-muted-foreground shrink-0" aria-hidden="true" />
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
@@ -647,10 +663,11 @@ export function TaskReviewPanel({
         <div className="border-t border-border p-4 space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Commit Message</label>
+              <label className="text-sm font-medium" id="commit-message-label">Commit Message</label>
               <button
                 onClick={handleGenerateMessage}
                 disabled={selectedFiles.size === 0 || isGeneratingMessage}
+                aria-label={isGeneratingMessage ? "Generating commit message" : "Generate commit message with AI"}
                 className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGeneratingMessage ? "Generating..." : "Generate with AI"}
@@ -660,6 +677,7 @@ export function TaskReviewPanel({
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
               placeholder="Describe your changes..."
+              aria-labelledby="commit-message-label"
               className="w-full min-h-[100px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
               disabled={commitMutation.isPending}
             />
@@ -672,16 +690,17 @@ export function TaskReviewPanel({
             <button
               onClick={handleCommit}
               disabled={!canCommit}
+              aria-label={commitMutation.isPending ? "Committing changes" : `Commit ${selectedFiles.size} selected files`}
               className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {commitMutation.isPending ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                   Committing...
                 </>
               ) : (
                 <>
-                  <GitCommit className="w-4 h-4" />
+                  <GitCommit className="w-4 h-4" aria-hidden="true" />
                   Commit
                 </>
               )}

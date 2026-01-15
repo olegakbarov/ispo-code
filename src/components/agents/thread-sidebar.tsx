@@ -10,8 +10,10 @@
  */
 
 import { useState, useMemo, lazy, Suspense } from 'react'
-import { GitCommit, Loader2, Check, X, Sparkles } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { GitCommit, Loader2, Check, X, Sparkles, FileCode, ExternalLink } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
+import { sessionTrpcOptions } from '@/lib/trpc-session'
 import {
   Section,
   InfoRow,
@@ -33,6 +35,11 @@ const MultiFileDiff = lazy(() =>
 
 interface ThreadSidebarProps {
   sessionId: string
+}
+
+/** Extract filename from path */
+function getFileName(path: string): string {
+  return path.split('/').pop() || path
 }
 
 export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
@@ -82,6 +89,31 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
             <InfoRow label="Task" value={truncatePath(metadata?.taskPath ?? session.taskPath ?? '')} />
           )}
         </Section>
+
+        {/* Source Context - For comment-originated sessions */}
+        {session.sourceFile && (
+          <Section title="Source">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-accent/10 border border-accent/20">
+                <FileCode className="w-3.5 h-3.5 text-accent shrink-0" />
+                <span className="text-xs font-mono text-accent truncate" title={session.sourceFile}>
+                  {getFileName(session.sourceFile)}
+                  {session.sourceLine && `:${session.sourceLine}`}
+                </span>
+              </div>
+              {session.taskPath && (
+                <Link
+                  to="/tasks"
+                  search={{ path: session.taskPath, archiveFilter: 'active' }}
+                  className="flex items-center gap-1.5 text-[10px] font-vcr text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  View task
+                </Link>
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* 2. CONTEXT WINDOW - Critical for monitoring agent health */}
         {metadata?.contextWindow && (
@@ -138,6 +170,7 @@ function GitSection({ sessionId }: { sessionId: string }) {
   const [commitMessage, setCommitMessage] = useState("")
   const [diffFile, setDiffFile] = useState<string | null>(null)
   const utils = trpc.useUtils()
+  const sessionTrpc = sessionTrpcOptions(sessionId)
 
   // Fetch session to check for worktree info
   const { data: session } = trpc.agent.get.useQuery({ id: sessionId })
@@ -145,6 +178,7 @@ function GitSection({ sessionId }: { sessionId: string }) {
   // Git status query - automatically scoped to session's worktree via tRPC context
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     refetchInterval: 3000,
+    ...sessionTrpc,
   })
 
   // Changed files from session - dedupe to get unique files
@@ -154,14 +188,73 @@ function GitSection({ sessionId }: { sessionId: string }) {
   // Diff query for modal - only fetch when a file is selected
   const { data: diffData, isLoading: diffLoading, error: diffError } = trpc.git.diff.useQuery(
     { file: diffFile!, view: 'working' },
-    { enabled: !!diffFile }
+    { enabled: !!diffFile, ...sessionTrpc }
   )
 
-  // Commit mutation
+  // Commit mutation with optimistic updates
   const commitMutation = trpc.git.commitScoped.useMutation({
-    onSuccess: () => {
+    ...sessionTrpc,
+    onMutate: async ({ files }) => {
+      // 1. Cancel outgoing refetches
+      await utils.git.status.cancel()
+      await utils.agent.getChangedFiles.cancel()
+
+      // 2. Snapshot current state for rollback
+      const previousStatus = utils.git.status.getData()
+      const previousChangedFiles = utils.agent.getChangedFiles.getData({ sessionId })
+      const previousSelectedFiles = new Set(selectedFiles)
+      const previousCommitMessage = commitMessage
+
+      // 3. Build set of paths being committed
+      const commitSet = new Set(files)
+
+      // 4. Optimistically update git status cache
+      if (previousStatus) {
+        utils.git.status.setData(undefined, {
+          ...previousStatus,
+          staged: previousStatus.staged.filter((f) => !commitSet.has(f.file)),
+          modified: previousStatus.modified.filter((f) => !commitSet.has(f.file)),
+          untracked: previousStatus.untracked.filter((f) => !commitSet.has(f)),
+        })
+      }
+
+      // 5. Optimistically update changed files - remove committed files
+      if (previousChangedFiles) {
+        utils.agent.getChangedFiles.setData(
+          { sessionId },
+          previousChangedFiles.filter((f) => !commitSet.has(f.path))
+        )
+      }
+
+      // 6. Clear local state immediately
       setSelectedFiles(new Set())
       setCommitMessage("")
+
+      // 7. Return rollback context
+      return {
+        previousStatus,
+        previousChangedFiles,
+        previousSelectedFiles,
+        previousCommitMessage,
+      }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousStatus) {
+        utils.git.status.setData(undefined, context.previousStatus)
+      }
+      if (context?.previousChangedFiles) {
+        utils.agent.getChangedFiles.setData({ sessionId }, context.previousChangedFiles)
+      }
+      if (context?.previousSelectedFiles) {
+        setSelectedFiles(context.previousSelectedFiles)
+      }
+      if (context?.previousCommitMessage) {
+        setCommitMessage(context.previousCommitMessage)
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       utils.git.status.invalidate()
       utils.agent.getChangedFiles.invalidate()
     },
@@ -169,6 +262,7 @@ function GitSection({ sessionId }: { sessionId: string }) {
 
   // Generate commit message mutation
   const generateCommitMutation = trpc.git.generateCommitMessage.useMutation({
+    ...sessionTrpc,
     onSuccess: (result) => {
       setCommitMessage(result.message)
     },
@@ -258,6 +352,8 @@ function GitSection({ sessionId }: { sessionId: string }) {
             </span>
             <button
               onClick={toggleAll}
+              aria-label={selectedFiles.size === changedFiles.length ? "Deselect all files" : "Select all files"}
+              aria-pressed={selectedFiles.size === changedFiles.length}
               className="text-[10px] font-vcr text-muted-foreground hover:text-foreground"
             >
               {selectedFiles.size === changedFiles.length ? "none" : "all"}
@@ -314,14 +410,15 @@ function GitSection({ sessionId }: { sessionId: string }) {
                 <button
                   onClick={handleGenerateCommitMessage}
                   disabled={generateCommitMutation.isPending}
+                  aria-label="Generate commit message with AI"
                   className="absolute top-1 right-1 px-1.5 py-1 text-[9px] font-vcr rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   title="Generate commit message with AI"
                 >
                   {generateCommitMutation.isPending ? (
-                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />
                   ) : (
                     <>
-                      <Sparkles className="w-2.5 h-2.5" />
+                      <Sparkles className="w-2.5 h-2.5" aria-hidden="true" />
                       <span>AI</span>
                     </>
                   )}
@@ -341,16 +438,17 @@ function GitSection({ sessionId }: { sessionId: string }) {
                   })
                 }
                 disabled={!canCommit}
+                aria-label={commitMutation.isPending ? "Committing changes" : "Commit selected files"}
                 className="px-2 py-1 text-[10px] font-vcr rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
               >
                 {commitMutation.isPending ? (
                   <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
                     committing...
                   </>
                 ) : (
                   <>
-                    <GitCommit className="w-3 h-3" />
+                    <GitCommit className="w-3 h-3" aria-hidden="true" />
                     commit
                   </>
                 )}
