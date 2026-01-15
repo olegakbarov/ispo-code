@@ -13,6 +13,7 @@ import { OutputRenderer } from '@/components/agents/output-renderer'
 import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
 import type { AgentOutputChunk, SessionStatus, ImageAttachment } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
+import { useAudioNotification } from '@/lib/hooks/use-audio-notification'
 
 export const Route = createFileRoute('/agents/$sessionId')({
   validateSearch: z.object({
@@ -47,6 +48,12 @@ function AgentSessionPage() {
       return status && activeStatuses.includes(status) ? 1000 : false
     }}
   )
+
+  // Audio notification on session completion
+  useAudioNotification({
+    status: session?.status,
+    sessionId,
+  })
 
   // Retry fetching for newly-created sessions that haven't appeared yet
   useEffect(() => {
