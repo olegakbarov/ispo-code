@@ -6,6 +6,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import type { AgentType } from '@/lib/agent/types'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Select } from '@/components/ui/select'
 import { getModelsForAgentType, supportsModelSelection, getDefaultModelId } from '@/lib/agent/config'
 import { trpc } from '@/lib/trpc-client'
@@ -34,6 +35,10 @@ const agentLabels: Record<AgentType, { name: string; description: string }> = {
   gemini: {
     name: 'Google Gemini',
     description: 'Gemini 2.0 - 1M context',
+  },
+  mcporter: {
+    name: 'QA Agent',
+    description: 'MCP-powered QA tools',
   },
 }
 
@@ -165,11 +170,11 @@ function NewAgentPage() {
           <label className="block font-vcr text-xs text-text-muted mb-2">
             Prompt
           </label>
-          <textarea
+          <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Describe what you want the agent to do..."
-            className="flex-1 min-h-32 px-3 py-2 bg-panel border border-border rounded text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent resize-none"
+            className="flex-1 min-h-32"
           />
         </div>
 

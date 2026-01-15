@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { Textarea } from '@/components/ui/textarea'
 
 interface CommitFormProps {
   hasStagedChanges: boolean
@@ -62,7 +63,7 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
         </span>
       </div>
 
-      <textarea
+      <Textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         placeholder={
@@ -72,7 +73,8 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
         }
         disabled={!hasStagedChanges || isCommitting}
         rows={2}
-        className="w-full px-2 py-1.5 bg-background border border-border rounded text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+        variant="sm"
+        className="bg-background"
       />
 
       {/* Error message */}

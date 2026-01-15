@@ -4,6 +4,7 @@
  */
 
 import { useState } from "react"
+import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { GitCommit, Check, X, Loader2, FileCheck } from "lucide-react"
@@ -148,13 +149,13 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
         <label htmlFor="commit-message" className="text-sm font-medium block">
           Commit Message
         </label>
-        <textarea
+        <Textarea
           id="commit-message"
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           onFocus={handleFocus}
           placeholder="Describe your changes..."
-          className="w-full min-h-[80px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+          className="min-h-[80px] bg-background resize-y"
           disabled={commitMutation.isPending}
         />
       </div>

@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, getDefaultModelId } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 
@@ -133,11 +134,12 @@ export function ReviewModal({
             <div className="font-vcr text-xs text-text-muted mb-2">
               Custom Instructions <span className="text-text-muted/50">(optional)</span>
             </div>
-            <textarea
+            <Textarea
               value={customInstructions}
               onChange={(e) => setCustomInstructions(e.target.value)}
               placeholder="e.g. Pay special attention to error handling..."
-              className="w-full h-24 p-2 bg-background text-xs text-text-primary font-mono border border-border rounded outline-none resize-none focus:border-accent/50 transition-colors"
+              variant="sm"
+              className="h-24 bg-background font-mono"
               spellCheck={false}
               disabled={isStarting}
             />

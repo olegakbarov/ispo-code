@@ -7,6 +7,7 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Send, Loader2 } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { ImageAttachmentInput } from "@/components/agents/image-attachment-input"
 import type { ImageAttachment } from "@/lib/agent/types"
@@ -122,13 +123,13 @@ export function FileCommentInput({
       <label htmlFor={`comment-${fileName}`} className="text-sm font-medium block mb-2">
         Add feedback on this file
       </label>
-      <textarea
+      <Textarea
         id={`comment-${fileName}`}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Type your feedback here... (Cmd/Ctrl+Enter to send)"
-        className="w-full min-h-[80px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+        className="min-h-[80px] bg-background resize-y"
         disabled={isSubmitting}
       />
       {/* Image attachments */}

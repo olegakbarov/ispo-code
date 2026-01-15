@@ -4,6 +4,7 @@
  */
 
 import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import type { AgentSession } from './agent-types'
@@ -52,13 +53,13 @@ export function TaskFooter({
     <div className="border-t border-border bg-panel p-4">
       <div className="flex gap-3 max-w-5xl mx-auto">
         {/* Textarea for comment */}
-        <textarea
+        <Textarea
           value={rewriteComment}
           onChange={(e) => onRewriteCommentChange(e.target.value)}
           placeholder="Request changes to this plan..."
           disabled={isRewriting}
           rows={4}
-          className="flex-1 px-3 py-2 bg-background border-l-2 border-l-accent border-y border-r border-border rounded-r text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-50 resize-none font-mono"
+          className="flex-1 bg-background border-l-2 border-l-accent rounded-l-none font-mono"
         />
 
         {/* Controls Column - stacked vertically, same width */}

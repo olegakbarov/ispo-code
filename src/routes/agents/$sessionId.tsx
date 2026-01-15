@@ -16,6 +16,7 @@ import { StatusDot } from '@/components/agents/session-primitives'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
+import { Textarea } from '@/components/ui/textarea'
 import type { AgentOutputChunk, SessionStatus, ImageAttachment, AgentSession, AgentSessionMetadata } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
 import { useAudioNotification } from '@/lib/hooks/use-audio-notification'
@@ -545,7 +546,7 @@ function AgentSessionPage() {
                 </div>
               )}
               <div className="flex items-end gap-2 border-b border-border/40">
-                <textarea
+                <Textarea
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -561,7 +562,7 @@ function AgentSessionPage() {
                   placeholder={canSendMessage ? "Message... (Enter to send)" : messageQueue.length > 0 ? `Queue (${messageQueue.length}) - Enter to queue message` : "Agent working... (Enter to queue message)"}
                   disabled={isMutating}
                   rows={3}
-                  className="flex-1 px-3 py-3 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed min-h-[80px]"
+                  className="flex-1 bg-transparent border-0 py-3 min-h-[80px]"
                 />
                 {/* Compact image attachment button */}
                 {attachments.length === 0 && (

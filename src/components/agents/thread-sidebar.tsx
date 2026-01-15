@@ -12,6 +12,7 @@
 import { useState, useMemo, lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router'
 import { GitCommit, Loader2, Check, X, Sparkles, FileCode, ExternalLink } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
 import { sessionTrpcOptions } from '@/lib/trpc-session'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
@@ -402,11 +403,12 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
           {/* Commit form */}
           <div className="space-y-2">
             <div className="relative">
-              <textarea
+              <Textarea
                 value={commitMessage}
                 onChange={(e) => setCommitMessage(e.target.value)}
                 placeholder="Commit message..."
-                className="w-full min-h-[60px] px-2 py-1.5 text-xs rounded border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                variant="sm"
+                className="min-h-[60px] bg-background font-mono"
                 disabled={commitMutation.isPending || generateCommitMutation.isPending}
               />
               {selectedFiles.size > 0 && (

@@ -7,6 +7,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import type { AgentType } from '@/lib/agent/types'
 import { getModelsForAgentType, supportsModelSelection, getDefaultModelId, agentTypeLabel } from '@/lib/agent/config'
 
@@ -753,12 +754,13 @@ export function DiffPanel({
                       <div className="font-vcr text-[10px] text-muted-foreground">
                         {draft.editingId ? 'Edit comment' : 'New comment'}
                       </div>
-                      <textarea
+                      <Textarea
                         value={draft.body}
                         onChange={(e) => setDraft({ ...draft, body: e.target.value })}
                         placeholder="Write a comment for the agent..."
                         autoFocus
-                        className="mt-1 w-full min-h-20 px-2 py-1.5 bg-card border border-border rounded text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-y"
+                        variant="sm"
+                        className="mt-1 min-h-20 bg-card resize-y"
                       />
                       <div className="mt-2 flex items-center justify-end gap-2">
                         <button
@@ -909,11 +911,11 @@ export function DiffPanel({
 
               <div>
                 <div className="font-vcr text-xs text-muted-foreground mb-2">Instructions (optional)</div>
-                <textarea
+                <Textarea
                   value={instructions}
                   onChange={(e) => setInstructions(e.target.value)}
                   placeholder="What should the agent do with these comments?"
-                  className="w-full min-h-24 px-3 py-2 bg-background border border-border rounded text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary resize-y"
+                  className="min-h-24 bg-background resize-y"
                 />
               </div>
 

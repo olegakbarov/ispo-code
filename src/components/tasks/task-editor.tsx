@@ -3,7 +3,14 @@
  */
 
 import { TaskReviewPanel } from './task-review-panel'
+import { OutputRenderer } from '@/components/agents/output-renderer'
+import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime, formatTimeAgo } from '@/lib/utils/time'
+import type { AgentOutputChunk } from '@/lib/agent/types'
+
+// Looser output type from agent-types.ts for compatibility
+type OutputChunk = { type: string; content: string; timestamp?: string }
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -23,6 +30,9 @@ interface TaskEditorProps {
   onArchive?: () => void
   onRestore?: () => void
   onCommitAndArchive?: () => void
+  // Active planning session output (when planning is in progress)
+  activePlanningOutput?: OutputChunk[]
+  isPlanningActive?: boolean
   // Callbacks
   onModeChange: (mode: Mode) => void
   onDraftChange: (draft: string) => void
@@ -42,9 +52,14 @@ export function TaskEditor({
   onArchive,
   onRestore,
   onCommitAndArchive,
+  activePlanningOutput,
+  isPlanningActive,
   onModeChange,
   onDraftChange,
 }: TaskEditorProps) {
+  // Check if task content has the placeholder text (indicating plan is being generated)
+  const hasPlaceholder = draft.includes('_Generating detailed task plan..._') ||
+    draft.includes('_Investigating bug..._')
   return (
     <>
       <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur px-3 py-2">
@@ -88,12 +103,34 @@ export function TaskEditor({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {mode === 'edit' ? (
-          <textarea
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            className="w-full h-full p-3 bg-background text-xs text-text-primary font-mono border-0 outline-none resize-none"
-            spellCheck={false}
-          />
+          // Show session output when planning is active with placeholder content
+          hasPlaceholder && isPlanningActive ? (
+            <div className="w-full h-full overflow-y-auto p-3">
+              {/* Planning header */}
+              <div className="flex items-center gap-2 mb-4 pb-2 border-b border-border">
+                <Spinner size="sm" className="text-accent" />
+                <span className="font-vcr text-xs text-accent">
+                  {draft.includes('_Investigating bug..._') ? 'INVESTIGATING BUG' : 'GENERATING PLAN'}
+                </span>
+              </div>
+              {/* Session output */}
+              {activePlanningOutput && activePlanningOutput.length > 0 ? (
+                <OutputRenderer chunks={activePlanningOutput as AgentOutputChunk[]} />
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  Waiting for output...
+                </div>
+              )}
+            </div>
+          ) : (
+            <Textarea
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              variant="sm"
+              className="h-full p-3 bg-background font-mono border-0"
+              spellCheck={false}
+            />
+          )
         ) : (
           <div className="h-full">
             <TaskReviewPanel

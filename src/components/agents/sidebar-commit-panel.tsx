@@ -4,6 +4,7 @@
  */
 
 import { useState } from "react"
+import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { GitCommit, Check, X, Loader2, GitBranch, ChevronDown, ChevronRight } from "lucide-react"
@@ -250,11 +251,12 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
 
               {/* Commit form */}
               <div className="space-y-2">
-                <textarea
+                <Textarea
                   value={commitMessage}
                   onChange={(e) => setCommitMessage(e.target.value)}
                   placeholder="Commit message..."
-                  className="w-full min-h-[60px] px-2 py-1.5 text-xs rounded border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                  variant="sm"
+                  className="min-h-[60px] bg-background font-mono"
                   disabled={commitMutation.isPending}
                 />
 
