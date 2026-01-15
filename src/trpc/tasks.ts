@@ -1097,7 +1097,8 @@ export const tasksRouter = router({
             sessionType = "comment"
           } else if (event.title) {
             const titleLower = event.title.toLowerCase()
-            if (titleLower.startsWith("plan:") || titleLower.startsWith("debug:")) {
+            // Check for multi-agent debug: "debug (N):" or single agent: "debug:"
+            if (titleLower.startsWith("plan:") || titleLower.startsWith("debug:") || /^debug \(\d+\):/.test(titleLower)) {
               sessionType = "planning"
             } else if (titleLower.startsWith("review:")) {
               sessionType = "review"
@@ -1301,4 +1302,63 @@ export const tasksRouter = router({
   migrateToSubtasks: procedure.mutation(({ ctx }) => {
     return migrateAllSplitFromTasks(ctx.workingDir)
   }),
+
+  /**
+   * Debug a bug task with multiple agents concurrently.
+   * Spawns N independent debug sessions that all work on the same bug.
+   * Each agent runs in its own isolated worktree.
+   */
+  debugWithAgents: procedure
+    .input(z.object({
+      title: z.string().min(1),
+      agents: z.array(z.object({
+        agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]),
+        model: z.string().optional(),
+      })).min(1).max(5),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Create the task file first with placeholder content
+      const { path: taskPath } = createTask(ctx.workingDir, {
+        title: input.title,
+        content: `# ${input.title}\n\n_Investigating bug with ${input.agents.length} agent(s)..._\n`,
+      })
+
+      // Build the debug prompt (same for all agents)
+      const prompt = buildTaskDebugPrompt({
+        title: input.title,
+        taskPath,
+        workingDir: ctx.workingDir,
+      })
+
+      const monitor = getProcessMonitor()
+      const streamServerUrl = getStreamServerUrl()
+      const sessionIds: string[] = []
+
+      // Spawn each agent with a numbered title
+      for (let i = 0; i < input.agents.length; i++) {
+        const agent = input.agents[i]
+        const sessionId = randomBytes(6).toString("hex")
+        const daemonNonce = randomBytes(16).toString("hex")
+
+        monitor.spawnDaemon({
+          sessionId,
+          agentType: agent.agentType,
+          model: agent.model,
+          prompt,
+          workingDir: ctx.workingDir,
+          streamServerUrl,
+          daemonNonce,
+          taskPath,
+          title: `Debug (${i + 1}): ${input.title}`,
+        })
+
+        sessionIds.push(sessionId)
+      }
+
+      return {
+        path: taskPath,
+        sessionIds,
+        status: "pending" as SessionStatus,
+      }
+    }),
 })
