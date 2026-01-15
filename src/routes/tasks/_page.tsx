@@ -314,6 +314,8 @@ export function TasksPage({
             updatedAt: now,
             source: 'tasks-dir' as const,
             progress: { total: 0, done: 0, inProgress: 0 },
+            subtaskCount: 0,
+            hasSubtasks: false,
           },
           ...previousList,
         ])
@@ -361,6 +363,8 @@ export function TasksPage({
             updatedAt: now,
             source: 'tasks-dir' as const,
             progress: { total: 0, done: 0, inProgress: 0 },
+            subtaskCount: 0,
+            hasSubtasks: false,
           },
           ...previousList,
         ])
@@ -1197,6 +1201,9 @@ export function TasksPage({
                   taskDescription={editor.draft}
                   createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
                   updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
+                  subtasks={taskData?.subtasks ?? []}
+                  taskVersion={taskData?.version ?? 1}
+                  onSubtasksChange={() => utils.tasks.get.invalidate({ path: selectedPath })}
                   isArchived={selectedSummary?.archived ?? false}
                   isArchiving={archiveMutation.isPending}
                   isRestoring={restoreMutation.isPending}
@@ -1310,6 +1317,8 @@ export function TasksPage({
         isSplitting={splitTaskMutation.isPending}
         taskTitle={editorTitle}
         sections={sectionsData?.sections ?? []}
+        currentSubtaskCount={taskData?.subtaskCount ?? 0}
+        maxSubtasks={20}
         onClose={handleCloseSplitModal}
         onSplit={handleSplitTask}
       />

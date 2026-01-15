@@ -3,11 +3,13 @@
  */
 
 import { TaskReviewPanel } from './task-review-panel'
+import { SubtaskSection } from './subtask-section'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime, formatTimeAgo } from '@/lib/utils/time'
 import type { AgentOutputChunk } from '@/lib/agent/types'
+import type { SubTask } from '@/lib/agent/task-service'
 
 // Looser output type from agent-types.ts for compatibility
 type OutputChunk = { type: string; content: string; timestamp?: string }
@@ -23,6 +25,10 @@ interface TaskEditorProps {
   // Timestamps
   createdAt?: string
   updatedAt?: string
+  // Subtasks
+  subtasks?: SubTask[]
+  taskVersion?: number
+  onSubtasksChange?: () => void
   // Archive state for review panel
   isArchived?: boolean
   isArchiving?: boolean
@@ -46,6 +52,9 @@ export function TaskEditor({
   taskDescription,
   createdAt,
   // updatedAt is available but not displayed currently
+  subtasks = [],
+  taskVersion = 1,
+  onSubtasksChange,
   isArchived,
   isArchiving,
   isRestoring,
@@ -123,13 +132,26 @@ export function TaskEditor({
               )}
             </div>
           ) : (
-            <Textarea
-              value={draft}
-              onChange={(e) => onDraftChange(e.target.value)}
-              variant="sm"
-              className="h-full p-3 bg-background font-mono border-0"
-              spellCheck={false}
-            />
+            <div className="h-full flex flex-col">
+              <Textarea
+                value={draft}
+                onChange={(e) => onDraftChange(e.target.value)}
+                variant="sm"
+                className="flex-1 min-h-0 p-3 bg-background font-mono border-0"
+                spellCheck={false}
+              />
+              {/* Subtasks section (below editor) */}
+              {subtasks.length > 0 && (
+                <div className="shrink-0 border-t border-border p-3 max-h-[300px] overflow-y-auto">
+                  <SubtaskSection
+                    taskPath={path}
+                    subtasks={subtasks}
+                    version={taskVersion}
+                    onRefresh={onSubtasksChange ?? (() => {})}
+                  />
+                </div>
+              )}
+            </div>
           )
         ) : (
           <div className="h-full">

@@ -7,7 +7,8 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug } from "@/lib/agent/task-service"
+import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks } from "@/lib/agent/task-service"
+import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
 import { resolveTaskSessionIdsFromRegistry } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
@@ -461,6 +462,90 @@ export const tasksRouter = router({
       return getTask(ctx.workingDir, input.path)
     }),
 
+  /**
+   * Get a specific subtask from a parent task.
+   */
+  getSubtask: procedure
+    .input(z.object({
+      taskPath: z.string().min(1),
+      subtaskId: z.string().min(1),
+    }))
+    .query(({ ctx, input }) => {
+      return getSubtask(ctx.workingDir, input.taskPath, input.subtaskId)
+    }),
+
+  /**
+   * Update a specific subtask (status, checkboxes, title).
+   * Supports optimistic locking via expectedVersion.
+   */
+  updateSubtask: procedure
+    .input(z.object({
+      taskPath: z.string().min(1),
+      subtaskId: z.string().min(1),
+      updates: z.object({
+        title: z.string().min(1).optional(),
+        status: z.enum(['pending', 'in_progress', 'completed']).optional(),
+        checkboxes: z.array(z.object({
+          text: z.string(),
+          checked: z.boolean(),
+        })).optional(),
+      }),
+      expectedVersion: z.number().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return updateSubtask(
+        ctx.workingDir,
+        input.taskPath,
+        input.subtaskId,
+        input.updates,
+        input.expectedVersion
+      )
+    }),
+
+  /**
+   * Delete a subtask from a parent task.
+   */
+  deleteSubtask: procedure
+    .input(z.object({
+      taskPath: z.string().min(1),
+      subtaskId: z.string().min(1),
+      expectedVersion: z.number().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return deleteSubtaskFromTask(
+        ctx.workingDir,
+        input.taskPath,
+        input.subtaskId,
+        input.expectedVersion
+      )
+    }),
+
+  /**
+   * Add subtasks to a parent task manually (not from split).
+   * Useful for adding individual subtasks via UI.
+   */
+  addSubtask: procedure
+    .input(z.object({
+      taskPath: z.string().min(1),
+      subtask: z.object({
+        title: z.string().min(1),
+        checkboxes: z.array(z.object({
+          text: z.string(),
+          checked: z.boolean(),
+        })).default([]),
+        status: z.enum(['pending', 'in_progress', 'completed']).default('pending'),
+      }),
+      expectedVersion: z.number().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return addSubtasksToTask(
+        ctx.workingDir,
+        input.taskPath,
+        [input.subtask],
+        input.expectedVersion
+      )
+    }),
+
   save: procedure
     .input(z.object({
       path: z.string().min(1),
@@ -631,15 +716,19 @@ export const tasksRouter = router({
     }),
 
   /**
-   * Split a task into multiple subtasks by section.
-   * Creates new task files for selected sections, optionally archives original.
+   * Split a task into subtasks by section.
+   * Appends subtasks to the parent task's ## Subtasks section.
    * If splitting an archived task, restores it first automatically.
+   * No longer creates separate files - subtasks are inline in parent.
    */
   splitTask: procedure
     .input(z.object({
       sourcePath: z.string().min(1),
       sectionIndices: z.array(z.number().int().min(0)),
+      // archiveOriginal is now ignored (kept for backward compat during transition)
       archiveOriginal: z.boolean().default(false),
+      // Optional version for optimistic locking
+      expectedVersion: z.number().optional(),
     }))
     .mutation(({ ctx, input }) => {
       let sourcePath = input.sourcePath
@@ -665,115 +754,49 @@ export const tasksRouter = router({
         throw new Error("No sections selected for split")
       }
 
-      // Extract Problem Statement and Scope from original (if present)
-      const lines = task.content.split("\n")
-      let problemStatement = ""
-      let scope = ""
-
-      // Simple extraction: find ## Problem Statement and ## Scope sections
-      let currentSectionType: "problem" | "scope" | null = null
-      let currentContent: string[] = []
-
-      for (const line of lines) {
-        const problemMatch = line.match(/^##\s*Problem\s*Statement\s*$/i)
-        const scopeMatch = line.match(/^##\s*Scope\s*$/i)
-        const otherHeader = line.match(/^##\s+/)
-
-        if (problemMatch) {
-          currentSectionType = "problem"
-          currentContent = []
-          continue
-        }
-        if (scopeMatch) {
-          if (currentSectionType === "problem") {
-            problemStatement = currentContent.join("\n").trim()
-          }
-          currentSectionType = "scope"
-          currentContent = []
-          continue
-        }
-        if (otherHeader && currentSectionType) {
-          if (currentSectionType === "problem") {
-            problemStatement = currentContent.join("\n").trim()
-          } else if (currentSectionType === "scope") {
-            scope = currentContent.join("\n").trim()
-          }
-          currentSectionType = null
-          continue
-        }
-
-        if (currentSectionType) {
-          currentContent.push(line)
-        }
+      // Check subtask limit
+      const newSubtaskCount = input.sectionIndices.length
+      if (task.subtasks.length + newSubtaskCount > MAX_SUBTASKS_PER_TASK) {
+        throw new Error(
+          `Cannot add ${newSubtaskCount} subtasks: would exceed limit of ${MAX_SUBTASKS_PER_TASK}. ` +
+          `Current: ${task.subtasks.length}`
+        )
       }
 
-      // Handle end of file
-      if (currentSectionType === "problem") {
-        problemStatement = currentContent.join("\n").trim()
-      } else if (currentSectionType === "scope") {
-        scope = currentContent.join("\n").trim()
-      }
-
-      // Create new tasks for selected sections
-      const newPaths: string[] = []
-
-      // Generate prefix from original task title for subtask filenames
-      const prefix = generateShortSlug(task.title)
-
-      // Calculate base timestamp for split tasks (ensure they appear in order)
-      // Stagger each task by 1ms to preserve section order in "updated" sort
-      const baseTimestamp = Date.now()
-
-      for (let i = 0; i < input.sectionIndices.length; i++) {
-        const idx = input.sectionIndices[i]
+      // Build subtasks from selected sections
+      const newSubtasks: Omit<SubTask, 'id'>[] = input.sectionIndices.map((idx) => {
         const section = sections[idx]
-
-        // Build new task content
-        const newContent = [
-          `# ${section.title}`,
-          "",
-          `<!-- splitFrom: ${input.sourcePath} -->`,
-          "",
-        ]
-
-        // Add problem statement if available
-        if (problemStatement) {
-          newContent.push("## Problem Statement", problemStatement, "")
-        }
-
-        // Add scope if available
-        if (scope) {
-          newContent.push("## Scope", scope, "")
-        }
-
-        // Add implementation plan with checkboxes
-        newContent.push("## Implementation Plan", "")
-        for (const checkbox of section.checkboxes) {
-          newContent.push(`- [ ] ${checkbox}`)
-        }
-        newContent.push("")
-
-        // Create the new task with prefix from parent task
-        // Set mtime with 1ms increments to preserve order
-        const result = createTask(ctx.workingDir, {
+        return {
           title: section.title,
-          content: newContent.join("\n"),
-          prefix,
-          mtime: new Date(baseTimestamp + i),
-        })
-        newPaths.push(result.path)
-      }
+          checkboxes: section.checkboxes.map((text): CheckboxItem => ({
+            text,
+            checked: false,
+          })),
+          status: 'pending' as const,
+        }
+      })
 
-      // Archive original if requested (use sourcePath which may have been updated by restore)
-      let archivedSource: string | undefined
-      if (input.archiveOriginal) {
-        const archived = archiveTask(ctx.workingDir, sourcePath)
-        archivedSource = archived.path
-      }
+      // Add subtasks to the parent task
+      const updatedTask = addSubtasksToTask(
+        ctx.workingDir,
+        sourcePath,
+        newSubtasks,
+        input.expectedVersion
+      )
+
+      // Return the new subtask IDs (last N subtasks added)
+      const addedSubtaskIds = updatedTask.subtasks
+        .slice(-newSubtaskCount)
+        .map((st) => st.id)
 
       return {
-        newPaths,
-        archivedSource,
+        // For backward compat: return empty newPaths (no files created)
+        newPaths: [] as string[],
+        archivedSource: undefined as string | undefined,
+        // New fields for subtask-aware clients
+        parentPath: sourcePath,
+        subtaskIds: addedSubtaskIds,
+        subtaskCount: updatedTask.subtasks.length,
       }
     }),
 
@@ -1246,4 +1269,36 @@ export const tasksRouter = router({
         uncommittedFiles,
       }
     }),
+
+  /**
+   * Get all tasks with splitFrom comments that can be migrated to subtasks.
+   * Returns a preview of what would be migrated.
+   */
+  getMigrationPreview: procedure.query(({ ctx }) => {
+    const splitFromGroups = findSplitFromTasks(ctx.workingDir)
+    const preview: Array<{
+      parentPath: string
+      childTasks: Array<{ path: string; title: string }>
+    }> = []
+
+    for (const [parentPath, childTasks] of splitFromGroups) {
+      preview.push({
+        parentPath,
+        childTasks: childTasks.map((t) => ({ path: t.path, title: t.title })),
+      })
+    }
+
+    return {
+      totalToMigrate: Array.from(splitFromGroups.values()).reduce((sum, tasks) => sum + tasks.length, 0),
+      groups: preview,
+    }
+  }),
+
+  /**
+   * Migrate all splitFrom tasks to subtasks.
+   * This is a one-time migration operation.
+   */
+  migrateToSubtasks: procedure.mutation(({ ctx }) => {
+    return migrateAllSplitFromTasks(ctx.workingDir)
+  }),
 })
