@@ -234,17 +234,85 @@ function TasksPage() {
   })
 
   const createMutation = trpc.tasks.create.useMutation({
-    onSuccess: (data) => {
+    onMutate: async ({ title }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Generate temp path for optimistic entry
+      const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
+
+      // Optimistically add to list with default progress
+      if (previousList) {
+        utils.tasks.list.setData(undefined, [
+          {
+            path: tempPath,
+            title,
+            archived: false,
+            updatedAt: new Date().toISOString(),
+            source: 'tasks-dir' as const,
+            progress: { total: 0, done: 0, inProgress: 0 },
+          },
+          ...previousList,
+        ])
+      }
+
+      return { previousList, tempPath }
+    },
+    onSuccess: (data, _variables, context) => {
+      // Remove temp entry and navigate to real path
+      if (context?.tempPath && context.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
       utils.tasks.list.invalidate()
       navigate({
         to: '/tasks',
         search: { path: data.path, archiveFilter: 'active' },
       })
     },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
+    },
   })
 
   const createWithAgentMutation = trpc.tasks.createWithAgent.useMutation({
-    onSuccess: (data) => {
+    onMutate: async ({ title }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Generate temp path for optimistic entry
+      const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
+
+      // Optimistically add to list with default progress
+      if (previousList) {
+        utils.tasks.list.setData(undefined, [
+          {
+            path: tempPath,
+            title,
+            archived: false,
+            updatedAt: new Date().toISOString(),
+            source: 'tasks-dir' as const,
+            progress: { total: 0, done: 0, inProgress: 0 },
+          },
+          ...previousList,
+        ])
+      }
+
+      return { previousList, tempPath }
+    },
+    onSuccess: (data, _variables, context) => {
+      // Remove temp entry
+      if (context?.tempPath && context.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
       utils.tasks.list.invalidate()
       // Navigate to agent session to watch planning in real-time
       navigate({
@@ -252,6 +320,12 @@ function TasksPage() {
         params: { sessionId: data.sessionId },
         search: { taskPath: data.path },
       })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
     },
   })
 
@@ -263,16 +337,64 @@ function TasksPage() {
   })
 
   const archiveMutation = trpc.tasks.archive.useMutation({
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Optimistically mark task as archived in the list
+      if (previousList) {
+        utils.tasks.list.setData(undefined, previousList.map((task) =>
+          task.path === path
+            ? { ...task, archived: true, archivedAt: new Date().toISOString() }
+            : task
+        ))
+      }
+
+      return { previousList, path }
+    },
     onSuccess: (data) => {
       utils.tasks.list.invalidate()
       navigate({ to: '/tasks', search: { path: data.path, archiveFilter: 'active' } })
     },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
+    },
   })
 
   const restoreMutation = trpc.tasks.restore.useMutation({
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Optimistically mark task as not archived
+      if (previousList) {
+        utils.tasks.list.setData(undefined, previousList.map((task) =>
+          task.path === path
+            ? { ...task, archived: false, archivedAt: undefined }
+            : task
+        ))
+      }
+
+      return { previousList, path }
+    },
     onSuccess: (data) => {
       utils.tasks.list.invalidate()
       navigate({ to: '/tasks', search: { path: data.path, archiveFilter: 'active' } })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
     },
   })
 

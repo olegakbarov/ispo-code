@@ -38,10 +38,28 @@ export function TaskReviewPanel({
   const navigate = useNavigate()
   const { data: workingDir } = trpc.system.workingDir.useQuery()
 
-  // Spawn agent mutation
+  // Spawn agent mutation with optimistic list update
   const spawnMutation = trpc.agent.spawn.useMutation({
+    onMutate: async () => {
+      // Cancel outgoing refetches
+      await utils.agent.list.cancel()
+
+      // Snapshot for rollback (in case spawn fails)
+      const previousList = utils.agent.list.getData()
+      return { previousList }
+    },
     onSuccess: (data) => {
       navigate({ to: '/agents/$sessionId', params: { sessionId: data.sessionId } })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback list on error
+      if (context?.previousList) {
+        utils.agent.list.setData(undefined, context.previousList)
+      }
+    },
+    onSettled: () => {
+      // Refetch to ensure consistency
+      utils.agent.list.invalidate()
     },
   })
 
@@ -157,6 +175,7 @@ export function TaskReviewPanel({
       // Always refetch to ensure consistency after mutation settles
       utils.git.status.invalidate()
       utils.tasks.getChangedFilesForTask.invalidate()
+      utils.tasks.hasUncommittedChanges.invalidate()
     },
   })
 
