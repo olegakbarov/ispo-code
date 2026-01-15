@@ -11,6 +11,7 @@ import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, rest
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
+import { getGitStatus } from "@/lib/agent/git-service"
 import type { SessionStatus } from "@/lib/agent/types"
 import type { RegistryEvent } from "@/streams/schemas"
 
@@ -502,12 +503,60 @@ export const tasksRouter = router({
 
   /**
    * Archive a task by moving it to tasks/archive/YYYY-MM/
+   * Validates that all task changes are committed before archiving.
    */
   archive: procedure
     .input(z.object({
       path: z.string().min(1),
     }))
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Check for uncommitted changes before archiving
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+
+      const taskSessionIds = registryEvents
+        .filter((event): event is Extract<RegistryEvent, { type: "session_created" }> =>
+          event.type === "session_created" && event.taskPath === input.path
+        )
+        .map((event) => event.sessionId)
+
+      if (taskSessionIds.length > 0) {
+        const changedFilePaths = new Set<string>()
+        const { agentRouter } = await import("./agent")
+        const caller = agentRouter.createCaller({ workingDir: "" })
+
+        for (const sessionId of taskSessionIds) {
+          try {
+            const changedFiles = await caller.getChangedFiles({ sessionId })
+            for (const file of changedFiles) {
+              const pathToCheck = file.repoRelativePath || file.relativePath || file.path
+              changedFilePaths.add(pathToCheck)
+            }
+          } catch {
+            continue
+          }
+        }
+
+        if (changedFilePaths.size > 0) {
+          const gitStatus = getGitStatus(ctx.workingDir)
+          const uncommittedInGit = new Set<string>()
+          for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
+          for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
+          for (const f of gitStatus.untracked) uncommittedInGit.add(f)
+
+          const uncommittedFiles: string[] = []
+          for (const taskFile of changedFilePaths) {
+            if (uncommittedInGit.has(taskFile)) {
+              uncommittedFiles.push(taskFile)
+            }
+          }
+
+          if (uncommittedFiles.length > 0) {
+            throw new Error(`Cannot archive: ${uncommittedFiles.length} file(s) have uncommitted changes. Commit changes before archiving.`)
+          }
+        }
+      }
+
       return archiveTask(ctx.workingDir, input.path)
     }),
 
@@ -809,9 +858,13 @@ export const tasksRouter = router({
             }
           }
 
-          // Determine session type based on title prefix
-          let sessionType: "planning" | "review" | "verify" | "execution" | "debug" | "rewrite" = "execution"
-          if (event.title) {
+          // Determine session type based on title prefix or sourceFile presence
+          let sessionType: "planning" | "review" | "verify" | "execution" | "debug" | "rewrite" | "comment" = "execution"
+
+          // Comment sessions take precedence (file-originated threads)
+          if (event.sourceFile) {
+            sessionType = "comment"
+          } else if (event.title) {
             const titleLower = event.title.toLowerCase()
             if (titleLower.startsWith("plan:") || titleLower.startsWith("debug:")) {
               sessionType = "planning"
@@ -834,6 +887,8 @@ export const tasksRouter = router({
             timestamp: event.timestamp,
             sessionType,
             model: event.model,
+            sourceFile: event.sourceFile,
+            sourceLine: event.sourceLine,
           }
         })
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -845,6 +900,7 @@ export const tasksRouter = router({
         verify: taskSessions.filter((s) => s.sessionType === "verify"),
         execution: taskSessions.filter((s) => s.sessionType === "execution"),
         rewrite: taskSessions.filter((s) => s.sessionType === "rewrite"),
+        comment: taskSessions.filter((s) => s.sessionType === "comment"),
       }
 
       return {
@@ -917,5 +973,75 @@ export const tasksRouter = router({
       // Convert map to array and sort by timestamp (newest first)
       return Array.from(allFiles.values())
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    }),
+
+  /**
+   * Check if a task has uncommitted changes.
+   * Aggregates changed files from all task sessions and checks git status.
+   */
+  hasUncommittedChanges: procedure
+    .input(z.object({
+      path: z.string().min(1),
+    }))
+    .query(async ({ ctx, input }) => {
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+
+      // Find all session_created events for this task
+      const taskSessionIds = registryEvents
+        .filter((event): event is Extract<RegistryEvent, { type: "session_created" }> =>
+          event.type === "session_created" && event.taskPath === input.path
+        )
+        .map((event) => event.sessionId)
+
+      if (taskSessionIds.length === 0) {
+        return { hasUncommitted: false, uncommittedCount: 0, uncommittedFiles: [] }
+      }
+
+      // Get changed files from all sessions
+      const changedFilePaths = new Set<string>()
+      const { agentRouter } = await import("./agent")
+      const caller = agentRouter.createCaller({ workingDir: "" })
+
+      for (const sessionId of taskSessionIds) {
+        try {
+          const changedFiles = await caller.getChangedFiles({ sessionId })
+          for (const file of changedFiles) {
+            // Use repoRelativePath if available, otherwise relativePath
+            const pathToCheck = file.repoRelativePath || file.relativePath || file.path
+            changedFilePaths.add(pathToCheck)
+          }
+        } catch {
+          // Skip sessions that can't be read
+          continue
+        }
+      }
+
+      if (changedFilePaths.size === 0) {
+        return { hasUncommitted: false, uncommittedCount: 0, uncommittedFiles: [] }
+      }
+
+      // Get current git status
+      const gitStatus = getGitStatus(ctx.workingDir)
+
+      // Build set of all uncommitted files (staged, modified, untracked)
+      const uncommittedInGit = new Set<string>()
+      for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
+      for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
+      for (const f of gitStatus.untracked) uncommittedInGit.add(f)
+
+      // Find task files that are uncommitted
+      const uncommittedFiles: string[] = []
+      for (const taskFile of changedFilePaths) {
+        if (uncommittedInGit.has(taskFile)) {
+          uncommittedFiles.push(taskFile)
+        }
+      }
+
+      return {
+        hasUncommitted: uncommittedFiles.length > 0,
+        uncommittedCount: uncommittedFiles.length,
+        uncommittedFiles,
+      }
     }),
 })
