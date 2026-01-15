@@ -9,6 +9,8 @@ import { tasksRouter } from "./tasks"
 import { systemRouter } from "./system"
 import { debateRouter } from "./debate"
 import { audioRouter } from "./audio"
+import { rateLimitRouter } from "./rate-limit"
+import { statsRouter } from "./stats"
 
 export const appRouter = router({
   git: gitRouter,
@@ -17,6 +19,8 @@ export const appRouter = router({
   system: systemRouter,
   debate: debateRouter,
   audio: audioRouter,
+  rateLimit: rateLimitRouter,
+  stats: statsRouter,
 })
 
 export type AppRouter = typeof appRouter

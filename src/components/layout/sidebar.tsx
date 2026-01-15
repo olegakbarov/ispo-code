@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Link, useMatchRoute } from '@tanstack/react-router'
-import { Moon, Sun, Cpu, ListTodo, FolderOpen, Plus, ChevronRight, Settings } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Moon, Sun, Cpu, FolderOpen, ChevronRight, Settings, BarChart3 } from 'lucide-react'
 import { useTheme } from '@/components/theme'
 import { trpc } from '@/lib/trpc-client'
 import { FolderPicker } from '@/components/ui/folder-picker'
@@ -28,8 +28,6 @@ export function Sidebar() {
       </header>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <TasksNavRow />
-
         {/* Task List - always visible */}
         <TaskListSidebar />
       </div>
@@ -37,6 +35,9 @@ export function Sidebar() {
       <footer className="border-t border-border shrink-0">
         {/* Project Selector */}
         <ProjectIndicator />
+
+        {/* Stats Link */}
+        <NavLink to="/stats" icon={<BarChart3 className="w-4 h-4" />}>Stats</NavLink>
 
         {/* Settings Link */}
         <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
@@ -57,35 +58,6 @@ function NavLink({ to, icon, children }: { to: string; icon?: React.ReactNode; c
       {icon}
       {children}
     </Link>
-  )
-}
-
-function TasksNavRow() {
-  const matchRoute = useMatchRoute()
-  const isActive = !!matchRoute({ to: '/tasks', fuzzy: true })
-
-  return (
-    <div
-      className={`flex items-center justify-between px-3 py-2 text-sm font-vcr transition-colors ${
-        isActive
-          ? 'text-primary bg-secondary'
-          : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-      }`}
-    >
-      <Link to="/tasks" search={{ archiveFilter: 'active' }} className="flex items-center gap-2 min-w-0 flex-1">
-        <ListTodo className="w-4 h-4" />
-        <span className="truncate">Tasks</span>
-      </Link>
-      <Link
-        to="/tasks/new"
-        search={{ archiveFilter: 'active' }}
-        className="ml-2 inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-vcr bg-primary text-primary-foreground hover:opacity-90 cursor-pointer transition-opacity shrink-0"
-        title="New Task"
-      >
-        <Plus className="w-3 h-3" />
-        <span>New Task</span>
-      </Link>
-    </div>
   )
 }
 
