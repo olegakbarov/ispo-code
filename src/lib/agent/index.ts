@@ -35,10 +35,6 @@ export { CLIAgentRunner, checkCLIAvailable, getAvailableAgentTypes } from "./cli
 // Metadata analysis
 export { MetadataAnalyzer } from "./metadata-analyzer"
 
-// Tool implementations
-export { runTool, TOOL_DEFINITIONS } from "./tools"
-export type { ToolResult, ToolDefinition } from "./tools"
-
 // Task service
 export { listTasks, getTask, saveTask, createTask, deleteTask } from "./task-service"
 export type { TaskSource, TaskProgress, TaskSummary, TaskFile } from "./task-service"
