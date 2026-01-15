@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Cpu, FolderOpen, ChevronRight, Settings, BarChart3 } from 'lucide-react'
+import { Cpu, FolderOpen, ChevronRight, Settings, BarChart3, Wrench } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { FolderPicker } from '@/components/ui/folder-picker'
 import { useWorkingDirStore } from '@/lib/stores/working-dir'
@@ -25,6 +25,9 @@ export function Sidebar() {
 
         {/* Stats Link */}
         <NavLink to="/stats" icon={<BarChart3 className="w-4 h-4" />}>Stats</NavLink>
+
+        {/* Tool Calls Gallery Link */}
+        <NavLink to="/tool-calls" icon={<Wrench className="w-4 h-4" />}>Tool Calls</NavLink>
 
         {/* Settings Link */}
         <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
