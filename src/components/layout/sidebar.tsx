@@ -1,30 +1,17 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Moon, Sun, Cpu, FolderOpen, ChevronRight, Settings, BarChart3 } from 'lucide-react'
-import { useTheme } from '@/components/theme'
+import { Cpu, FolderOpen, ChevronRight, Settings, BarChart3 } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { FolderPicker } from '@/components/ui/folder-picker'
 import { useWorkingDirStore } from '@/lib/stores/working-dir'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 
 export function Sidebar() {
-  const { theme, toggleTheme } = useTheme()
-  const nextTheme = theme === 'dark' ? 'light' : 'dark'
-
   return (
     <aside className="w-80 bg-card flex flex-col border-r border-border">
       <header className="h-12 flex items-center gap-2 px-3 border-b border-border">
         <Cpu className="w-5 h-5 text-primary" />
         <h1 className="font-vcr text-sm text-primary">Agentz</h1>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="ml-auto inline-flex items-center justify-center w-7 h-7 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
-          aria-label={`Switch to ${nextTheme} mode`}
-          title={`Switch to ${nextTheme} mode`}
-        >
-          {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-        </button>
       </header>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">

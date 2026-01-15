@@ -4,12 +4,13 @@
 
 import { createFileRoute } from "@tanstack/react-router"
 import { useState, useRef, useMemo } from "react"
-import { Settings, Palette, Check, Volume2, Play, Loader2, Bot } from "lucide-react"
+import { Settings, Palette, Check, Volume2, Play, Loader2, Bot, Moon, Sun } from "lucide-react"
 import { useSettingsStore, applyBrandHue } from "@/lib/stores/settings"
 import { trpc } from "@/lib/trpc-client"
 import { agentTypeLabel, getModelsForAgentType, getDefaultModelId } from "@/lib/agent/config"
 import type { AgentType } from "@/lib/agent/types"
 import type { PlannerAgentType } from "@/lib/agent/config"
+import { useTheme } from "@/components/theme"
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -47,6 +48,8 @@ function SettingsPage() {
     setDefaultVerifyModelId,
   } = useSettingsStore()
 
+  const { theme, toggleTheme } = useTheme()
+
   const handleHueChange = (hue: number) => {
     setBrandHue(hue)
     applyBrandHue(hue)
@@ -75,12 +78,21 @@ function SettingsPage() {
         type,
       })
 
-      if (audioRef.current) {
-        audioRef.current.src = result.audioDataUrl
-        audioRef.current.play()
-      }
+      // Create a new Audio element for each play to avoid ref issues
+      // and ensure clean playback state
+      console.log("[AudioPreview] Creating audio, data length:", result.audioDataUrl.length)
+      const audio = new Audio(result.audioDataUrl)
+      audio.volume = 1.0
+      console.log("[AudioPreview] Attempting to play...")
+      await audio.play()
+      console.log("[AudioPreview] Play started successfully")
     } catch (error) {
-      console.error("Failed to generate audio:", error)
+      // Check for autoplay policy errors
+      if (error instanceof DOMException && error.name === "NotAllowedError") {
+        console.warn("[AudioPreview] Autoplay blocked - please interact with the page first")
+      } else {
+        console.error("Failed to generate/play audio:", error)
+      }
     } finally {
       setIsGenerating(null)
     }
@@ -101,6 +113,45 @@ function SettingsPage() {
       </header>
 
       <div className="p-4 max-w-2xl">
+        {/* Theme Section */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            {theme === 'dark' ? <Moon className="w-4 h-4 text-primary" /> : <Sun className="w-4 h-4 text-primary" />}
+            <h2 className="text-sm font-semibold">Theme</h2>
+          </div>
+
+          <p className="text-xs text-muted-foreground mb-4">
+            Choose between light and dark mode for the interface.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md border transition-all ${
+                theme === 'dark'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-background text-foreground hover:border-foreground/30'
+              }`}
+            >
+              <Moon className="w-4 h-4" />
+              <span className="text-sm">Dark</span>
+            </button>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md border transition-all ${
+                theme === 'light'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-background text-foreground hover:border-foreground/30'
+              }`}
+            >
+              <Sun className="w-4 h-4" />
+              <span className="text-sm">Light</span>
+            </button>
+          </div>
+        </section>
+
         {/* Brand Color Section */}
         <section className="mb-8">
           <div className="flex items-center gap-2 mb-4">
