@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "valid-local": {
+      "description": "Valid local command server",
+      "command": "node",
+      "args": ["./mock-server.js"]
+    },
+    "valid-remote": {
+      "description": "Valid remote HTTPS server",
+      "baseUrl": "https://valid.example.com/mcp"
+    },
+    "oauth-server": {
+      "description": "OAuth server (should be skipped by default)",
+      "baseUrl": "https://oauth.example.com/mcp",
+      "auth": "oauth"
+    },
+    "blacklisted": {
+      "description": "Blacklisted server (should error)",
+      "baseUrl": "http://localhost:9999/mcp"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "localhost-attack": {
+      "description": "Attempts localhost connection (should be blocked)",
+      "baseUrl": "http://localhost:3000/mcp"
+    },
+    "loopback-attack": {
+      "description": "Attempts 127.0.0.1 connection (should be blocked)",
+      "baseUrl": "http://127.0.0.1:8080/mcp"
+    },
+    "metadata-attack": {
+      "description": "Attempts cloud metadata endpoint (should be blocked)",
+      "baseUrl": "http://169.254.169.254/latest/meta-data"
+    },
+    "private-network": {
+      "description": "Attempts private network (should be blocked)",
+      "baseUrl": "http://192.168.1.1/mcp"
+    }
+  }
+}
