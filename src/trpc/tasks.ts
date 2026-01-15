@@ -9,13 +9,127 @@ import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
 import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks } from "@/lib/agent/task-service"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
-import { resolveTaskSessionIdsFromRegistry } from "@/lib/agent/task-session"
+import { resolveTaskSessionIdsFromRegistry, getActiveSessionIdsForTask } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
 import { getGitStatus } from "@/lib/agent/git-service"
 import type { SessionStatus } from "@/lib/agent/types"
 import type { RegistryEvent } from "@/streams/schemas"
+import { createRegistryEvent } from "@/streams/schemas"
+
+/** Maximum characters per session output in orchestrator prompt */
+const MAX_SESSION_OUTPUT_CHARS = 30000
+
+/** Maximum total characters for all session outputs combined */
+const MAX_TOTAL_OUTPUT_CHARS = 100000
+
+/**
+ * Build orchestrator prompt that aggregates output from all debug sessions.
+ * Truncates individual session outputs to fit within context limits.
+ */
+function buildDebugOrchestratorPrompt(params: {
+  title: string
+  taskPath: string
+  workingDir: string
+  sessions: Array<{
+    sessionId: string
+    agentType: string
+    title?: string
+    status: SessionStatus
+    output: string
+  }>
+}): string {
+  const { title, taskPath, sessions } = params
+
+  // Build session summaries with truncated outputs
+  let totalChars = 0
+  const sessionSummaries = sessions.map((session, idx) => {
+    // Calculate remaining budget
+    const remainingBudget = MAX_TOTAL_OUTPUT_CHARS - totalChars
+    const sessionBudget = Math.min(MAX_SESSION_OUTPUT_CHARS, remainingBudget)
+
+    // Truncate output if needed
+    let output = session.output
+    if (output.length > sessionBudget) {
+      output = output.slice(0, sessionBudget) + "\n\n[... output truncated ...]"
+    }
+    totalChars += output.length
+
+    const statusLabel = session.status === "completed"
+      ? "✓ Completed"
+      : session.status === "failed"
+        ? "✗ Failed"
+        : "⊘ Cancelled"
+
+    return `### Session ${idx + 1}: ${session.title || session.agentType} (${statusLabel})
+Agent: ${session.agentType}
+Status: ${session.status}
+
+#### Output:
+\`\`\`
+${output}
+\`\`\`
+`
+  })
+
+  const completedCount = sessions.filter((s) => s.status === "completed").length
+  const failedCount = sessions.filter((s) => s.status === "failed").length
+  const cancelledCount = sessions.filter((s) => s.status === "cancelled").length
+
+  return `You are a debugging orchestrator synthesizing findings from ${sessions.length} parallel debug sessions.
+
+## Bug Report
+"${title}"
+
+## Session Summary
+- Total sessions: ${sessions.length}
+- Completed: ${completedCount}
+- Failed: ${failedCount}
+- Cancelled: ${cancelledCount}
+
+## Session Outputs
+
+${sessionSummaries.join("\n---\n\n")}
+
+## Your Task
+
+Review all session outputs above and synthesize findings:
+
+1. **Root Cause Analysis**: What is the root cause based on the collective findings?
+2. **Solution Consensus**: Do the sessions agree on a solution? What approach is best?
+3. **Action Items**: What specific changes need to be made?
+4. **Conflicts**: Are there any conflicting findings that need resolution?
+
+## Output Requirements
+
+Write your synthesis to ${taskPath} with this structure:
+
+\`\`\`markdown
+# ${title}
+
+## Root Cause
+[Synthesized root cause from all sessions]
+
+## Recommended Solution
+[Best solution based on session findings]
+
+## Implementation Steps
+- [ ] Step 1
+- [ ] Step 2
+...
+
+## Session Notes
+- Session 1: [Key finding]
+- Session 2: [Key finding]
+...
+
+## Conflicts to Resolve
+[Any disagreements between sessions, if any]
+\`\`\`
+
+Begin synthesis now. Focus on extracting actionable insights from all sessions.`
+}
 
 /**
  * System prompt for debugging task with systematic-debugging skill.
@@ -621,12 +735,42 @@ export const tasksRouter = router({
 
   /**
    * Delete a task file.
+   * Also terminates and soft-deletes all agent sessions attached to this task.
    */
   delete: procedure
     .input(z.object({
       path: z.string().min(1),
     }))
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // Get task info (for splitFrom fallback)
+      let splitFrom: string | undefined
+      try {
+        const task = getTask(ctx.workingDir, input.path)
+        splitFrom = task.splitFrom
+      } catch {
+        // Task file may not exist, continue with deletion
+      }
+
+      // Read registry to find all sessions attached to this task
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+
+      // Get all active (non-deleted) sessions for this task
+      const sessionIds = getActiveSessionIdsForTask(registryEvents, input.path, splitFrom)
+
+      // Kill daemon processes and soft-delete each session
+      const monitor = getProcessMonitor()
+      for (const sessionId of sessionIds) {
+        // Kill daemon if running
+        monitor.killDaemon(sessionId)
+
+        // Soft-delete by appending session_deleted event
+        await streamAPI.appendToRegistry(
+          createRegistryEvent.deleted({ sessionId })
+        )
+      }
+
+      // Delete the task file
       return deleteTask(ctx.workingDir, input.path)
     }),
 
@@ -1090,15 +1234,18 @@ export const tasksRouter = router({
           }
 
           // Determine session type based on title prefix or sourceFile presence
-          let sessionType: "planning" | "review" | "verify" | "execution" | "debug" | "rewrite" | "comment" = "execution"
+          let sessionType: "planning" | "review" | "verify" | "execution" | "debug" | "rewrite" | "comment" | "orchestrator" = "execution"
 
           // Comment sessions take precedence (file-originated threads)
           if (event.sourceFile) {
             sessionType = "comment"
           } else if (event.title) {
             const titleLower = event.title.toLowerCase()
+            // Check for orchestrator first (synthesis of debug sessions)
+            if (titleLower.startsWith("orchestrator:")) {
+              sessionType = "orchestrator"
             // Check for multi-agent debug: "debug (N):" or single agent: "debug:"
-            if (titleLower.startsWith("plan:") || titleLower.startsWith("debug:") || /^debug \(\d+\):/.test(titleLower)) {
+            } else if (titleLower.startsWith("plan:") || titleLower.startsWith("debug:") || /^debug \(\d+\):/.test(titleLower)) {
               sessionType = "planning"
             } else if (titleLower.startsWith("review:")) {
               sessionType = "review"
@@ -1121,6 +1268,7 @@ export const tasksRouter = router({
             model: event.model,
             sourceFile: event.sourceFile,
             sourceLine: event.sourceLine,
+            debugRunId: event.debugRunId,
           }
         })
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -1133,6 +1281,7 @@ export const tasksRouter = router({
         execution: taskSessions.filter((s) => s.sessionType === "execution"),
         rewrite: taskSessions.filter((s) => s.sessionType === "rewrite"),
         comment: taskSessions.filter((s) => s.sessionType === "comment"),
+        orchestrator: taskSessions.filter((s) => s.sessionType === "orchestrator"),
       }
 
       return {
@@ -1334,6 +1483,9 @@ export const tasksRouter = router({
       const streamServerUrl = getStreamServerUrl()
       const sessionIds: string[] = []
 
+      // Generate a debug run ID to group all sessions in this run
+      const debugRunId = randomBytes(8).toString("hex")
+
       // Spawn each agent with a numbered title
       for (let i = 0; i < input.agents.length; i++) {
         const agent = input.agents[i]
@@ -1350,6 +1502,7 @@ export const tasksRouter = router({
           daemonNonce,
           taskPath,
           title: `Debug (${i + 1}): ${input.title}`,
+          debugRunId,
         })
 
         sessionIds.push(sessionId)
@@ -1358,7 +1511,258 @@ export const tasksRouter = router({
       return {
         path: taskPath,
         sessionIds,
+        debugRunId,
         status: "pending" as SessionStatus,
+      }
+    }),
+
+  /**
+   * Get the status of a debug run (group of debug sessions).
+   * Returns whether all sessions are terminal and their individual statuses.
+   */
+  getDebugRunStatus: procedure
+    .input(z.object({
+      debugRunId: z.string().min(1),
+    }))
+    .query(async ({ input }) => {
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+
+      // Find all sessions in this debug run
+      const debugSessions: Array<{
+        sessionId: string
+        status: SessionStatus
+        agentType: string
+        title?: string
+      }> = []
+
+      // Track deleted sessions
+      const deletedSessionIds = new Set<string>()
+      for (const event of registryEvents) {
+        if (event.type === "session_deleted") {
+          deletedSessionIds.add(event.sessionId)
+        }
+      }
+
+      for (const event of registryEvents) {
+        if (
+          event.type === "session_created" &&
+          event.debugRunId === input.debugRunId &&
+          !deletedSessionIds.has(event.sessionId)
+        ) {
+          // Find the latest status for this session
+          const sessionEvents = registryEvents.filter((e) => e.sessionId === event.sessionId)
+          const latestStatusEvent = [...sessionEvents]
+            .reverse()
+            .find((e) =>
+              e.type === "session_updated" ||
+              e.type === "session_completed" ||
+              e.type === "session_failed" ||
+              e.type === "session_cancelled"
+            )
+
+          let status: SessionStatus = "pending"
+          if (latestStatusEvent) {
+            if (latestStatusEvent.type === "session_updated") {
+              status = latestStatusEvent.status
+            } else if (latestStatusEvent.type === "session_completed") {
+              status = "completed"
+            } else if (latestStatusEvent.type === "session_failed") {
+              status = "failed"
+            } else if (latestStatusEvent.type === "session_cancelled") {
+              status = "cancelled"
+            }
+          }
+
+          debugSessions.push({
+            sessionId: event.sessionId,
+            status,
+            agentType: event.agentType,
+            title: event.title,
+          })
+        }
+      }
+
+      // Check if all sessions are terminal
+      const terminalStatuses: SessionStatus[] = ["completed", "failed", "cancelled"]
+      const allTerminal = debugSessions.length > 0 &&
+        debugSessions.every((s) => terminalStatuses.includes(s.status))
+
+      return {
+        debugRunId: input.debugRunId,
+        sessions: debugSessions,
+        allTerminal,
+        totalCount: debugSessions.length,
+        completedCount: debugSessions.filter((s) => s.status === "completed").length,
+        failedCount: debugSessions.filter((s) => s.status === "failed").length,
+        cancelledCount: debugSessions.filter((s) => s.status === "cancelled").length,
+      }
+    }),
+
+  /**
+   * Spawn an orchestrator session to synthesize findings from a debug run.
+   * Idempotent: returns existing orchestrator session if one already exists.
+   */
+  orchestrateDebugRun: procedure
+    .input(z.object({
+      debugRunId: z.string().min(1),
+      taskPath: z.string().min(1),
+      /** Force spawn even if orchestrator already exists */
+      force: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+
+      // Check for existing orchestrator session for this debug run (idempotency)
+      if (!input.force) {
+        const existingOrchestrator = registryEvents.find(
+          (e) =>
+            e.type === "session_created" &&
+            e.title?.startsWith("Orchestrator:") &&
+            e.debugRunId === input.debugRunId
+        )
+
+        if (existingOrchestrator && existingOrchestrator.type === "session_created") {
+          // Return existing orchestrator session
+          return {
+            sessionId: existingOrchestrator.sessionId,
+            isNew: false,
+          }
+        }
+      }
+
+      // Track deleted sessions
+      const deletedSessionIds = new Set<string>()
+      for (const event of registryEvents) {
+        if (event.type === "session_deleted") {
+          deletedSessionIds.add(event.sessionId)
+        }
+      }
+
+      // Find all debug sessions in this run
+      const debugSessionInfos: Array<{
+        sessionId: string
+        agentType: string
+        title?: string
+        status: SessionStatus
+        taskPath?: string
+      }> = []
+
+      for (const event of registryEvents) {
+        if (
+          event.type === "session_created" &&
+          event.debugRunId === input.debugRunId &&
+          !event.title?.startsWith("Orchestrator:") &&
+          !deletedSessionIds.has(event.sessionId)
+        ) {
+          // Find the latest status for this session
+          const sessionEvents = registryEvents.filter((e) => e.sessionId === event.sessionId)
+          const latestStatusEvent = [...sessionEvents]
+            .reverse()
+            .find((e) =>
+              e.type === "session_updated" ||
+              e.type === "session_completed" ||
+              e.type === "session_failed" ||
+              e.type === "session_cancelled"
+            )
+
+          let status: SessionStatus = "pending"
+          if (latestStatusEvent) {
+            if (latestStatusEvent.type === "session_updated") {
+              status = latestStatusEvent.status
+            } else if (latestStatusEvent.type === "session_completed") {
+              status = "completed"
+            } else if (latestStatusEvent.type === "session_failed") {
+              status = "failed"
+            } else if (latestStatusEvent.type === "session_cancelled") {
+              status = "cancelled"
+            }
+          }
+
+          debugSessionInfos.push({
+            sessionId: event.sessionId,
+            agentType: event.agentType,
+            title: event.title,
+            status,
+            taskPath: event.taskPath,
+          })
+        }
+      }
+
+      if (debugSessionInfos.length === 0) {
+        throw new Error(`No debug sessions found for debug run ${input.debugRunId}`)
+      }
+
+      // Check if all sessions are terminal
+      const terminalStatuses: SessionStatus[] = ["completed", "failed", "cancelled"]
+      const allTerminal = debugSessionInfos.every((s) => terminalStatuses.includes(s.status))
+
+      if (!allTerminal) {
+        throw new Error("Cannot orchestrate: not all debug sessions are terminal")
+      }
+
+      // Gather output from all sessions
+      const sessionOutputs: Array<{
+        sessionId: string
+        agentType: string
+        title?: string
+        status: SessionStatus
+        output: string
+      }> = []
+
+      for (const sessionInfo of debugSessionInfos) {
+        const sessionEvents = await streamAPI.readSession(sessionInfo.sessionId)
+
+        // Extract text output chunks
+        const outputChunks = sessionEvents
+          .filter((e) => e.type === "output" && (e.chunk.type === "text" || e.chunk.type === "tool_use" || e.chunk.type === "tool_result"))
+          .map((e) => {
+            if (e.type !== "output") return ""
+            return e.chunk.content
+          })
+
+        sessionOutputs.push({
+          sessionId: sessionInfo.sessionId,
+          agentType: sessionInfo.agentType,
+          title: sessionInfo.title,
+          status: sessionInfo.status,
+          output: outputChunks.join("\n"),
+        })
+      }
+
+      // Get task info for the prompt
+      const task = getTask(ctx.workingDir, input.taskPath)
+
+      // Build orchestrator prompt
+      const prompt = buildDebugOrchestratorPrompt({
+        title: task.title,
+        taskPath: input.taskPath,
+        workingDir: ctx.workingDir,
+        sessions: sessionOutputs,
+      })
+
+      // Spawn codex orchestrator session
+      const sessionId = randomBytes(6).toString("hex")
+      const daemonNonce = randomBytes(16).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const monitor = getProcessMonitor()
+
+      monitor.spawnDaemon({
+        sessionId,
+        agentType: "codex",
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
+        taskPath: input.taskPath,
+        title: `Orchestrator: ${task.title}`,
+        debugRunId: input.debugRunId,
+      })
+
+      return {
+        sessionId,
+        isNew: true,
       }
     }),
 })

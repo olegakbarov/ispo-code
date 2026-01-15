@@ -1,6 +1,19 @@
 import type { RegistryEvent } from "@/streams/schemas"
 
 /**
+ * Build a set of deleted session IDs from registry events.
+ */
+function getDeletedSessionIds(registryEvents: RegistryEvent[]): Set<string> {
+  const deleted = new Set<string>()
+  for (const event of registryEvents) {
+    if (event.type === "session_deleted") {
+      deleted.add(event.sessionId)
+    }
+  }
+  return deleted
+}
+
+/**
  * Get session IDs for a specific task path.
  * Also checks for sessions with taskPath#subtaskId format.
  */
@@ -76,4 +89,30 @@ export function resolveTaskSessionIdsFromRegistry(
   }
 
   return []
+}
+
+/**
+ * Get all active (non-deleted) session IDs for a task path.
+ * Used by task deletion to kill all attached sessions.
+ *
+ * Includes:
+ * - Sessions matching the task path directly
+ * - Sessions for subtasks (taskPath#subtaskId)
+ * - Fallback to splitFrom path for backward compat
+ *
+ * Excludes:
+ * - Sessions that have been soft-deleted (session_deleted event)
+ */
+export function getActiveSessionIdsForTask(
+  registryEvents: RegistryEvent[],
+  taskPath: string,
+  splitFrom?: string
+): string[] {
+  const deletedIds = getDeletedSessionIds(registryEvents)
+
+  // Collect all session IDs for this task (including subtasks and splitFrom fallback)
+  const allSessionIds = resolveTaskSessionIdsFromRegistry(registryEvents, taskPath, splitFrom)
+
+  // Filter out deleted sessions
+  return allSessionIds.filter((id) => !deletedIds.has(id))
 }
