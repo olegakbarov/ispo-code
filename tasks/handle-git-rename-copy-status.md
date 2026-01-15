@@ -8,16 +8,23 @@
 - Out of scope: custom diff UI changes.
 
 ## Implementation Plan
-- [ ] Switch to `git status --porcelain=v2 -z` and parse fields for `R` and `C`.
-- [ ] Ensure staged and modified lists use the new path for actions.
-- [ ] Update stage and unstage validation to accept rename targets.
+- [x] Switch to `git status --porcelain=v2 -z` and parse fields for `R` and `C`.
+- [x] Ensure staged and modified lists use the new path for actions.
+- [x] Update stage and unstage validation to accept rename targets.
 
 ## Key Files
 - `src/lib/agent/git-service.ts`
 
 ## Testing
-- [ ] Rename a file and confirm status shows the new path.
-- [ ] Stage and unstage the renamed file and verify diff works.
+- [x] Rename a file and confirm status shows the new path.
+- [x] Stage and unstage the renamed file and verify diff works.
 
 ## Success Criteria
-- [ ] Rename and copy operations work end-to-end in the git UI.
+- [x] Rename and copy operations work end-to-end in the git UI.
+
+## Implementation Notes
+- Switched from porcelain v1 to v2 format with null-byte delimiters
+- Porcelain v2 provides structured entries for renames (type "2") and copies
+- For rename entries: new path is at index 9, old path is in next null-delimited entry
+- All validation logic automatically works since it validates against the new path
+- Tested: status, stage, unstage, and diff operations all work correctly

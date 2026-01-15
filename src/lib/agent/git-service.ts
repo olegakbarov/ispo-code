@@ -179,32 +179,85 @@ export function getGitStatus(cwd: string): GitStatus {
   }
 
   const branch = execGit("branch --show-current", cwd) || "HEAD"
-  const status = execGit("status --porcelain -u", cwd, { trim: false })
+  // Use porcelain v2 format with null-byte delimiters for robust parsing
+  const status = execGit("status --porcelain=v2 -z -u", cwd, { trim: false })
 
   const staged: GitFileStatus[] = []
   const modified: GitFileStatus[] = []
   const untracked: string[] = []
 
-  for (const line of status.split("\n").filter(Boolean)) {
-    const indexStatus = line[0]
-    const worktreeStatus = line[1]
-    const file = line.slice(3)
+  // Parse porcelain v2 format entries (null-byte delimited)
+  const entries = status.split("\0").filter(Boolean)
 
-    if (indexStatus !== " " && indexStatus !== "?") {
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    if (!entry) continue
+
+    // Handle branch headers (# branch.oid, # branch.head, etc.)
+    if (entry.startsWith("#")) {
+      continue
+    }
+
+    // Ordinary changed entries: "1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>"
+    // Rename/copy entries: "2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><sep><origPath>"
+    // Unmerged entries: "u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>"
+    // Untracked entries: "? <path>"
+    // Ignored entries: "! <path>"
+
+    if (entry.startsWith("? ")) {
+      // Untracked file
+      const file = entry.slice(2)
+      untracked.push(file)
+      continue
+    }
+
+    if (entry.startsWith("! ")) {
+      // Ignored file - skip
+      continue
+    }
+
+    // Parse regular and rename/copy entries
+    const parts = entry.split(" ")
+    if (parts.length < 2) continue
+
+    const entryType = parts[0] // "1", "2", or "u"
+    const xyStatus = parts[1] // Two-character status code
+
+    if (!xyStatus || xyStatus.length < 2) continue
+
+    const indexStatus = xyStatus[0]
+    const worktreeStatus = xyStatus[1]
+
+    let file = ""
+
+    if (entryType === "2") {
+      // Rename or copy entry: path is at index 9, old path is in next null-delimited entry
+      file = parts.slice(9).join(" ")
+      // Skip the old path entry (we only need the new path for operations)
+      i++
+    } else if (entryType === "1") {
+      // Ordinary entry: path is at index 8
+      file = parts.slice(8).join(" ")
+    } else if (entryType === "u") {
+      // Unmerged entry: path is at index 10
+      file = parts.slice(10).join(" ")
+    }
+
+    if (!file) continue
+
+    // Process staged changes (index status)
+    if (indexStatus !== "." && indexStatus !== " ") {
       staged.push({
-        file,
+        file, // Always use the new path
         status: parseGitStatus(indexStatus),
       })
     }
 
+    // Process working tree changes
     if (worktreeStatus === "M") {
       modified.push({ file, status: "modified" })
     } else if (worktreeStatus === "D") {
       modified.push({ file, status: "deleted" })
-    }
-
-    if (indexStatus === "?") {
-      untracked.push(file)
     }
   }
 
