@@ -16,6 +16,7 @@ import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskModal } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
+import { ImplementModal } from '@/components/tasks/implement-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
 import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
 import { DebatePanel } from '@/components/debate'
@@ -107,7 +108,7 @@ export function TasksPage({
   )
 
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
-    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode']
+    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter']
     return candidates.filter((t) => availableTypes.includes(t))
   }, [availableTypes])
 
@@ -162,6 +163,14 @@ export function TasksPage({
     }
   }, [activeSessionId, activeSessionInfo?.status, liveSession])
 
+  // Check if active session is a planning session
+  const isActivePlanningSession = useMemo(() => {
+    if (!agentSession?.id || !taskSessions?.grouped.planning) return false
+    return taskSessions.grouped.planning.some(
+      (s) => s.sessionId === agentSession.id && ['pending', 'running', 'working'].includes(s.status)
+    )
+  }, [agentSession?.id, taskSessions?.grouped.planning])
+
   // Handler for create agent type change
   const handleCreateAgentTypeChange = useCallback((newType: PlannerAgentType) => {
     dispatch({ type: 'SET_CREATE_AGENT_TYPE', payload: newType })
@@ -184,7 +193,7 @@ export function TasksPage({
 
   // Synchronize agent type selections when availability changes
   const plannerPreferredOrder: PlannerAgentType[] = useMemo(
-    () => ['claude', 'codex', 'cerebras', 'opencode'],
+    () => ['claude', 'codex', 'cerebras', 'opencode', 'mcporter'],
     []
   )
   const agentPreferredOrder: AgentType[] = useMemo(
@@ -936,47 +945,39 @@ export function TasksPage({
     }
   }, [selectedPath, restoreMutation])
 
-  const handleAssignToAgent = useCallback(async () => {
+  const handleAssignToAgent = useCallback(() => {
+    if (!selectedPath) return
+    dispatch({ type: 'SET_IMPLEMENT_MODAL_OPEN', payload: true })
+  }, [selectedPath])
+
+  const handleCloseImplementModal = useCallback(() => {
+    dispatch({ type: 'SET_IMPLEMENT_MODAL_OPEN', payload: false })
+  }, [])
+
+  const handleStartImplement = useCallback(async (agentType: AgentType, model: string | undefined, instructions?: string) => {
     if (!selectedPath) return
 
-    const assignToAgent = async () => {
-      // Save first if dirty
-      if (editor.dirty) {
-        await saveMutation.mutateAsync({ path: selectedPath, content: editor.draft })
-        dispatch({ type: 'SET_DIRTY', payload: false })
-      }
-
-      try {
-        dispatch({ type: 'SET_SAVE_ERROR', payload: null })
-        await assignToAgentMutation.mutateAsync({
-          path: selectedPath,
-          agentType: run.agentType,
-          model: run.model || undefined,
-        })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
-        dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
-        console.error('Failed to assign to agent:', err)
-      }
-    }
-
+    // Save first if dirty
     if (editor.dirty) {
-      dispatch({
-        type: 'SET_CONFIRM_DIALOG',
-        payload: {
-          open: true,
-          title: 'Unsaved Changes',
-          message: 'You have unsaved changes. Save before assigning to agent?',
-          confirmText: 'Save & Assign',
-          variant: 'default',
-          onConfirm: assignToAgent,
-        },
-      })
-      return
+      await saveMutation.mutateAsync({ path: selectedPath, content: editor.draft })
+      dispatch({ type: 'SET_DIRTY', payload: false })
     }
 
-    await assignToAgent()
-  }, [selectedPath, editor.dirty, editor.draft, run.agentType, run.model, saveMutation, assignToAgentMutation])
+    try {
+      dispatch({ type: 'SET_SAVE_ERROR', payload: null })
+      await assignToAgentMutation.mutateAsync({
+        path: selectedPath,
+        agentType,
+        model,
+        instructions,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
+      dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
+      console.error('Failed to assign to agent:', err)
+      throw err // Re-throw so modal can handle it
+    }
+  }, [selectedPath, editor.dirty, editor.draft, saveMutation, assignToAgentMutation])
 
   const handleCancelAgent = useCallback(() => {
     // Use ref to get sessionId - more stable than state which can become undefined during transitions
@@ -1202,6 +1203,8 @@ export function TasksPage({
                   onArchive={handleArchive}
                   onRestore={handleRestore}
                   onCommitAndArchive={handleOpenCommitArchiveModal}
+                  activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
+                  isPlanningActive={isActivePlanningSession}
                   onModeChange={handleModeChange}
                   onDraftChange={(newDraft) => {
                     dispatch({ type: 'SET_DRAFT', payload: newDraft })
@@ -1288,6 +1291,17 @@ export function TasksPage({
         availableTypes={availableTypes}
         onClose={handleCloseVerifyModal}
         onStart={handleStartVerify}
+      />
+
+      {/* Implement Modal - agent/model selection before implementation */}
+      <ImplementModal
+        isOpen={modals.implementOpen}
+        taskTitle={editorTitle}
+        agentType={run.agentType}
+        model={run.model}
+        availableTypes={availableTypes}
+        onClose={handleCloseImplementModal}
+        onStart={handleStartImplement}
       />
 
       {/* Split Task Modal */}

@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
 import { Loader2, GitCommit, Archive, FileText, RefreshCw } from 'lucide-react'
 
@@ -231,12 +232,12 @@ export function CommitArchiveModal({
               </button>
             </div>
 
-            <textarea
+            <Textarea
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
               disabled={isProcessing}
               placeholder={generateMutation.isPending ? 'Generating commit message...' : 'Enter commit message...'}
-              className="w-full h-24 p-2 text-sm bg-background border border-border rounded resize-none focus:outline-none focus:border-accent/50 disabled:opacity-50"
+              className="h-24 bg-background"
             />
           </div>
 

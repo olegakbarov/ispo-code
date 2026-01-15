@@ -55,6 +55,7 @@ export interface ModalsState {
   verifyOpen: boolean
   splitOpen: boolean
   commitArchiveOpen: boolean
+  implementOpen: boolean
 }
 
 export interface PendingCommitEntry {
@@ -127,6 +128,7 @@ export type TasksAction =
   | { type: 'SET_VERIFY_MODAL_OPEN'; payload: boolean }
   | { type: 'SET_SPLIT_MODAL_OPEN'; payload: boolean }
   | { type: 'SET_COMMIT_ARCHIVE_OPEN'; payload: boolean }
+  | { type: 'SET_IMPLEMENT_MODAL_OPEN'; payload: boolean }
 
   // Pending commit actions
   | { type: 'SET_PENDING_COMMIT_MESSAGE'; payload: { path: string; message: string | null } }
@@ -175,6 +177,7 @@ export const initialTasksState: TasksState = {
     verifyOpen: false,
     splitOpen: false,
     commitArchiveOpen: false,
+    implementOpen: false,
   },
   pendingCommit: {},
   confirmDialog: {
@@ -309,6 +312,9 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
 
     case 'SET_COMMIT_ARCHIVE_OPEN':
       return { ...state, modals: { ...state.modals, commitArchiveOpen: action.payload } }
+
+    case 'SET_IMPLEMENT_MODAL_OPEN':
+      return { ...state, modals: { ...state.modals, implementOpen: action.payload } }
 
     // Pending commit actions
     case 'SET_PENDING_COMMIT_MESSAGE':
