@@ -9,9 +9,8 @@
  * - Errors (when present)
  */
 
-import { useState, useMemo } from 'react'
-import { Link } from '@tanstack/react-router'
-import { GitCommit, Loader2, Check, X } from 'lucide-react'
+import { useState, useMemo, lazy, Suspense } from 'react'
+import { GitCommit, Loader2, Check, X, Sparkles } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import {
   Section,
@@ -19,19 +18,21 @@ import {
   StatusBadge,
   ProgressBar,
 } from '@/components/agents/session-primitives'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { AgentSession, EditedFileInfo } from '@/lib/agent/types'
+
+// Lazy load diff viewer to avoid SSR issues
+const MultiFileDiff = lazy(() =>
+  import('@pierre/diffs/react').then((mod) => ({ default: mod.MultiFileDiff }))
+)
 
 interface ThreadSidebarProps {
   sessionId: string
-}
-
-type EditedFileSummary = {
-  displayPath: string
-  repoPath: string | null
-  operation: EditedFileInfo['operation']
-  toolUsed: string
-  count: number
-  timestamp: string
 }
 
 export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
@@ -40,11 +41,6 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
     { id: sessionId },
     { refetchInterval: 2000 } // Update every 2s for live stats
   )
-
-  // Used to translate workingDir-relative paths into repo-root-relative paths for /git links.
-  const { data: cwdPrefix } = trpc.git.cwdPrefix.useQuery(undefined, {
-    staleTime: Infinity,
-  })
 
   if (!sessionWithMetadata) {
     return (
@@ -63,11 +59,6 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
   const duration = session.completedAt
     ? new Date(session.completedAt).getTime() - new Date(session.startedAt).getTime()
     : Date.now() - new Date(session.startedAt).getTime()
-
-  // Group files by operation for improved display
-  const filesByOperation = metadata?.editedFiles
-    ? groupFilesByOperation(metadata.editedFiles, session.workingDir, cwdPrefix)
-    : null
 
   return (
     <div className="w-72 border-l border-border bg-card flex flex-col">
@@ -109,28 +100,7 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
           </Section>
         )}
 
-        {/* 3. CHANGED FILES - Key actionable information */}
-        {filesByOperation && (
-          <Section title="Changed Files">
-            <div className="flex items-center justify-between text-[10px] mb-1.5">
-              {filesByOperation.creates.length > 0 && (
-                <span className="text-chart-2">+{filesByOperation.creates.length}</span>
-              )}
-              {filesByOperation.edits.length > 0 && (
-                <span className="text-primary">~{filesByOperation.edits.length}</span>
-              )}
-              {filesByOperation.deletes.length > 0 && (
-                <span className="text-destructive">−{filesByOperation.deletes.length}</span>
-              )}
-              <span className="text-muted-foreground ml-auto">
-                {filesByOperation.totalUnique} files
-              </span>
-            </div>
-            <FilesGroupDisplay files={filesByOperation} />
-          </Section>
-        )}
-
-        {/* 4. GIT - Always visible, integrated into main flow */}
+        {/* 3. GIT + CHANGED FILES - Consolidated view */}
         <GitSection sessionId={sessionId} />
 
         {/* Error State */}
@@ -145,13 +115,6 @@ export function ThreadSidebar({ sessionId }: ThreadSidebarProps) {
 }
 
 // === Sub-components ===
-
-type FilesByOperationType = {
-  creates: EditedFileSummary[]
-  edits: EditedFileSummary[]
-  deletes: EditedFileSummary[]
-  totalUnique: number
-}
 
 /**
  * Deduplicate edited files by path, keeping the most recent entry.
@@ -170,81 +133,10 @@ function dedupeEditedFiles(editedFiles: EditedFileInfo[]): EditedFileInfo[] {
   return Array.from(byPath.values())
 }
 
-function groupFilesByOperation(
-  editedFiles: EditedFileInfo[],
-  workingDir: string,
-  cwdPrefix?: string
-): FilesByOperationType {
-  const byPath = new Map<string, EditedFileSummary>()
-
-  for (const f of editedFiles) {
-    const displayPath = toWorkingRelPath(f.path, workingDir, cwdPrefix)
-    const repoPath =
-      cwdPrefix !== undefined ? toRepoRelativePath(f.path, workingDir, cwdPrefix) : null
-
-    const existing = byPath.get(displayPath)
-    if (!existing) {
-      byPath.set(displayPath, {
-        displayPath,
-        repoPath,
-        operation: f.operation,
-        toolUsed: f.toolUsed,
-        count: 1,
-        timestamp: f.timestamp,
-      })
-      continue
-    }
-
-    existing.count++
-    if (new Date(f.timestamp).getTime() >= new Date(existing.timestamp).getTime()) {
-      existing.operation = f.operation
-      existing.toolUsed = f.toolUsed
-      existing.timestamp = f.timestamp
-      if (!existing.repoPath && repoPath) {
-        existing.repoPath = repoPath
-      }
-    }
-  }
-
-  const files = Array.from(byPath.values())
-  return {
-    creates: files.filter((f) => f.operation === 'create'),
-    edits: files.filter((f) => f.operation === 'edit'),
-    deletes: files.filter((f) => f.operation === 'delete'),
-    totalUnique: files.length,
-  }
-}
-
-function FilesGroupDisplay({ files }: { files: FilesByOperationType }) {
-  const [showAll, setShowAll] = useState(false)
-  const allFiles = [...files.creates, ...files.edits, ...files.deletes].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  )
-
-  const maxVisible = 10
-  const hasMore = allFiles.length > maxVisible
-  const filesToShow = showAll || !hasMore ? allFiles : allFiles.slice(0, maxVisible)
-
-  return (
-    <div className="space-y-1">
-      {filesToShow.map((file) => (
-        <FileRow key={`${file.displayPath}-${file.timestamp}`} file={file} />
-      ))}
-      {hasMore && (
-        <button
-          onClick={() => setShowAll(!showAll)}
-          className="w-full text-[10px] font-vcr text-muted-foreground hover:text-foreground transition-colors py-1"
-        >
-          {showAll ? '▴ Show less' : `▾ Show ${allFiles.length - maxVisible} more`}
-        </button>
-      )}
-    </div>
-  )
-}
-
 function GitSection({ sessionId }: { sessionId: string }) {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitMessage, setCommitMessage] = useState("")
+  const [diffFile, setDiffFile] = useState<string | null>(null)
   const utils = trpc.useUtils()
 
   // Fetch session to check for worktree info
@@ -259,6 +151,12 @@ function GitSection({ sessionId }: { sessionId: string }) {
   const { data: rawChangedFiles = [] } = trpc.agent.getChangedFiles.useQuery({ sessionId })
   const changedFiles = useMemo(() => dedupeEditedFiles(rawChangedFiles), [rawChangedFiles])
 
+  // Diff query for modal - only fetch when a file is selected
+  const { data: diffData, isLoading: diffLoading, error: diffError } = trpc.git.diff.useQuery(
+    { file: diffFile!, view: 'working' },
+    { enabled: !!diffFile }
+  )
+
   // Commit mutation
   const commitMutation = trpc.git.commitScoped.useMutation({
     onSuccess: () => {
@@ -269,7 +167,33 @@ function GitSection({ sessionId }: { sessionId: string }) {
     },
   })
 
+  // Generate commit message mutation
+  const generateCommitMutation = trpc.git.generateCommitMessage.useMutation({
+    onSuccess: (result) => {
+      setCommitMessage(result.message)
+    },
+  })
+
   const canCommit = selectedFiles.size > 0 && commitMessage.trim().length > 0 && !commitMutation.isPending
+
+  // Helper to extract task title from taskPath
+  const taskTitle = useMemo(() => {
+    const taskPath = session?.taskPath
+    if (!taskPath) return undefined
+    // Extract title from path like "tasks/my-feature.md" -> "my-feature"
+    const filename = taskPath.split('/').pop()?.replace('.md', '') ?? ''
+    // Convert kebab-case to Title Case
+    return filename.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+  }, [session?.taskPath])
+
+  const handleGenerateCommitMessage = () => {
+    if (selectedFiles.size === 0) return
+
+    generateCommitMutation.mutate({
+      taskTitle,
+      files: Array.from(selectedFiles),
+    })
+  }
 
   const toggleFile = (filePath: string) => {
     const newSelected = new Set(selectedFiles)
@@ -342,21 +266,25 @@ function GitSection({ sessionId }: { sessionId: string }) {
 
           <div className="space-y-1 max-h-[200px] overflow-y-auto">
             {changedFiles.map((file) => (
-              <label
+              <div
                 key={file.path}
-                className="flex items-center gap-2 text-xs hover:bg-secondary/60 rounded px-1 py-0.5 cursor-pointer"
+                className="flex items-center gap-2 text-xs hover:bg-secondary/60 rounded px-1 py-0.5"
               >
                 <input
                   type="checkbox"
                   checked={selectedFiles.has(file.path)}
                   onChange={() => toggleFile(file.path)}
-                  className="w-3 h-3 rounded"
+                  className="w-3 h-3 rounded cursor-pointer"
                 />
-                <div className="flex-1 min-w-0">
+                <button
+                  onClick={() => setDiffFile(file.repoRelativePath || file.relativePath || file.path)}
+                  className="flex-1 min-w-0 text-left cursor-pointer hover:underline"
+                  title="View diff"
+                >
                   <div className="font-mono text-foreground/70 truncate text-[10px]">
                     {file.relativePath || file.path}
                   </div>
-                </div>
+                </button>
                 <span
                   className={`font-mono text-[9px] ${
                     file.operation === "create"
@@ -368,19 +296,38 @@ function GitSection({ sessionId }: { sessionId: string }) {
                 >
                   {file.operation === "create" ? "+" : file.operation === "edit" ? "~" : "−"}
                 </span>
-              </label>
+              </div>
             ))}
           </div>
 
           {/* Commit form */}
           <div className="space-y-2">
-            <textarea
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              placeholder="Commit message..."
-              className="w-full min-h-[60px] px-2 py-1.5 text-xs rounded border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono"
-              disabled={commitMutation.isPending}
-            />
+            <div className="relative">
+              <textarea
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="Commit message..."
+                className="w-full min-h-[60px] px-2 py-1.5 text-xs rounded border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                disabled={commitMutation.isPending || generateCommitMutation.isPending}
+              />
+              {selectedFiles.size > 0 && (
+                <button
+                  onClick={handleGenerateCommitMessage}
+                  disabled={generateCommitMutation.isPending}
+                  className="absolute top-1 right-1 px-1.5 py-1 text-[9px] font-vcr rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  title="Generate commit message with AI"
+                >
+                  {generateCommitMutation.isPending ? (
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Sparkles className="w-2.5 h-2.5" />
+                      <span>AI</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-vcr text-muted-foreground">
@@ -412,6 +359,14 @@ function GitSection({ sessionId }: { sessionId: string }) {
           </div>
 
           {/* Status messages */}
+          {generateCommitMutation.isError && (
+            <div className="flex items-center gap-1.5 text-[10px] font-vcr text-destructive bg-destructive/10 px-2 py-1.5 rounded">
+              <X className="w-3 h-3" />
+              {generateCommitMutation.error instanceof Error
+                ? generateCommitMutation.error.message
+                : "AI generation failed"}
+            </div>
+          )}
           {commitMutation.isSuccess && (
             <div className="flex items-center gap-1.5 text-[10px] font-vcr text-chart-2 bg-chart-2/10 px-2 py-1.5 rounded">
               <Check className="w-3 h-3" />
@@ -437,50 +392,50 @@ function GitSection({ sessionId }: { sessionId: string }) {
           No files changed in session
         </div>
       )}
+
+      {/* Diff Modal */}
+      <Dialog open={!!diffFile} onOpenChange={(open) => !open && setDiffFile(null)}>
+        <DialogContent className="!flex !flex-col max-w-4xl h-[80vh] overflow-hidden p-0">
+          <DialogHeader className="p-4 pb-2 shrink-0">
+            <DialogTitle className="font-mono text-sm truncate">{diffFile}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-auto mx-4 mb-4 border border-border rounded bg-background">
+            {diffLoading ? (
+              <div className="flex items-center justify-center p-8 text-muted-foreground">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                Loading diff...
+              </div>
+            ) : diffError ? (
+              <div className="p-4 text-destructive text-sm">
+                Error loading diff: {diffError.message}
+              </div>
+            ) : diffData ? (
+              diffData.oldContent === diffData.newContent ? (
+                <div className="p-4 text-muted-foreground text-sm">No changes detected</div>
+              ) : (
+                <Suspense fallback={<div className="p-4 text-muted-foreground text-sm">Loading diff viewer...</div>}>
+                  <MultiFileDiff
+                    className="block w-full min-w-0"
+                    oldFile={{ name: diffFile || '', contents: diffData.oldContent }}
+                    newFile={{ name: diffFile || '', contents: diffData.newContent }}
+                    options={{
+                      diffStyle: 'unified',
+                      themeType: 'dark',
+                      theme: { dark: 'pierre-dark', light: 'pierre-light' },
+                      diffIndicators: 'bars',
+                      overflow: 'scroll',
+                      disableFileHeader: true,
+                    }}
+                  />
+                </Suspense>
+              )
+            ) : (
+              <div className="p-4 text-muted-foreground text-sm">No diff available</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Section>
-  )
-}
-
-function FileRow({ file }: { file: EditedFileSummary }) {
-  const operationColors = {
-    create: 'text-chart-2',
-    edit: 'text-primary',
-    delete: 'text-destructive',
-  }
-
-  const operationIcons = {
-    create: '+',
-    edit: '~',
-    delete: '−',
-  }
-
-  const toolLabel = file.count > 1 ? `${file.toolUsed} · ${file.count}×` : file.toolUsed
-
-  const row = (
-    <div className="flex items-start gap-1.5 text-xs hover:bg-secondary/60 rounded px-1 py-0.5 transition-colors">
-      <span
-        className={`font-mono font-bold mt-0.5 ${operationColors[file.operation as keyof typeof operationColors]}`}
-      >
-        {operationIcons[file.operation as keyof typeof operationIcons]}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="font-mono text-foreground/70 truncate text-[10px]">{truncatePath(file.displayPath)}</div>
-        <div className="font-vcr text-muted-foreground text-[9px]">{toolLabel}</div>
-      </div>
-    </div>
-  )
-
-  if (!file.repoPath) return row
-
-  return (
-    <Link
-      to="/git"
-      search={{ file: file.repoPath, view: 'working' }}
-      title={`Open diff: ${file.repoPath}`}
-      className="block"
-    >
-      {row}
-    </Link>
   )
 }
 
@@ -496,51 +451,6 @@ function inferSessionModel(session: AgentSession & { model?: string }): string |
     if (match?.[1]) return match[1]
   }
   return undefined
-}
-
-function normalizeSlashes(path: string): string {
-  return path.replace(/\\/g, '/')
-}
-
-function trimLeadingDotSlash(path: string): string {
-  return path.replace(/^\.\/+/, '')
-}
-
-function trimTrailingSlash(path: string): string {
-  return path.replace(/\/+$/, '')
-}
-
-function toWorkingRelPath(path: string, workingDir: string, cwdPrefix?: string): string {
-  const cleaned = trimLeadingDotSlash(normalizeSlashes(path))
-  const wd = trimTrailingSlash(normalizeSlashes(workingDir))
-  const prefix = trimTrailingSlash(normalizeSlashes(cwdPrefix ?? ''))
-
-  if (cleaned.startsWith(wd + '/')) {
-    return cleaned.slice(wd.length + 1)
-  }
-  if (prefix && (cleaned === prefix || cleaned.startsWith(prefix + '/'))) {
-    return cleaned.slice(prefix.length).replace(/^\/+/, '')
-  }
-  return cleaned
-}
-
-function toRepoRelativePath(path: string, workingDir: string, cwdPrefix: string): string | null {
-  const cleaned = trimLeadingDotSlash(normalizeSlashes(path))
-  const prefix = trimTrailingSlash(normalizeSlashes(cwdPrefix))
-  const wd = trimTrailingSlash(normalizeSlashes(workingDir))
-
-  if (cleaned.startsWith('/')) {
-    if (!cleaned.startsWith(wd + '/')) return null
-    const relToWorkingDir = cleaned.slice(wd.length + 1)
-    return prefix ? `${prefix}/${relToWorkingDir}` : relToWorkingDir
-  }
-
-  if (prefix && (cleaned === prefix || cleaned.startsWith(prefix + '/'))) {
-    return cleaned
-  }
-
-  const rel = cleaned.replace(/^\/+/, '')
-  return prefix ? `${prefix}/${rel}` : rel
 }
 
 function formatTimeAgo(date: Date): string {

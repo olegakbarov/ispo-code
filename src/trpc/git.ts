@@ -26,6 +26,7 @@ import {
   hasMergeConflicts,
   getConflictedFiles,
 } from "@/lib/agent/git-service"
+import { generateCommitMessage } from "@/lib/agent/commit-message-generator"
 
 export const gitRouter = router({
   // === Queries ===
@@ -176,5 +177,42 @@ export const gitRouter = router({
       return deleteBranch(ctx.workingDir, input.branch, {
         force: input.force,
       })
+    }),
+
+  /** Generate commit message using AI based on task and changed files */
+  generateCommitMessage: procedure
+    .input(z.object({
+      taskTitle: z.string().optional(),
+      taskDescription: z.string().optional(),
+      files: z.array(z.string()).min(1, "At least one file is required"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Get diffs for the files
+      const diffs = getDiffForFiles(ctx.workingDir, input.files, "auto")
+
+      // Convert FileDiff objects to unified diff strings
+      const diffStrings = Object.entries(diffs).map(([file, diff]) => {
+        if (diff.isBinary) {
+          return `Binary file: ${file}`
+        }
+        if (diff.isNew) {
+          return `New file: ${file}\n${diff.newContent}`
+        }
+        if (diff.isDeleted) {
+          return `Deleted file: ${file}\n${diff.oldContent}`
+        }
+        // For modified files, show a simple diff representation
+        return `Modified: ${file}\n--- old\n+++ new\n${diff.oldContent}\n---\n${diff.newContent}`
+      })
+
+      // Generate commit message using AI
+      const result = await generateCommitMessage({
+        taskTitle: input.taskTitle,
+        taskDescription: input.taskDescription,
+        changedFiles: input.files,
+        diffs: diffStrings,
+      })
+
+      return result
     }),
 })
