@@ -17,6 +17,7 @@
 let audioContext: AudioContext | null = null
 let isUnlocked = false
 let unlockPromiseResolve: ((value: boolean) => void) | null = null
+let listenersInitialized = false
 
 /**
  * Promise that resolves when audio is unlocked.
@@ -37,17 +38,28 @@ export function isAudioUnlocked(): boolean {
  * Attempt to unlock audio. Called on user interaction events.
  * Safe to call multiple times - only unlocks once.
  */
-async function attemptUnlock(): Promise<void> {
-  if (isUnlocked) return
+type AudioContextConstructor = typeof AudioContext
+
+function getAudioContextConstructor(): AudioContextConstructor | null {
+  if (typeof window === "undefined") return null
+  const win = window as Window & { webkitAudioContext?: AudioContextConstructor }
+  return window.AudioContext ?? win.webkitAudioContext ?? null
+}
+
+async function attemptUnlock(): Promise<boolean> {
+  if (isUnlocked) return true
 
   try {
-    // Create AudioContext if needed
+    // Create AudioContext if supported
     if (!audioContext) {
-      audioContext = new AudioContext()
+      const AudioContextCtor = getAudioContextConstructor()
+      if (AudioContextCtor) {
+        audioContext = new AudioContextCtor()
+      }
     }
 
     // Resume the AudioContext (this requires user gesture)
-    if (audioContext.state === "suspended") {
+    if (audioContext && audioContext.state === "suspended") {
       await audioContext.resume()
     }
 
@@ -57,15 +69,26 @@ async function attemptUnlock(): Promise<void> {
     silentAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7v/////////////////////////////////"
     silentAudio.volume = 0
 
-    // This may throw if not unlocked, that's fine
-    await silentAudio.play().catch(() => {})
+    let htmlUnlocked = false
+    try {
+      await silentAudio.play()
+      htmlUnlocked = true
+    } catch {
+      // Ignore; unlock may still fail and we'll retry on the next interaction.
+    }
     silentAudio.pause()
+
+    if (!htmlUnlocked) {
+      return false
+    }
 
     isUnlocked = true
     console.debug("[AudioUnlock] Audio unlocked successfully")
     unlockPromiseResolve?.(true)
+    return true
   } catch (error) {
     console.debug("[AudioUnlock] Unlock attempt failed:", error)
+    return false
   }
 }
 
@@ -78,15 +101,19 @@ async function attemptUnlock(): Promise<void> {
  */
 export function initAudioUnlock(): void {
   if (typeof window === "undefined") return
+  if (isUnlocked || listenersInitialized) return
+  listenersInitialized = true
 
   const events = ["click", "keydown", "touchstart"] as const
 
   const unlockListener = () => {
-    attemptUnlock()
-    // Remove listeners after first interaction
-    for (const event of events) {
-      document.removeEventListener(event, unlockListener, true)
-    }
+    attemptUnlock().then((unlocked) => {
+      if (!unlocked) return
+      // Remove listeners after successful unlock
+      for (const event of events) {
+        document.removeEventListener(event, unlockListener, true)
+      }
+    })
   }
 
   // Use capture phase to catch events early

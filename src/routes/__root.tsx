@@ -17,6 +17,10 @@ import { useSettingsStore, applyBrandHue } from '@/lib/stores/settings'
 import { AppErrorFallback } from '@/components/ui/app-error-fallback'
 import { Sidebar } from '@/components/layout/sidebar'
 import { initAudioUnlock } from '@/lib/audio/audio-unlock'
+import { preloadHighlighter } from '@/lib/utils/syntax-highlighter'
+
+// Preload syntax highlighter early for better UX
+preloadHighlighter()
 
 
 export const Route = createRootRouteWithContext<RouterContext>()({

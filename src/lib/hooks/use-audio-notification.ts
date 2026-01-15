@@ -16,7 +16,7 @@ import { useSettingsStore } from "@/lib/stores/settings"
 import { isTerminalStatus, ACTIVE_STATUSES } from "@/lib/agent/status"
 import type { SessionStatus } from "@/lib/agent/types"
 import { trpc } from "@/lib/trpc-client"
-import { isAudioUnlocked } from "@/lib/audio/audio-unlock"
+import { audioUnlockedPromise, isAudioUnlocked } from "@/lib/audio/audio-unlock"
 
 interface UseAudioNotificationOptions {
   /** Current session status */
@@ -58,7 +58,12 @@ export function useAudioNotification({
 
       // Check if audio has been unlocked by user interaction
       if (!isAudioUnlocked()) {
-        console.warn("[AudioNotification] Audio not unlocked - user needs to interact with page first")
+        console.warn("[AudioNotification] Audio not unlocked yet - waiting for user interaction")
+        await audioUnlockedPromise
+      }
+
+      if (!isAudioUnlocked()) {
+        console.warn("[AudioNotification] Audio still locked - skipping notification")
         return
       }
 
