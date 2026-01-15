@@ -715,7 +715,12 @@ export const tasksRouter = router({
       // Generate prefix from original task title for subtask filenames
       const prefix = generateShortSlug(task.title)
 
-      for (const idx of input.sectionIndices) {
+      // Calculate base timestamp for split tasks (ensure they appear in order)
+      // Stagger each task by 1ms to preserve section order in "updated" sort
+      const baseTimestamp = Date.now()
+
+      for (let i = 0; i < input.sectionIndices.length; i++) {
+        const idx = input.sectionIndices[i]
         const section = sections[idx]
 
         // Build new task content
@@ -744,10 +749,12 @@ export const tasksRouter = router({
         newContent.push("")
 
         // Create the new task with prefix from parent task
+        // Set mtime with 1ms increments to preserve order
         const result = createTask(ctx.workingDir, {
           title: section.title,
           content: newContent.join("\n"),
           prefix,
+          mtime: new Date(baseTimestamp + i),
         })
         newPaths.push(result.path)
       }

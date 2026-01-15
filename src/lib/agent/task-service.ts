@@ -5,7 +5,7 @@
  * This service lists, reads, creates, and saves those files safely.
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, renameSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, renameSync, utimesSync } from "fs"
 import path from "path"
 import { globSync } from "glob"
 
@@ -348,7 +348,7 @@ export function generateShortSlug(title: string, maxWords = 3): string {
 
 export function createTask(
   cwd: string,
-  params: { title: string; content?: string; prefix?: string }
+  params: { title: string; content?: string; prefix?: string; mtime?: Date }
 ): { path: string } {
   const title = params.title.trim()
   if (!title) throw new Error("Title is required")
@@ -371,6 +371,13 @@ export function createTask(
     `# ${title}\n\n## Plan\n\n- [ ] Define scope\n- [ ] Implement\n- [ ] Validate\n`
 
   saveTask(cwd, candidate, initial)
+
+  // Set custom mtime if provided (for split task ordering)
+  if (params.mtime) {
+    const absPath = path.resolve(cwd, candidate)
+    utimesSync(absPath, params.mtime, params.mtime)
+  }
+
   return { path: candidate }
 }
 
