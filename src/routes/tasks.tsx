@@ -7,11 +7,10 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { z } from 'zod'
 import type { AgentType } from '@/lib/agent/types'
-import { TaskList, type TaskSummary, type ArchiveFilter } from '@/components/tasks/task-list'
 import { TaskEditor } from '@/components/tasks/task-editor'
-import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskReviewPanel } from '@/components/tasks/task-review-panel'
+import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskModal, type TaskType } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import type { PlannerAgentType } from '@/components/tasks/agent-config'
@@ -31,7 +30,7 @@ export const Route = createFileRoute('/tasks')({
   component: TasksPage,
 })
 
-type Mode = 'edit' | 'preview'
+type Mode = 'edit' | 'preview' | 'review'
 
 function TasksPage() {
   const navigate = useNavigate()
@@ -41,7 +40,7 @@ function TasksPage() {
   const utils = trpc.useUtils()
 
   // Task list from server
-  const { data: tasks = [], isLoading: isLoadingList, error: listError } = trpc.tasks.list.useQuery(undefined, {
+  const { data: tasks = [] } = trpc.tasks.list.useQuery(undefined, {
     enabled: !!workingDir,
     refetchInterval: 5000, // Refresh every 5s for progress updates
   })
@@ -72,8 +71,6 @@ function TasksPage() {
   // Local state
   const [mode, setMode] = useState<Mode>('edit')
   const [view, setView] = useState<'editor' | 'review'>('editor')
-  const [filter, setFilter] = useState('')
-  const archiveFilter = search.archiveFilter ?? 'active'
   const [draft, setDraft] = useState('')
   const [dirty, setDirty] = useState(false)
   const lastLoadedPathRef = useRef<string | null>(null)
@@ -120,6 +117,14 @@ function TasksPage() {
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
   const activeSessionId = activeSessionInfo?.sessionId
+
+  // Store sessionId in ref so cancel handler always has access, even if query state changes
+  const activeSessionIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (activeSessionId) {
+      activeSessionIdRef.current = activeSessionId
+    }
+  }, [activeSessionId])
 
   const { data: liveSession } = trpc.agent.get.useQuery(
     { id: activeSessionId ?? '' },
@@ -202,7 +207,7 @@ function TasksPage() {
       utils.tasks.list.invalidate()
       navigate({
         to: '/tasks',
-        search: { path: data.path },
+        search: { path: data.path, archiveFilter: 'active' },
       })
     },
   })
@@ -222,21 +227,21 @@ function TasksPage() {
   const deleteMutation = trpc.tasks.delete.useMutation({
     onSuccess: () => {
       utils.tasks.list.invalidate()
-      navigate({ to: '/tasks', search: {} })
+      navigate({ to: '/tasks', search: { archiveFilter: 'active' } })
     },
   })
 
   const archiveMutation = trpc.tasks.archive.useMutation({
     onSuccess: (data) => {
       utils.tasks.list.invalidate()
-      navigate({ to: '/tasks', search: { path: data.path } })
+      navigate({ to: '/tasks', search: { path: data.path, archiveFilter: 'active' } })
     },
   })
 
   const restoreMutation = trpc.tasks.restore.useMutation({
     onSuccess: (data) => {
       utils.tasks.list.invalidate()
-      navigate({ to: '/tasks', search: { path: data.path } })
+      navigate({ to: '/tasks', search: { path: data.path, archiveFilter: 'active' } })
     },
   })
 
@@ -247,12 +252,16 @@ function TasksPage() {
   })
 
   const cancelAgentMutation = trpc.agent.cancel.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('[cancelAgentMutation] Success:', data)
       utils.tasks.getActiveAgentSessions.invalidate()
       if (selectedPath) {
         utils.tasks.get.invalidate({ path: selectedPath })
       }
       utils.tasks.list.invalidate()
+    },
+    onError: (error) => {
+      console.error('[cancelAgentMutation] Error:', error)
     },
   })
 
@@ -335,72 +344,10 @@ function TasksPage() {
     })
   }, [selectedPath, workingDir, activeSessionId, dirty, utils.client.tasks.get])
 
-  const filteredTasks = useMemo(() => {
-    let result = tasks
-
-    // Apply archive filter
-    if (archiveFilter === 'active') {
-      result = result.filter((t: TaskSummary) => !t.archived)
-    } else if (archiveFilter === 'archived') {
-      result = result.filter((t: TaskSummary) => t.archived)
-    }
-
-    // Apply text search filter
-    const q = filter.trim().toLowerCase()
-    if (q) {
-      result = result.filter((t: TaskSummary) => {
-        return (
-          t.title.toLowerCase().includes(q) ||
-          t.path.toLowerCase().includes(q) ||
-          t.source.toLowerCase().includes(q)
-        )
-      })
-    }
-
-    return result
-  }, [filter, tasks, archiveFilter])
-
   const selectedSummary = useMemo(() => {
     if (!selectedPath) return null
-    return tasks.find((t: TaskSummary) => t.path === selectedPath) ?? null
+    return tasks.find((t) => t.path === selectedPath) ?? null
   }, [selectedPath, tasks])
-
-  const selectTask = useCallback(
-    (path: string) => {
-      if (path === selectedPath) return
-
-      if (dirty) {
-        setConfirmDialog({
-          open: true,
-          title: 'Unsaved Changes',
-          message: 'You have unsaved changes. Discard them?',
-          confirmText: 'Discard',
-          variant: 'danger',
-          onConfirm: () => {
-            lastLoadedPathRef.current = null
-            prevActiveSessionIdRef.current = null
-            setMode('edit')
-
-            navigate({
-              to: '/tasks',
-              search: (prev: { path?: string }) => ({ ...prev, path }),
-            })
-          },
-        })
-        return
-      }
-
-      lastLoadedPathRef.current = null
-      prevActiveSessionIdRef.current = null
-      setMode('edit')
-
-      navigate({
-        to: '/tasks',
-        search: (prev: { path?: string }) => ({ ...prev, path }),
-      })
-    },
-    [dirty, navigate, selectedPath]
-  )
 
   const handleSave = useCallback(async () => {
     if (!selectedPath) return
@@ -440,13 +387,10 @@ function TasksPage() {
     openCreate()
     navigate({
       to: '/tasks',
-      search: (prev: { path?: string; create?: string }) => ({
-        ...prev,
-        create: undefined,
-      }),
+      search: { path: search.path, archiveFilter: search.archiveFilter ?? 'active' },
       replace: true,
     })
-  }, [search.create, workingDir, openCreate, navigate])
+  }, [search.create, search.path, search.archiveFilter, workingDir, openCreate, navigate])
 
   const handleCreate = async () => {
     const title = newTitle.trim()
@@ -557,9 +501,22 @@ function TasksPage() {
   }, [selectedPath, dirty, draft, runAgentType, runModel, saveMutation, assignToAgentMutation])
 
   const handleCancelAgent = useCallback(() => {
-    if (!activeSessionId) return
-    cancelAgentMutation.mutate({ id: activeSessionId })
-  }, [activeSessionId, cancelAgentMutation])
+    // Use ref to get sessionId - more stable than state which can become undefined during transitions
+    const sessionIdToCancel = activeSessionIdRef.current
+    console.log('[handleCancelAgent] Called with:', {
+      selectedPath,
+      activeSessionId,
+      sessionIdToCancel,
+      activeSessionInfo,
+      activeAgentSessions,
+    })
+    if (!sessionIdToCancel) {
+      console.warn('[handleCancelAgent] No sessionId in ref, cannot cancel')
+      return
+    }
+    console.log('[handleCancelAgent] Calling cancelMutation with id:', sessionIdToCancel)
+    cancelAgentMutation.mutate({ id: sessionIdToCancel })
+  }, [cancelAgentMutation, selectedPath, activeSessionId, activeSessionInfo, activeAgentSessions])
 
   const handleReview = useCallback(() => {
     setReviewMode('review')
@@ -576,7 +533,7 @@ function TasksPage() {
 
     try {
       setSaveError(null)
-      const result = await (reviewMode === 'review'
+      await (reviewMode === 'review'
         ? reviewWithAgentMutation.mutateAsync({
             path: selectedPath,
             agentType,
@@ -590,30 +547,14 @@ function TasksPage() {
             instructions,
           }))
 
-      // Optimistically set the session in cache before navigating
-      // This prevents "Session not found" while daemon initializes
-      const taskTitle = selectedSummary?.title ?? selectedPath
-      utils.agent.get.setData({ id: result.sessionId }, {
-        id: result.sessionId,
-        prompt: `${reviewMode === 'review' ? 'Review' : 'Verify'}: ${taskTitle}`,
-        title: `${reviewMode === 'review' ? 'Review' : 'Verify'}: ${taskTitle}`,
-        status: 'pending',
-        startedAt: new Date().toISOString(),
-        workingDir: workingDir ?? '',
-        output: [],
-        agentType,
-        taskPath: selectedPath,
-        resumable: true,
-      })
-
-      // Navigate to the new agent session
-      navigate({ to: '/agents/$sessionId', params: { sessionId: result.sessionId } })
+      // Agent progress banner will automatically show review/verify status
+      // User stays on task page to maintain context
     } catch (err) {
       console.error('Failed to start review:', err)
       setSaveError(err instanceof Error ? err.message : 'Failed to start review')
       throw err // Re-throw so modal can handle it
     }
-  }, [selectedPath, reviewMode, reviewWithAgentMutation, verifyWithAgentMutation, navigate, utils, selectedSummary, workingDir])
+  }, [selectedPath, reviewMode, reviewWithAgentMutation, verifyWithAgentMutation])
 
   const handleCloseReviewModal = useCallback(() => {
     setReviewModalOpen(false)
@@ -637,13 +578,6 @@ function TasksPage() {
       console.error('Failed to rewrite plan:', err)
     }
   }, [selectedPath, rewriteComment, rewriteAgentType, rewriteModel, rewriteWithAgentMutation])
-
-  const handleArchiveFilterChange = useCallback((newFilter: ArchiveFilter) => {
-    navigate({
-      to: '/tasks',
-      search: (prev) => ({ ...prev, archiveFilter: newFilter }),
-    })
-  }, [navigate])
 
   const editorTitle = selectedSummary?.title ?? (selectedPath ? selectedPath : 'Tasks')
   const progress = selectedSummary?.progress ?? null
@@ -670,128 +604,115 @@ function TasksPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: Task List */}
-        <TaskList
-          tasks={filteredTasks}
-          selectedPath={selectedPath}
-          filter={filter}
-          archiveFilter={archiveFilter}
-          isLoading={isLoadingList}
-          error={listError?.message ?? null}
-          activeAgentSessions={activeAgentSessions}
-          onFilterChange={setFilter}
-          onArchiveFilterChange={handleArchiveFilterChange}
-          onTaskSelect={selectTask}
-        />
-
-        {/* Right: Editor + Sidebar */}
-        <div className="flex-1 min-w-0 min-h-0 flex bg-background overflow-hidden border-l border-border">
+        {/* Left: Editor */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-background overflow-hidden">
           {!selectedPath ? (
-            <div className="flex-1 flex items-center justify-center text-text-muted text-sm">
-              Select a task to view/edit
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+              Select a task from the sidebar
             </div>
           ) : (
             <>
-              {/* Editor Area + Footer */}
-              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-                {/* View tabs */}
-                <div className="h-10 px-3 border-b border-border bg-card flex items-center gap-2">
-                  <button
-                    onClick={() => setView('editor')}
-                    className={`px-3 py-1.5 rounded text-xs font-vcr transition-colors ${
-                      view === 'editor'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                    }`}
-                  >
-                    Editor
-                  </button>
-                  <button
-                    onClick={() => setView('review')}
-                    className={`px-3 py-1.5 rounded text-xs font-vcr transition-colors ${
-                      view === 'review'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                    }`}
-                  >
-                    Review Changes
-                  </button>
-                </div>
-
-                {view === 'editor' ? (
-                  <>
-                    <div className="flex-1 min-h-0 flex flex-col">
-                      <TaskEditor
-                        title={editorTitle}
-                        path={selectedPath}
-                        mode={mode}
-                        draft={draft}
-                        progress={progress}
-                        agentSession={agentSession}
-                        onModeChange={setMode}
-                        onDraftChange={(newDraft) => {
-                          setDraft(newDraft)
-                          setDirty(true)
-                        }}
-                        onCancelAgent={handleCancelAgent}
-                      />
-                    </div>
-
-                    {/* Footer with rewrite controls */}
-                    <TaskFooter
-                      rewriteComment={rewriteComment}
-                      rewriteAgentType={rewriteAgentType}
-                      rewriteModel={rewriteModel}
-                      isRewriting={rewriteWithAgentMutation.isPending}
-                      availableTypes={availableTypes}
-                      agentSession={agentSession}
-                      onRewriteCommentChange={setRewriteComment}
-                      onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
-                      onRewriteModelChange={setRewriteModel}
-                      onRewritePlan={handleRewritePlan}
-                    />
-                  </>
-                ) : (
-                  <div className="flex-1 min-h-0">
-                    <TaskReviewPanel
-                      taskPath={selectedPath}
-                      taskTitle={editorTitle}
-                      taskDescription={draft}
-                    />
-                  </div>
-                )}
+              {/* View tabs */}
+              <div className="h-10 px-3 border-b border-border bg-card flex items-center gap-2">
+                <button
+                  onClick={() => setView('editor')}
+                  className={`px-3 py-1.5 rounded text-xs font-vcr transition-colors ${
+                    view === 'editor'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                  }`}
+                >
+                  Editor
+                </button>
+                <button
+                  onClick={() => setView('review')}
+                  className={`px-3 py-1.5 rounded text-xs font-vcr transition-colors ${
+                    view === 'review'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                  }`}
+                >
+                  Review Changes
+                </button>
               </div>
 
-              {/* Sidebar */}
-              <TaskSidebar
-                dirty={dirty}
-                isSaving={isSaving}
-                isDeleting={deleteMutation.isPending}
-                isAssigning={assignToAgentMutation.isPending}
-                isArchiving={archiveMutation.isPending}
-                isRestoring={restoreMutation.isPending}
-                saveError={saveError}
-                isArchived={selectedSummary?.archived ?? false}
-                runAgentType={runAgentType}
-                runModel={runModel}
-                availableTypes={availableTypes}
-                agentSession={agentSession}
-                sessionId={activeSessionId}
-                taskTitle={editorTitle}
-                taskSessions={taskSessions}
-                onSave={handleSave}
-                onDelete={handleDelete}
-                onArchive={handleArchive}
-                onRestore={handleRestore}
-                onReview={handleReview}
-                onVerify={handleVerify}
-                onAssignToAgent={handleAssignToAgent}
-                onRunAgentTypeChange={handleRunAgentTypeChange}
-                onRunModelChange={setRunModel}
-              />
+              {view === 'editor' ? (
+                <>
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    <TaskEditor
+                      title={editorTitle}
+                      path={selectedPath}
+                      mode={mode}
+                      draft={draft}
+                      progress={progress}
+                      agentSession={agentSession}
+                      onModeChange={setMode}
+                      onDraftChange={(newDraft) => {
+                        setDraft(newDraft)
+                        setDirty(true)
+                      }}
+                      onCancelAgent={handleCancelAgent}
+                    />
+                  </div>
+
+                  {/* Footer with rewrite controls */}
+                  <TaskFooter
+                    rewriteComment={rewriteComment}
+                    rewriteAgentType={rewriteAgentType}
+                    rewriteModel={rewriteModel}
+                    isRewriting={rewriteWithAgentMutation.isPending}
+                    availableTypes={availableTypes}
+                    agentSession={agentSession}
+                    onRewriteCommentChange={setRewriteComment}
+                    onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
+                    onRewriteModelChange={setRewriteModel}
+                    onRewritePlan={handleRewritePlan}
+                  />
+                </>
+              ) : (
+                <div className="flex-1 min-h-0">
+                  <TaskReviewPanel
+                    taskPath={selectedPath}
+                    taskTitle={editorTitle}
+                    taskDescription={draft}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>
+
+        {/* Right: Task Controls Panel */}
+        {selectedPath && (
+          <div className="w-80 shrink-0 border-l border-border overflow-hidden">
+            <TaskSidebar
+              dirty={dirty}
+              isSaving={isSaving}
+              isDeleting={deleteMutation.isPending}
+              isAssigning={assignToAgentMutation.isPending}
+              isArchiving={archiveMutation.isPending}
+              isRestoring={restoreMutation.isPending}
+              saveError={saveError}
+              isArchived={selectedSummary?.archived ?? false}
+              runAgentType={runAgentType}
+              runModel={runModel}
+              availableTypes={availableTypes}
+              agentSession={agentSession}
+              sessionId={activeSessionId}
+              taskTitle={selectedSummary?.title}
+              taskSessions={taskSessions}
+              onSave={handleSave}
+              onDelete={handleDelete}
+              onArchive={handleArchive}
+              onRestore={handleRestore}
+              onReview={handleReview}
+              onVerify={handleVerify}
+              onAssignToAgent={handleAssignToAgent}
+              onRunAgentTypeChange={handleRunAgentTypeChange}
+              onRunModelChange={setRunModel}
+            />
+          </div>
+        )}
       </div>
 
       <CreateTaskModal
