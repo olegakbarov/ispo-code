@@ -35,6 +35,11 @@ export interface RunAgentState {
   model: string
 }
 
+export interface VerifyAgentState {
+  agentType: AgentType
+  model: string
+}
+
 export interface RewriteState {
   comment: string
   agentType: AgentType
@@ -70,6 +75,7 @@ export interface TasksState {
   editor: EditorState
   create: CreateModalState
   run: RunAgentState
+  verify: VerifyAgentState
   rewrite: RewriteState
   save: SaveState
   modals: ModalsState
@@ -100,6 +106,10 @@ export type TasksAction =
   // Run agent actions
   | { type: 'SET_RUN_AGENT_TYPE'; payload: AgentType }
   | { type: 'SET_RUN_MODEL'; payload: string }
+
+  // Verify agent actions
+  | { type: 'SET_VERIFY_AGENT_TYPE'; payload: AgentType }
+  | { type: 'SET_VERIFY_MODEL'; payload: string }
 
   // Rewrite actions
   | { type: 'SET_REWRITE_COMMENT'; payload: string }
@@ -145,6 +155,10 @@ export const initialTasksState: TasksState = {
   run: {
     agentType: 'claude',
     model: getDefaultModelId('claude'),
+  },
+  verify: {
+    agentType: 'codex',
+    model: getDefaultModelId('codex'),
   },
   rewrite: {
     comment: '',
@@ -239,6 +253,19 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
 
     case 'SET_RUN_MODEL':
       return { ...state, run: { ...state.run, model: action.payload } }
+
+    // Verify agent actions
+    case 'SET_VERIFY_AGENT_TYPE':
+      return {
+        ...state,
+        verify: {
+          agentType: action.payload,
+          model: getDefaultModelId(action.payload),
+        },
+      }
+
+    case 'SET_VERIFY_MODEL':
+      return { ...state, verify: { ...state.verify, model: action.payload } }
 
     // Rewrite actions
     case 'SET_REWRITE_COMMENT':
