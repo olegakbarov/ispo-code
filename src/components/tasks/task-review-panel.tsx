@@ -6,11 +6,14 @@
 import { useState, useMemo, useCallback } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
-import { Loader2, Check, X, ChevronRight, ChevronDown, FileText, Archive, RotateCcw, GitCommit } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
 import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
 import type { AgentType } from "@/lib/agent/types"
+import { FileListPanel, type ChangedFile } from "./file-list-panel"
+import { CommitActionButton } from "./commit-action-button"
+import { AllCommittedState } from "./all-committed-state"
 
 interface TaskReviewPanelProps {
   taskPath: string
@@ -274,179 +277,40 @@ export function TaskReviewPanel({
   // Show "All Changes Committed" success state with archive button
   if (allCommitted) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 space-y-6 max-w-md mx-auto">
-        <div className="flex items-center gap-4 p-6 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800 w-full">
-          <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center shrink-0">
-            <Check className="w-6 h-6 text-green-600 dark:text-green-400" />
-          </div>
-          <div>
-            <div className="font-medium text-green-700 dark:text-green-300 text-lg">
-              All Changes Committed
-            </div>
-            <div className="text-sm text-green-600 dark:text-green-400">
-              This task's files have been committed to git
-            </div>
-          </div>
-        </div>
-
-        {/* Archive/Restore button */}
-        {isArchived ? (
-          onRestore && (
-            <button
-              onClick={onRestore}
-              disabled={isRestoring}
-              aria-label={isRestoring ? "Restoring task" : "Restore this task"}
-              className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-            >
-              {isRestoring ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  Restoring...
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="w-4 h-4" aria-hidden="true" />
-                  Restore Task
-                </>
-              )}
-            </button>
-          )
-        ) : (
-          onArchive && (
-            <button
-              onClick={onArchive}
-              disabled={isArchiving}
-              aria-label={isArchiving ? "Archiving task" : "Archive this task"}
-              className="w-full px-4 py-3 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-            >
-              {isArchiving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  Archiving...
-                </>
-              ) : (
-                <>
-                  <Archive className="w-4 h-4" aria-hidden="true" />
-                  Archive Task
-                </>
-              )}
-            </button>
-          )
-        )}
-      </div>
+      <AllCommittedState
+        isArchived={isArchived}
+        isArchiving={isArchiving}
+        isRestoring={isRestoring}
+        onArchive={onArchive}
+        onRestore={onRestore}
+      />
     )
   }
+
+  // Cast uncommittedFiles to ChangedFile[] for the FileListPanel
+  const typedFiles: ChangedFile[] = uncommittedFiles
 
   return (
     <div className="h-full flex">
       {/* Left panel - File list and commit controls */}
       <div className="w-96 shrink-0 flex flex-col border-r border-border bg-card">
-        {/* File list header */}
-        <div className="px-4 py-3 border-b border-border">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-vcr text-sm text-foreground">Changed Files</h3>
-            <button
-              onClick={toggleAll}
-              aria-label={selectedFiles.size === uncommittedFiles.length ? "Deselect all files" : "Select all files"}
-              aria-pressed={selectedFiles.size === uncommittedFiles.length}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              {selectedFiles.size === uncommittedFiles.length ? "Deselect All" : "Select All"}
-            </button>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {uncommittedFiles.length} file{uncommittedFiles.length === 1 ? "" : "s"} • {filesBySession.size} session{filesBySession.size === 1 ? "" : "s"}
-          </div>
-        </div>
-
-        {/* File list grouped by session */}
-        <div className="flex-1 overflow-y-auto">
-          {Array.from(filesBySession.entries()).map(([sessionId, files]) => (
-            <div key={sessionId} className="border-b border-border">
-              <button
-                onClick={() => toggleSession(sessionId)}
-                aria-expanded={effectiveExpandedSessions.has(sessionId)}
-                aria-label={`Session ${sessionId.slice(0, 8)}, ${files.length} file${files.length === 1 ? "" : "s"}`}
-                className="w-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-accent text-left"
-              >
-                {effectiveExpandedSessions.has(sessionId) ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
-                )}
-                <span className="text-xs font-mono text-muted-foreground flex-1">
-                  Session {sessionId.slice(0, 8)}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {files.length} file{files.length === 1 ? "" : "s"}
-                </span>
-              </button>
-
-              {effectiveExpandedSessions.has(sessionId) && (
-                <div className="pb-1">
-                  {files.map((file) => (
-                    <div key={file.path} className="px-2 pl-8">
-                      <label className="flex items-center gap-2 py-1 px-2 rounded hover:bg-accent cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedFiles.has(file.path)}
-                          onChange={() => {
-                            const gitPath = file.repoRelativePath || file.relativePath || file.path
-                            toggleFile(file.path, gitPath)
-                          }}
-                          className="w-3.5 h-3.5 rounded border-gray-300"
-                        />
-                        <div
-                          className="flex-1 min-w-0 cursor-pointer"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            // Use repoRelativePath for git operations, fallback to relativePath or path
-                            const gitPath = file.repoRelativePath || file.relativePath || file.path
-                            handleFileClick(gitPath, "working")
-                          }}
-                        >
-                          <div className="text-xs font-mono truncate">
-                            {file.relativePath || file.path}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                            <span className={`${
-                              file.operation === "create" ? "text-green-600 dark:text-green-400" :
-                              file.operation === "edit" ? "text-blue-600 dark:text-blue-400" :
-                              "text-red-600 dark:text-red-400"
-                            }`}>
-                              {file.operation}
-                            </span>
-                            <span>•</span>
-                            <span>{file.toolUsed}</span>
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-
-        </div>
+        <FileListPanel
+          files={typedFiles}
+          filesBySession={filesBySession}
+          selectedFiles={selectedFiles}
+          expandedSessions={effectiveExpandedSessions}
+          onToggleFile={toggleFile}
+          onToggleAll={toggleAll}
+          onToggleSession={toggleSession}
+          onFileClick={handleFileClick}
+        />
 
         {/* Commit and Archive button */}
         {onCommitAndArchive && (
-          <div className="border-t border-border p-4">
-            <button
-              onClick={onCommitAndArchive}
-              disabled={uncommittedFiles.length === 0}
-              aria-label="Commit all changes and archive this task"
-              className="w-full px-4 py-3 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <GitCommit className="w-4 h-4" aria-hidden="true" />
-              Commit and Archive
-            </button>
-            <div className="text-xs text-muted-foreground text-center mt-2">
-              {uncommittedFiles.length} file{uncommittedFiles.length === 1 ? "" : "s"} will be committed
-            </div>
-          </div>
+          <CommitActionButton
+            fileCount={uncommittedFiles.length}
+            onCommitAndArchive={onCommitAndArchive}
+          />
         )}
       </div>
 
