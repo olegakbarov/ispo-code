@@ -21,10 +21,6 @@ function findLatestDaemonStarted(
 }
 
 export async function rehydrateDaemonsOnBoot(): Promise<void> {
-  if (process.env.DISABLE_DURABLE_STREAMS === "true") {
-    return
-  }
-
   const registry = getDaemonRegistry()
   registry.reload()
 

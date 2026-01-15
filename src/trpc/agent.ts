@@ -11,22 +11,89 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { getAgentManager } from "@/lib/agent/manager"
 import { getStreamAPI } from "@/streams/client"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { killDaemon, isDaemonRunning } from "@/daemon/spawn-daemon"
 import { getStreamServerUrl } from "@/streams/server"
-import type { AgentSession, AgentOutputChunk, SessionStatus } from "@/lib/agent/types"
-import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdEvent } from "@/streams/schemas"
+import { getAvailableAgentTypes } from "@/lib/agent/cli-runner"
+import type { AgentSession, AgentOutputChunk, SessionStatus, EditedFileInfo, ImageAttachment } from "@/lib/agent/types"
+import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdEvent, AgentStateEvent } from "@/streams/schemas"
 import { createControlEvent, createRegistryEvent, getControlStreamPath } from "@/streams/schemas"
+import { calculateRelativePaths } from "@/lib/utils/path-utils"
 
 const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras", "gemini"])
 
+/** Zod schema for image attachments */
+const imageAttachmentSchema = z.object({
+  type: z.literal("image"),
+  mimeType: z.string(),
+  data: z.string(), // base64 encoded
+  fileName: z.string().optional(),
+})
+
 /**
- * Feature flag: Use durable streams for new sessions
- * Set DISABLE_DURABLE_STREAMS=true to use legacy in-memory manager
+ * Reconstruct edited files from output chunks by parsing tool_use events
+ * This enables showing changed files during runtime before metadata is published
  */
-const USE_DURABLE_STREAMS = process.env.DISABLE_DURABLE_STREAMS !== "true"
+function reconstructEditedFilesFromChunks(
+  chunks: AgentOutputChunk[],
+  workingDir: string
+): EditedFileInfo[] {
+  const editedFiles: EditedFileInfo[] = []
+
+  for (const chunk of chunks) {
+    if (chunk.type !== "tool_use") continue
+
+    try {
+      // Parse tool use content to extract tool name and input
+      const content = JSON.parse(chunk.content)
+      const toolName = content.name || content.tool_name
+      const input = content.input || {}
+
+      if (!toolName) continue
+
+      // Extract file path from tool input (various possible keys)
+      const path =
+        (input.path as string) ??
+        (input.file_path as string) ??
+        (input.file as string) ??
+        (input.notebook_path as string)
+
+      if (!path) continue
+
+      // Determine operation type based on tool name
+      let operation: "create" | "edit" | "delete" | null = null
+      const lowerTool = toolName.toLowerCase()
+
+      if (lowerTool.includes("write") || lowerTool.includes("edit")) {
+        operation = "edit"
+      } else if (lowerTool.includes("create")) {
+        operation = "create"
+      } else if (lowerTool.includes("delete") || lowerTool.includes("remove")) {
+        operation = "delete"
+      }
+
+      if (operation) {
+        // Calculate relative paths
+        const { relativePath, repoRelativePath } = calculateRelativePaths(path, workingDir)
+
+        editedFiles.push({
+          path,
+          relativePath,
+          repoRelativePath: repoRelativePath || undefined,
+          operation,
+          timestamp: chunk.timestamp,
+          toolUsed: toolName,
+        })
+      }
+    } catch (error) {
+      // Skip chunks that can't be parsed
+      continue
+    }
+  }
+
+  return editedFiles
+}
 
 /**
  * Reconstruct an AgentSession from stream events
@@ -91,6 +158,7 @@ function reconstructSessionFromStreams(
     id: sessionId,
     prompt: createdEvent.prompt,
     title: createdEvent.title,
+    instructions: createdEvent.instructions,
     status,
     startedAt: createdEvent.timestamp,
     completedAt: latestEvent?.type === "session_completed" || latestEvent?.type === "session_failed"
@@ -105,6 +173,8 @@ function reconstructSessionFromStreams(
     tokensUsed,
     cliSessionId: cliSessionIdEvent?.cliSessionId,
     taskPath: createdEvent.taskPath,
+    sourceFile: createdEvent.sourceFile,
+    sourceLine: createdEvent.sourceLine,
     resumable: status !== "cancelled",
   }
 }
@@ -113,88 +183,67 @@ export const agentRouter = router({
   // === Queries ===
 
   list: procedure.query(async () => {
-    if (USE_DURABLE_STREAMS) {
-      const streamAPI = getStreamAPI()
-      const registryEvents = await streamAPI.readRegistry()
+    const streamAPI = getStreamAPI()
+    const registryEvents = await streamAPI.readRegistry()
 
-      // Track deleted sessions
-      const deletedSessionIds = new Set<string>()
-      for (const event of registryEvents) {
-        if (event.type === "session_deleted") {
-          deletedSessionIds.add(event.sessionId)
-        }
+    // Track deleted sessions
+    const deletedSessionIds = new Set<string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_deleted") {
+        deletedSessionIds.add(event.sessionId)
       }
-
-      // Group events by session and get unique session IDs (excluding deleted)
-      const sessionIds = new Set<string>()
-      for (const event of registryEvents) {
-        if (!deletedSessionIds.has(event.sessionId)) {
-          sessionIds.add(event.sessionId)
-        }
-      }
-
-      // Reconstruct each session
-      const sessions: AgentSession[] = []
-      for (const sessionId of sessionIds) {
-        const sessionEvents = await streamAPI.readSession(sessionId)
-        const session = reconstructSessionFromStreams(sessionId, registryEvents, sessionEvents)
-        if (session) {
-          sessions.push(session)
-        }
-      }
-
-      // Sort by startedAt descending
-      return sessions.sort(
-        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-      )
     }
 
-    // Fallback to legacy manager
-    const manager = getAgentManager()
-    return manager.getAllSessions()
+    // Group events by session and get unique session IDs (excluding deleted)
+    const sessionIds = new Set<string>()
+    for (const event of registryEvents) {
+      if (!deletedSessionIds.has(event.sessionId)) {
+        sessionIds.add(event.sessionId)
+      }
+    }
+
+    // Reconstruct each session
+    const sessions: AgentSession[] = []
+    for (const sessionId of sessionIds) {
+      const sessionEvents = await streamAPI.readSession(sessionId)
+      const session = reconstructSessionFromStreams(sessionId, registryEvents, sessionEvents)
+      if (session) {
+        sessions.push(session)
+      }
+    }
+
+    // Sort by startedAt descending
+    return sessions.sort(
+      (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+    )
   }),
 
   get: procedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
-      if (USE_DURABLE_STREAMS) {
-        const streamAPI = getStreamAPI()
-        const registryEvents = await streamAPI.readRegistry()
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
 
-        // Check if session was deleted
-        const isDeleted = registryEvents.some(
-          (e) => e.type === "session_deleted" && e.sessionId === input.id
-        )
-        if (isDeleted) {
-          return null
-        }
-
-        const sessionEvents = await streamAPI.readSession(input.id)
-        return reconstructSessionFromStreams(input.id, registryEvents, sessionEvents)
+      // Check if session was deleted
+      const isDeleted = registryEvents.some(
+        (e) => e.type === "session_deleted" && e.sessionId === input.id
+      )
+      if (isDeleted) {
+        return null
       }
 
-      const manager = getAgentManager()
-      return manager.getSession(input.id)
+      const sessionEvents = await streamAPI.readSession(input.id)
+      return reconstructSessionFromStreams(input.id, registryEvents, sessionEvents)
     }),
 
   /** Get session with metadata for thread sidebar display */
   getSessionWithMetadata: procedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
-      if (USE_DURABLE_STREAMS) {
-        const streamAPI = getStreamAPI()
-        const registryEvents = await streamAPI.readRegistry()
-        const sessionEvents = await streamAPI.readSession(input.id)
-        const session = reconstructSessionFromStreams(input.id, registryEvents, sessionEvents)
-        if (!session) return null
-        return {
-          ...session,
-          metadata: session.metadata ?? null,
-        }
-      }
-
-      const manager = getAgentManager()
-      const session = manager.getSession(input.id)
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+      const sessionEvents = await streamAPI.readSession(input.id)
+      const session = reconstructSessionFromStreams(input.id, registryEvents, sessionEvents)
       if (!session) return null
       return {
         ...session,
@@ -203,25 +252,27 @@ export const agentRouter = router({
     }),
 
   availableTypes: procedure.query(() => {
-    const manager = getAgentManager()
-    return manager.getAvailableAgentTypes()
+    return getAvailableAgentTypes()
   }),
 
   /** Get files changed by an agent session */
   getChangedFiles: procedure
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
-      if (USE_DURABLE_STREAMS) {
-        const streamAPI = getStreamAPI()
-        const registryEvents = await streamAPI.readRegistry()
-        const sessionEvents = await streamAPI.readSession(input.sessionId)
-        const session = reconstructSessionFromStreams(input.sessionId, registryEvents, sessionEvents)
-        return session?.metadata?.editedFiles ?? []
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+      const sessionEvents = await streamAPI.readSession(input.sessionId)
+      const session = reconstructSessionFromStreams(input.sessionId, registryEvents, sessionEvents)
+
+      if (!session) return []
+
+      // If metadata with editedFiles is available (session completed/failed), use it
+      if (session.metadata?.editedFiles && session.metadata.editedFiles.length > 0) {
+        return session.metadata.editedFiles
       }
 
-      const manager = getAgentManager()
-      const session = manager.getSession(input.sessionId)
-      return session?.metadata?.editedFiles ?? []
+      // Otherwise, reconstruct from output chunks for runtime display
+      return reconstructEditedFilesFromChunks(session.output, session.workingDir)
     }),
 
   // === Mutations ===
@@ -232,42 +283,45 @@ export const agentRouter = router({
       agentType: agentTypeSchema.default("claude"),
       /** Model for opencode in format "provider/model" (e.g., "anthropic/claude-sonnet-4-20250514") */
       model: z.string().optional(),
+      /** Display title for sidebar (uses prompt if not set) */
+      title: z.string().optional(),
+      /** Link to a task file if this session is executing a task */
+      taskPath: z.string().optional(),
+      /** Source file path if session originated from a file comment */
+      sourceFile: z.string().optional(),
+      /** Source line number if session originated from an inline comment */
+      sourceLine: z.number().int().positive().optional(),
+      /** Image attachments for multimodal input */
+      attachments: z.array(imageAttachmentSchema).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (USE_DURABLE_STREAMS) {
-        const sessionId = randomBytes(6).toString("hex")
-        const streamServerUrl = getStreamServerUrl()
-        const daemonNonce = randomBytes(16).toString("hex")
+      const sessionId = randomBytes(6).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
 
-        // Spawn daemon as detached process and track it
-        const monitor = getProcessMonitor()
-        const daemon = monitor.spawnDaemon({
-          sessionId,
-          agentType: input.agentType,
-          prompt: input.prompt,
-          workingDir: ctx.workingDir,
-          model: input.model,
-          streamServerUrl,
-          daemonNonce,
-        })
-
-        return {
-          sessionId,
-          status: "pending" as SessionStatus,
-          agentType: input.agentType,
-          pid: daemon.pid,
-        }
-      }
-
-      // Fallback to legacy manager
-      const manager = getAgentManager()
-      const session = await manager.spawn({
+      // Spawn daemon as detached process and track it
+      const monitor = getProcessMonitor()
+      const daemon = monitor.spawnDaemon({
+        sessionId,
+        agentType: input.agentType,
         prompt: input.prompt,
         workingDir: ctx.workingDir,
-        agentType: input.agentType,
         model: input.model,
+        title: input.title,
+        taskPath: input.taskPath,
+        sourceFile: input.sourceFile,
+        sourceLine: input.sourceLine,
+        streamServerUrl,
+        daemonNonce,
+        attachments: input.attachments,
       })
-      return { sessionId: session.id, status: session.status, agentType: session.agentType }
+
+      return {
+        sessionId,
+        status: "pending" as SessionStatus,
+        agentType: input.agentType,
+        pid: daemon.pid,
+      }
     }),
 
   cancel: procedure
@@ -275,54 +329,52 @@ export const agentRouter = router({
     .mutation(async ({ input }) => {
       console.log(`[tRPC:cancel] Cancelling session ${input.id}`)
 
-      if (USE_DURABLE_STREAMS) {
-        const monitor = getProcessMonitor()
-        const daemon = monitor.getDaemon(input.id)
+      const monitor = getProcessMonitor()
+      const daemon = monitor.getDaemon(input.id)
 
-        if (!daemon) {
-          console.log(`[tRPC:cancel] No daemon found for session ${input.id}`)
-          return { success: false }
-        }
-
-        console.log(`[tRPC:cancel] Found daemon with PID ${daemon.pid}`)
-
-        if (!isDaemonRunning(daemon.pid)) {
-          console.log(`[tRPC:cancel] Daemon ${daemon.pid} is not running`)
-          monitor.killDaemon(input.id)
-          return { success: false }
-        }
-
-        console.log(`[tRPC:cancel] Killing daemon ${daemon.pid}`)
-        const killed = killDaemon(daemon.pid)
-        monitor.killDaemon(input.id)
-        console.log(`[tRPC:cancel] Kill result: ${killed}`)
-        return { success: killed }
+      if (!daemon) {
+        console.log(`[tRPC:cancel] No daemon found for session ${input.id}`)
+        return { success: false }
       }
 
-      const manager = getAgentManager()
-      const success = manager.cancel(input.id)
-      return { success }
+      console.log(`[tRPC:cancel] Found daemon with PID ${daemon.pid}`)
+
+      if (!isDaemonRunning(daemon.pid)) {
+        console.log(`[tRPC:cancel] Daemon ${daemon.pid} is not running`)
+        monitor.killDaemon(input.id)
+        return { success: false }
+      }
+
+      console.log(`[tRPC:cancel] Killing daemon ${daemon.pid}`)
+      const killed = killDaemon(daemon.pid)
+      monitor.killDaemon(input.id)
+      console.log(`[tRPC:cancel] Kill result: ${killed}`)
+
+      // Write cancellation event to registry to ensure UI updates
+      // This is belt-and-suspenders: daemon SIGTERM handler also publishes,
+      // but we write it here too in case daemon dies before publishing
+      const streamAPI = getStreamAPI()
+      await streamAPI.appendToRegistry(
+        createRegistryEvent.cancelled({ sessionId: input.id })
+      )
+      console.log(`[tRPC:cancel] Published cancellation event to registry`)
+
+      return { success: killed }
     }),
 
   delete: procedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
-      if (USE_DURABLE_STREAMS) {
-        // For durable streams, we soft-delete by appending a session_deleted event
-        const monitor = getProcessMonitor()
-        monitor.killDaemon(input.id)
+      // For durable streams, we soft-delete by appending a session_deleted event
+      const monitor = getProcessMonitor()
+      monitor.killDaemon(input.id)
 
-        // Write deletion event to registry (soft delete)
-        const streamAPI = getStreamAPI()
-        await streamAPI.appendToRegistry(
-          createRegistryEvent.deleted({ sessionId: input.id })
-        )
-        return { success: true }
-      }
-
-      const manager = getAgentManager()
-      const success = manager.delete(input.id)
-      return { success }
+      // Write deletion event to registry (soft delete)
+      const streamAPI = getStreamAPI()
+      await streamAPI.appendToRegistry(
+        createRegistryEvent.deleted({ sessionId: input.id })
+      )
+      return { success: true }
     }),
 
   /**
@@ -332,54 +384,58 @@ export const agentRouter = router({
     .input(z.object({
       sessionId: z.string(),
       message: z.string().min(1),
+      /** Image attachments for multimodal input */
+      attachments: z.array(imageAttachmentSchema).optional(),
     }))
     .mutation(async ({ input }) => {
-      if (USE_DURABLE_STREAMS) {
-        const streamAPI = getStreamAPI()
-        const registryEvents = await streamAPI.readRegistry()
-        const sessionEvents = await streamAPI.readSession(input.sessionId)
-        const session = reconstructSessionFromStreams(input.sessionId, registryEvents, sessionEvents)
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+      const sessionEvents = await streamAPI.readSession(input.sessionId)
+      const session = reconstructSessionFromStreams(input.sessionId, registryEvents, sessionEvents)
 
-        if (!session) {
-          throw new Error("Session not found")
-        }
-
-        // Check if daemon is still running
-        const monitor = getProcessMonitor()
-        const daemon = monitor.getDaemon(input.sessionId)
-        if (daemon && isDaemonRunning(daemon.pid)) {
-          throw new Error("Session is currently running")
-        }
-
-        // Extract CLI session ID for resume
-        const cliSessionIdEvent = sessionEvents.find(
-          (e): e is CLISessionIdEvent => e.type === "cli_session_id"
-        )
-
-        const streamServerUrl = getStreamServerUrl()
-        const daemonNonce = randomBytes(16).toString("hex")
-
-        // Spawn new daemon for resume and track it
-        monitor.spawnDaemon({
-          sessionId: input.sessionId,
-          agentType: session.agentType ?? "cerebras",
-          prompt: input.message,
-          workingDir: session.workingDir,
-          model: session.model,
-          cliSessionId: cliSessionIdEvent?.cliSessionId,
-          isResume: true,
-          streamServerUrl,
-          daemonNonce,
-        })
-
-        return { success: true }
+      if (!session) {
+        throw new Error("Session not found")
       }
 
-      const manager = getAgentManager()
-      const result = await manager.sendMessage(input.sessionId, input.message)
-      if (!result.success) {
-        throw new Error(result.error ?? "Failed to send message")
+      // Check if daemon is still running
+      const monitor = getProcessMonitor()
+      const daemon = monitor.getDaemon(input.sessionId)
+      if (daemon && isDaemonRunning(daemon.pid)) {
+        throw new Error("Session is currently running")
       }
+
+      // Extract CLI session ID for resume
+      const cliSessionIdEvent = sessionEvents.find(
+        (e): e is CLISessionIdEvent => e.type === "cli_session_id"
+      )
+
+      // Extract latest agent state for SDK agents (Cerebras, Gemini)
+      // This enables conversation context restoration on resume
+      const agentStateEvents = sessionEvents.filter(
+        (e): e is AgentStateEvent => e.type === "agent_state"
+      )
+      const latestAgentState = agentStateEvents.length > 0
+        ? agentStateEvents[agentStateEvents.length - 1]
+        : undefined
+
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
+
+      // Spawn new daemon for resume and track it
+      monitor.spawnDaemon({
+        sessionId: input.sessionId,
+        agentType: session.agentType ?? "cerebras",
+        prompt: input.message,
+        workingDir: session.workingDir,
+        model: session.model,
+        cliSessionId: cliSessionIdEvent?.cliSessionId,
+        isResume: true,
+        streamServerUrl,
+        daemonNonce,
+        reconstructedMessages: latestAgentState?.messages,
+        attachments: input.attachments,
+      })
+
       return { success: true }
     }),
 
@@ -392,29 +448,20 @@ export const agentRouter = router({
       approved: z.boolean(),
     }))
     .mutation(async ({ input }) => {
-      if (USE_DURABLE_STREAMS) {
-        // Check if daemon is running
-        const monitor = getProcessMonitor()
-        const daemon = monitor.getDaemon(input.sessionId)
+      // Check if daemon is running
+      const monitor = getProcessMonitor()
+      const daemon = monitor.getDaemon(input.sessionId)
 
-        if (!daemon || !isDaemonRunning(daemon.pid)) {
-          throw new Error("Agent is not running")
-        }
-
-        // Publish approval to control stream
-        const streamAPI = getStreamAPI()
-        const controlPath = getControlStreamPath(input.sessionId)
-
-        await streamAPI.append(controlPath, createControlEvent.approvalResponse(input.approved))
-
-        return { success: true }
+      if (!daemon || !isDaemonRunning(daemon.pid)) {
+        throw new Error("Agent is not running")
       }
 
-      const manager = getAgentManager()
-      const result = manager.approve(input.sessionId, input.approved)
-      if (!result.success) {
-        throw new Error(result.error ?? "Failed to send approval")
-      }
+      // Publish approval to control stream
+      const streamAPI = getStreamAPI()
+      const controlPath = getControlStreamPath(input.sessionId)
+
+      await streamAPI.append(controlPath, createControlEvent.approvalResponse(input.approved))
+
       return { success: true }
     }),
 
