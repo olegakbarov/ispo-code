@@ -3,6 +3,7 @@
  */
 
 import { TaskReviewPanel } from './task-review-panel'
+import { formatDateTime, formatTimeAgo } from '@/lib/utils/time'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -12,6 +13,9 @@ interface TaskEditorProps {
   mode: Mode
   draft: string
   taskDescription?: string
+  // Timestamps
+  createdAt?: string
+  updatedAt?: string
   // Archive state for review panel
   isArchived?: boolean
   isArchiving?: boolean
@@ -30,6 +34,8 @@ export function TaskEditor({
   mode,
   draft,
   taskDescription,
+  createdAt,
+  // updatedAt is available but not displayed currently
   isArchived,
   isArchiving,
   isRestoring,
@@ -41,7 +47,7 @@ export function TaskEditor({
 }: TaskEditorProps) {
   return (
     <>
-      <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur min-h-12 px-3 py-2">
+      <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur px-3 py-2">
         <div className="flex items-center gap-3 w-full">
           {/* Mode tabs */}
           <div className="flex items-center border border-border rounded overflow-hidden">
@@ -70,6 +76,13 @@ export function TaskEditor({
           <div className="min-w-0 flex-1 font-vcr text-xs text-text-secondary truncate">
             {title}
           </div>
+
+          {/* Timestamps */}
+          {createdAt && (
+            <div className="shrink-0 text-[10px] text-text-muted font-mono" title={`Created: ${formatDateTime(createdAt)}`}>
+              {formatTimeAgo(createdAt)}
+            </div>
+          )}
         </div>
       </div>
 

@@ -116,7 +116,7 @@ export function TasksPage({
   const lastLoadedPathRef = useRef<string | null>(null)
 
   // Destructure for convenience
-  const { editor, create, run, rewrite, save, modals, pendingCommit, confirmDialog } = state
+  const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog } = state
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -174,6 +174,11 @@ export function TasksPage({
     dispatch({ type: 'SET_REWRITE_AGENT_TYPE', payload: newType })
   }, [])
 
+  // Handler for verify agent type change
+  const handleVerifyAgentTypeChange = useCallback((newType: AgentType) => {
+    dispatch({ type: 'SET_VERIFY_AGENT_TYPE', payload: newType })
+  }, [])
+
   // Synchronize agent type selections when availability changes
   const plannerPreferredOrder: PlannerAgentType[] = useMemo(
     () => ['claude', 'codex', 'cerebras', 'opencode'],
@@ -203,6 +208,19 @@ export function TasksPage({
     availableTypes,
     preferredOrder: agentPreferredOrder,
     onTypeChange: handleRewriteAgentTypeChange,
+  })
+
+  // Verification prefers codex
+  const verifyPreferredOrder: AgentType[] = useMemo(
+    () => ['codex', 'claude', 'cerebras', 'opencode', 'gemini'],
+    []
+  )
+
+  useSynchronizeAgentType({
+    currentType: verify.agentType,
+    availableTypes,
+    preferredOrder: verifyPreferredOrder,
+    onTypeChange: handleVerifyAgentTypeChange,
   })
 
   // Build search params for navigation (preserves filter/sort)
@@ -273,13 +291,15 @@ export function TasksPage({
       const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
 
       // Optimistically add to list with default progress
+      const now = new Date().toISOString()
       if (previousList) {
         utils.tasks.list.setData(undefined, [
           {
             path: tempPath,
             title,
             archived: false,
-            updatedAt: new Date().toISOString(),
+            createdAt: now,
+            updatedAt: now,
             source: 'tasks-dir' as const,
             progress: { total: 0, done: 0, inProgress: 0 },
           },
@@ -318,13 +338,15 @@ export function TasksPage({
       const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
 
       // Optimistically add to list with default progress
+      const now = new Date().toISOString()
       if (previousList) {
         utils.tasks.list.setData(undefined, [
           {
             path: tempPath,
             title,
             archived: false,
-            updatedAt: new Date().toISOString(),
+            createdAt: now,
+            updatedAt: now,
             source: 'tasks-dir' as const,
             progress: { total: 0, done: 0, inProgress: 0 },
           },
@@ -356,10 +378,30 @@ export function TasksPage({
   })
 
   const deleteMutation = trpc.tasks.delete.useMutation({
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Optimistically remove task from list
+      if (previousList) {
+        utils.tasks.list.setData(undefined, previousList.filter((task) => task.path !== path))
+      }
+
+      return { previousList, path }
+    },
     onSuccess: () => {
       utils.tasks.list.invalidate()
       // Navigate to tasks list (no selection)
       navigate({ to: '/tasks', search: buildSearchParams() })
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
     },
   })
 
@@ -448,56 +490,135 @@ export function TasksPage({
       // Cancel outgoing refetches
       await utils.tasks.getActiveAgentSessions.cancel()
 
-      // Snapshot for rollback
+      // Snapshot for rollback (may be undefined if query hasn't resolved)
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
 
       // Optimistically add placeholder session with 'pending' status
-      if (previousSessions !== undefined) {
-        utils.tasks.getActiveAgentSessions.setData(undefined, {
-          ...previousSessions,
-          [path]: {
-            sessionId: `pending-${Date.now()}`,
-            status: 'pending',
-          },
-        })
-      }
+      // Always set data, even if previousSessions is undefined (empty cache)
+      utils.tasks.getActiveAgentSessions.setData(undefined, {
+        ...(previousSessions ?? {}),
+        [path]: {
+          sessionId: `pending-${Date.now()}`,
+          status: 'pending',
+        },
+      })
 
       return { previousSessions, path }
-    },
-    onSuccess: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
     onError: (_err, _variables, context) => {
       // Rollback on error
       if (context?.previousSessions !== undefined) {
         utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      } else {
+        // Cache was empty before, remove the optimistic entry
+        utils.tasks.getActiveAgentSessions.setData(undefined, {})
       }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
+      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
   const cancelAgentMutation = trpc.agent.cancel.useMutation({
+    onMutate: async ({ id }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.getActiveAgentSessions.cancel()
+
+      // Snapshot for rollback (may be undefined if query hasn't resolved)
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+
+      // Optimistically remove session from active sessions
+      if (previousSessions !== undefined) {
+        const updatedSessions = { ...previousSessions }
+        // Find and remove the session by sessionId
+        for (const [taskPath, session] of Object.entries(previousSessions)) {
+          if (session.sessionId === id) {
+            delete updatedSessions[taskPath]
+            break
+          }
+        }
+        utils.tasks.getActiveAgentSessions.setData(undefined, updatedSessions)
+      }
+
+      return { previousSessions }
+    },
     onSuccess: (data) => {
       console.log('[cancelAgentMutation] Success:', data)
-      utils.tasks.getActiveAgentSessions.invalidate()
       if (selectedPath) {
         utils.tasks.get.invalidate({ path: selectedPath })
       }
       utils.tasks.list.invalidate()
     },
-    onError: (error) => {
+    onError: (error, _variables, context) => {
       console.error('[cancelAgentMutation] Error:', error)
+      // Rollback on error
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
+      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
   const verifyWithAgentMutation = trpc.tasks.verifyWithAgent.useMutation({
-    onSuccess: () => {
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.getActiveAgentSessions.cancel()
+
+      // Snapshot for rollback (may be undefined if query hasn't resolved)
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+
+      // Optimistically add placeholder session with 'pending' status
+      // Always set data, even if previousSessions is undefined (empty cache)
+      utils.tasks.getActiveAgentSessions.setData(undefined, {
+        ...(previousSessions ?? {}),
+        [path]: {
+          sessionId: `pending-verify-${Date.now()}`,
+          status: 'pending',
+        },
+      })
+
+      return { previousSessions, path }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      } else {
+        // Cache was empty before, remove the optimistic entry
+        utils.tasks.getActiveAgentSessions.setData(undefined, {})
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
   const rewriteWithAgentMutation = trpc.tasks.rewriteWithAgent.useMutation({
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.getActiveAgentSessions.cancel()
+
+      // Snapshot for rollback (may be undefined if query hasn't resolved)
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+
+      // Optimistically add placeholder session with 'pending' status
+      // Always set data, even if previousSessions is undefined (empty cache)
+      utils.tasks.getActiveAgentSessions.setData(undefined, {
+        ...(previousSessions ?? {}),
+        [path]: {
+          sessionId: `pending-rewrite-${Date.now()}`,
+          status: 'pending',
+        },
+      })
+
+      return { previousSessions, path }
+    },
     onSuccess: (data) => {
-      utils.tasks.getActiveAgentSessions.invalidate()
       // Navigate to agent session to watch rewriting in real-time
       navigate({
         to: '/agents/$sessionId',
@@ -505,9 +626,40 @@ export function TasksPage({
         search: { taskPath: data.path },
       })
     },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      } else {
+        // Cache was empty before, remove the optimistic entry
+        utils.tasks.getActiveAgentSessions.setData(undefined, {})
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
+      utils.tasks.getActiveAgentSessions.invalidate()
+    },
   })
 
   const splitTaskMutation = trpc.tasks.splitTask.useMutation({
+    onMutate: async ({ sourcePath, archiveOriginal }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.list.cancel()
+
+      // Snapshot for rollback
+      const previousList = utils.tasks.list.getData()
+
+      // Optimistically mark original as archived if requested
+      if (archiveOriginal && previousList) {
+        utils.tasks.list.setData(undefined, previousList.map((task) =>
+          task.path === sourcePath
+            ? { ...task, archived: true, archivedAt: new Date().toISOString() }
+            : task
+        ))
+      }
+
+      return { previousList, sourcePath }
+    },
     onSuccess: (data) => {
       // Invalidate task list cache
       utils.tasks.list.invalidate()
@@ -522,6 +674,12 @@ export function TasksPage({
           params: { _splat: encodeTaskPath(data.newPaths[0]) },
           search: buildSearchParams(),
         })
+      }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
       }
     },
   })
@@ -1023,6 +1181,8 @@ export function TasksPage({
                   mode={mode}
                   draft={editor.draft}
                   taskDescription={editor.draft}
+                  createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
+                  updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
                   isArchived={selectedSummary?.archived ?? false}
                   isArchiving={archiveMutation.isPending}
                   isRestoring={restoreMutation.isPending}
@@ -1105,13 +1265,13 @@ export function TasksPage({
         onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
       />
 
-      {/* Verify uses ReviewModal (single agent) */}
+      {/* Verify uses ReviewModal (single agent) - defaults to codex */}
       <ReviewModal
         isOpen={modals.verifyOpen}
         mode="verify"
         taskTitle={editorTitle}
-        agentType={run.agentType}
-        model={run.model}
+        agentType={verify.agentType}
+        model={verify.model}
         availableTypes={availableTypes}
         onClose={handleCloseVerifyModal}
         onStart={handleStartVerify}
