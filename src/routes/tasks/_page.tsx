@@ -15,11 +15,13 @@ import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskModal, ALL_PLANNER_CANDIDATES } from '@/components/tasks/create-task-modal'
+import { CreateTaskForm, CreateTaskActions } from '@/components/tasks/create-task-form'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { ImplementModal } from '@/components/tasks/implement-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
 import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
 import { DebatePanel } from '@/components/debate'
+import { OrchestratorModal } from '@/components/tasks/orchestrator-modal'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
 import { trpc } from '@/lib/trpc-client'
@@ -120,7 +122,7 @@ export function TasksPage({
   const lastLoadedPathRef = useRef<string | null>(null)
 
   // Destructure for convenience
-  const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog } = state
+  const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog, orchestrator } = state
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -517,6 +519,12 @@ export function TasksPage({
         utils.tasks.list.setData(undefined, context.previousList)
       }
       utils.tasks.list.invalidate()
+
+      // Track this debug run for orchestrator triggering
+      if (data.debugRunId) {
+        dispatch({ type: 'SET_ORCHESTRATOR_TRIGGERED', payload: data.debugRunId })
+      }
+
       // Navigate to first agent session to watch debugging
       navigate({
         to: '/agents/$sessionId',
@@ -989,6 +997,76 @@ export function TasksPage({
     500
   )
 
+  // Orchestrator mutation
+  const orchestrateMutation = trpc.tasks.orchestrateDebugRun.useMutation({
+    onSuccess: (data) => {
+      // Open the orchestrator modal with the session
+      dispatch({
+        type: 'SET_ORCHESTRATOR',
+        payload: {
+          debugRunId: orchestrator.debugRunId!,
+          sessionId: data.sessionId,
+        },
+      })
+    },
+    onError: (err) => {
+      console.error('Failed to start orchestrator:', err)
+    },
+  })
+
+  // Query debug run status when we have a tracked debugRunId
+  const { data: debugRunStatus } = trpc.tasks.getDebugRunStatus.useQuery(
+    { debugRunId: orchestrator.debugRunId ?? '' },
+    {
+      enabled: !!orchestrator.debugRunId && orchestrator.triggered && !orchestrator.sessionId,
+      refetchInterval: 2000, // Poll every 2s while waiting for completion
+    }
+  )
+
+  // Trigger orchestrator when all debug sessions complete
+  const orchestratorTriggeredRef = useRef<string | null>(null)
+  useEffect(() => {
+    // Skip if no debug run being tracked
+    if (!orchestrator.debugRunId || !orchestrator.triggered) return
+
+    // Skip if orchestrator already started for this run
+    if (orchestrator.sessionId) return
+    if (orchestratorTriggeredRef.current === orchestrator.debugRunId) return
+
+    // Skip if debug run status not yet loaded
+    if (!debugRunStatus) return
+
+    // Check if all sessions are terminal
+    if (!debugRunStatus.allTerminal) return
+
+    // All sessions complete - trigger orchestrator
+    orchestratorTriggeredRef.current = orchestrator.debugRunId
+
+    // Find the task path from sessions (they all share the same taskPath)
+    const sessionWithPath = taskSessions?.all.find((s) => s.sessionId && debugRunStatus.sessions.some(ds => ds.sessionId === s.sessionId))
+    const taskPathForOrchestrator = sessionWithPath ? selectedPath : selectedPath
+
+    if (taskPathForOrchestrator) {
+      orchestrateMutation.mutate({
+        debugRunId: orchestrator.debugRunId,
+        taskPath: taskPathForOrchestrator,
+      })
+    }
+  }, [
+    orchestrator.debugRunId,
+    orchestrator.triggered,
+    orchestrator.sessionId,
+    debugRunStatus,
+    selectedPath,
+    taskSessions?.all,
+    orchestrateMutation,
+  ])
+
+  // Handler to close orchestrator modal
+  const handleCloseOrchestratorModal = useCallback(() => {
+    dispatch({ type: 'RESET_ORCHESTRATOR' })
+  }, [])
+
   const openCreate = useCallback(() => {
     dispatch({ type: 'OPEN_CREATE_MODAL' })
   }, [])
@@ -1317,8 +1395,46 @@ export function TasksPage({
         {/* Left: Editor */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-background overflow-hidden">
           {!selectedPath ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              Select a task from the sidebar
+            /* Inline create form centered in content area */
+            <div className="flex-1 flex items-center justify-center p-4">
+              <div className="w-full max-w-md bg-panel border border-border rounded shadow-lg">
+                <div className="p-3 border-b border-border">
+                  <div className="font-vcr text-sm text-accent">New Task</div>
+                </div>
+                <div className="p-4">
+                  <CreateTaskForm
+                    isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
+                    newTitle={create.title}
+                    taskType={create.taskType}
+                    useAgent={create.useAgent}
+                    createAgentType={create.agentType}
+                    createModel={create.model}
+                    availableTypes={availableTypes}
+                    availablePlannerTypes={availablePlannerTypes}
+                    debugAgents={create.debugAgents}
+                    onCreate={handleCreate}
+                    onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
+                    onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
+                    onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
+                    onAgentTypeChange={handleCreateAgentTypeChange}
+                    onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
+                    onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
+                    onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
+                    autoFocus={true}
+                  />
+                </div>
+                <div className="p-3 border-t border-border">
+                  <CreateTaskActions
+                    isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
+                    canCreate={
+                      create.title.trim().length > 0 &&
+                      (!create.useAgent || availablePlannerTypes.length > 0) &&
+                      (!create.useAgent || create.taskType !== 'bug' || create.debugAgents.some((da) => da.selected))
+                    }
+                    onCreate={handleCreate}
+                  />
+                </div>
+              </div>
             </div>
           ) : mode === 'debate' ? (
             // Debate mode - show inline debate panel
@@ -1491,6 +1607,14 @@ export function TasksPage({
         confirmText={confirmDialog.confirmText}
         variant={confirmDialog.variant}
         onConfirm={confirmDialog.onConfirm}
+      />
+
+      {/* Orchestrator Modal - Shows live codex synthesis of debug outputs */}
+      <OrchestratorModal
+        isOpen={modals.orchestratorOpen}
+        sessionId={orchestrator.sessionId}
+        taskPath={selectedPath}
+        onClose={handleCloseOrchestratorModal}
       />
 
     </div>
