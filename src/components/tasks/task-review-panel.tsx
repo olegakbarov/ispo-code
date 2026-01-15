@@ -89,11 +89,72 @@ export function TaskReviewPanel({
     ? (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : theme
 
-  // Commit mutation
+  // Commit mutation with optimistic updates
   const commitMutation = trpc.git.commitScoped.useMutation({
-    onSuccess: () => {
+    onMutate: async ({ files }) => {
+      // 1. Cancel outgoing refetches to avoid overwriting optimistic update
+      await utils.git.status.cancel()
+      await utils.tasks.getChangedFilesForTask.cancel()
+
+      // 2. Snapshot current state for rollback
+      const previousStatus = utils.git.status.getData()
+      const previousChangedFiles = utils.tasks.getChangedFilesForTask.getData({ path: taskPath })
+      const previousSelectedFiles = new Map(selectedFiles)
+      const previousCommitMessage = commitMessage
+
+      // 3. Build set of git-relative paths being committed
+      const commitSet = new Set(files)
+
+      // 4. Optimistically update git status cache - remove committed files
+      if (previousStatus) {
+        utils.git.status.setData(undefined, {
+          ...previousStatus,
+          staged: previousStatus.staged.filter((f) => !commitSet.has(f.file)),
+          modified: previousStatus.modified.filter((f) => !commitSet.has(f.file)),
+          untracked: previousStatus.untracked.filter((f) => !commitSet.has(f)),
+        })
+      }
+
+      // 5. Optimistically update changed files cache - remove committed files
+      if (previousChangedFiles) {
+        utils.tasks.getChangedFilesForTask.setData(
+          { path: taskPath },
+          previousChangedFiles.filter((f) => {
+            const gitPath = f.repoRelativePath || f.relativePath || f.path
+            return !commitSet.has(gitPath)
+          })
+        )
+      }
+
+      // 6. Clear local selection state immediately
       setSelectedFiles(new Map())
       setCommitMessage("")
+
+      // 7. Return rollback context
+      return {
+        previousStatus,
+        previousChangedFiles,
+        previousSelectedFiles,
+        previousCommitMessage,
+      }
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousStatus) {
+        utils.git.status.setData(undefined, context.previousStatus)
+      }
+      if (context?.previousChangedFiles) {
+        utils.tasks.getChangedFilesForTask.setData({ path: taskPath }, context.previousChangedFiles)
+      }
+      if (context?.previousSelectedFiles) {
+        setSelectedFiles(context.previousSelectedFiles)
+      }
+      if (context?.previousCommitMessage) {
+        setCommitMessage(context.previousCommitMessage)
+      }
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency after mutation settles
       utils.git.status.invalidate()
       utils.tasks.getChangedFilesForTask.invalidate()
     },
@@ -117,11 +178,23 @@ export function TaskReviewPanel({
     return changedFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
   }, [changedFiles])
 
-  // Query commits for the changed files
+  // Query commits for the changed files (for commit history panel)
   const { data: commits = [], isLoading: commitsLoading } = trpc.git.commitsForFiles.useQuery(
     { files: gitRelativeFiles, limit: 50 },
     { enabled: gitRelativeFiles.length > 0 && showCommitHistory }
   )
+
+  // Query uncommitted status to distinguish "no changes yet" vs "all committed"
+  const { data: uncommittedStatus } = trpc.tasks.hasUncommittedChanges.useQuery(
+    { path: taskPath },
+    { enabled: !!taskPath }
+  )
+
+  // Derive "all committed" state:
+  // - changedFiles.length === 0 (no uncommitted changes in session)
+  // - uncommittedStatus exists and hasUncommitted is false
+  // - This means task had sessions but all changes are committed
+  const allCommitted = changedFiles.length === 0 && uncommittedStatus && !uncommittedStatus.hasUncommitted
 
   // Transform git status for DiffPanel
   const diffPanelStatus: GitStatus | undefined = gitStatus ? {
@@ -286,10 +359,75 @@ export function TaskReviewPanel({
     )
   }
 
-  if (changedFiles.length === 0) {
+  // Show "No files changed yet" only when truly empty (not when all committed)
+  if (changedFiles.length === 0 && !allCommitted) {
     return (
       <div className="flex items-center justify-center p-8 text-muted-foreground text-sm">
         No files changed yet
+      </div>
+    )
+  }
+
+  // Show "All Changes Committed" success state with archive button
+  if (allCommitted) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 space-y-6 max-w-md mx-auto">
+        <div className="flex items-center gap-4 p-6 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800 w-full">
+          <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center shrink-0">
+            <Check className="w-6 h-6 text-green-600 dark:text-green-400" />
+          </div>
+          <div>
+            <div className="font-medium text-green-700 dark:text-green-300 text-lg">
+              All Changes Committed
+            </div>
+            <div className="text-sm text-green-600 dark:text-green-400">
+              This task's files have been committed to git
+            </div>
+          </div>
+        </div>
+
+        {/* Archive/Restore button */}
+        {isArchived ? (
+          onRestore && (
+            <button
+              onClick={onRestore}
+              disabled={isRestoring}
+              className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            >
+              {isRestoring ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Restoring...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4" />
+                  Restore Task
+                </>
+              )}
+            </button>
+          )
+        ) : (
+          onArchive && (
+            <button
+              onClick={onArchive}
+              disabled={isArchiving}
+              className="w-full px-4 py-3 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            >
+              {isArchiving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Archiving...
+                </>
+              ) : (
+                <>
+                  <Archive className="w-4 h-4" />
+                  Archive Task
+                </>
+              )}
+            </button>
+          )
+        )}
       </div>
     )
   }
@@ -477,128 +615,63 @@ export function TaskReviewPanel({
           </div>
         </div>
 
-        {/* Commit controls / All Committed state */}
+        {/* Commit controls */}
         <div className="border-t border-border p-4 space-y-4">
-          {changedFiles.length === 0 ? (
-            /* All changes committed state */
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
-                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center">
-                  <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
-                </div>
-                <div>
-                  <div className="font-medium text-green-700 dark:text-green-300">
-                    All Changes Committed
-                  </div>
-                  <div className="text-sm text-green-600 dark:text-green-400">
-                    This task's files have been committed to git
-                  </div>
-                </div>
-              </div>
-
-              {/* Archive/Restore button in success state */}
-              {isArchived ? (
-                onRestore && (
-                  <button
-                    onClick={onRestore}
-                    disabled={isRestoring}
-                    className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-                  >
-                    {isRestoring ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Restoring...
-                      </>
-                    ) : (
-                      <>
-                        <RotateCcw className="w-4 h-4" />
-                        Restore Task
-                      </>
-                    )}
-                  </button>
-                )
-              ) : (
-                onArchive && (
-                  <button
-                    onClick={onArchive}
-                    disabled={isArchiving}
-                    className="w-full px-4 py-3 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-                  >
-                    {isArchiving ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Archiving...
-                      </>
-                    ) : (
-                      <>
-                        <Archive className="w-4 h-4" />
-                        Archive Task
-                      </>
-                    )}
-                  </button>
-                )
-              )}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium">Commit Message</label>
+              <button
+                onClick={handleGenerateMessage}
+                disabled={selectedFiles.size === 0 || isGeneratingMessage}
+                className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGeneratingMessage ? "Generating..." : "Generate with AI"}
+              </button>
             </div>
-          ) : (
-            /* Normal commit controls */
-            <>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium">Commit Message</label>
-                  <button
-                    onClick={handleGenerateMessage}
-                    disabled={selectedFiles.size === 0 || isGeneratingMessage}
-                    className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isGeneratingMessage ? "Generating..." : "Generate with AI"}
-                  </button>
-                </div>
-                <textarea
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  placeholder="Describe your changes..."
-                  className="w-full min-h-[100px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                  disabled={commitMutation.isPending}
-                />
-              </div>
+            <textarea
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              placeholder="Describe your changes..."
+              className="w-full min-h-[100px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={commitMutation.isPending}
+            />
+          </div>
 
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">
-                  {selectedFiles.size} of {changedFiles.length} files selected
-                </div>
-                <button
-                  onClick={handleCommit}
-                  disabled={!canCommit}
-                  className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {commitMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Committing...
-                    </>
-                  ) : (
-                    <>
-                      <GitCommit className="w-4 h-4" />
-                      Commit
-                    </>
-                  )}
-                </button>
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              {selectedFiles.size} of {changedFiles.length} files selected
+            </div>
+            <button
+              onClick={handleCommit}
+              disabled={!canCommit}
+              className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {commitMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Committing...
+                </>
+              ) : (
+                <>
+                  <GitCommit className="w-4 h-4" />
+                  Commit
+                </>
+              )}
+            </button>
+          </div>
 
-              {/* Success/Error messages */}
-              {commitMutation.isSuccess && (
-                <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 px-3 py-2 rounded">
-                  <Check className="w-4 h-4" />
-                  Successfully committed changes
-                </div>
-              )}
-              {commitMutation.isError && (
-                <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">
-                  <X className="w-4 h-4" />
-                  {commitMutation.error instanceof Error ? commitMutation.error.message : "Failed to commit"}
-                </div>
-              )}
-            </>
+          {/* Success/Error messages */}
+          {commitMutation.isSuccess && (
+            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 px-3 py-2 rounded">
+              <Check className="w-4 h-4" />
+              Successfully committed changes
+            </div>
+          )}
+          {commitMutation.isError && (
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">
+              <X className="w-4 h-4" />
+              {commitMutation.error instanceof Error ? commitMutation.error.message : "Failed to commit"}
+            </div>
           )}
         </div>
       </div>

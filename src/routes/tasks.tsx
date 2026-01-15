@@ -194,9 +194,42 @@ function TasksPage() {
 
   // Mutations
   const saveMutation = trpc.tasks.save.useMutation({
-    onSuccess: () => {
+    onMutate: async ({ path, content }) => {
+      // 1. Cancel outgoing refetches
+      await utils.tasks.get.cancel({ path })
+
+      // 2. Snapshot current state for rollback
+      const previousTask = utils.tasks.get.getData({ path })
+      const previousDirty = dirty
+
+      // 3. Optimistically mark as clean (content already in draft)
+      setDirty(false)
+      setSaveError(null)
+
+      // 4. Optimistically update cache with new content
+      if (previousTask) {
+        utils.tasks.get.setData({ path }, {
+          ...previousTask,
+          content,
+        })
+      }
+
+      return { previousTask, previousDirty, path }
+    },
+    onError: (err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousTask) {
+        utils.tasks.get.setData({ path: context.path }, context.previousTask)
+      }
+      if (context?.previousDirty !== undefined) {
+        setDirty(context.previousDirty)
+      }
+      setSaveError(err instanceof Error ? err.message : 'Failed to save')
+    },
+    onSettled: (_data, _error, variables) => {
+      // Always refetch to ensure consistency
       utils.tasks.list.invalidate()
-      utils.tasks.get.invalidate({ path: selectedPath ?? '' })
+      utils.tasks.get.invalidate({ path: variables.path })
     },
   })
 
@@ -350,12 +383,11 @@ function TasksPage() {
   const handleSave = useCallback(async () => {
     if (!selectedPath) return
     setIsSaving(true)
-    setSaveError(null)
     try {
+      // Mutation handles optimistic state updates internally
       await saveMutation.mutateAsync({ path: selectedPath, content: draft })
-      setDirty(false)
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save')
+    } catch {
+      // Error already handled in onError callback
     } finally {
       setIsSaving(false)
     }
