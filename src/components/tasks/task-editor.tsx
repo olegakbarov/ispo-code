@@ -1,17 +1,13 @@
 /**
- * Task editor component with edit/preview modes
+ * Task editor component with edit/preview/review modes
  */
 
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
-import { Select } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { AgentProgressBanner } from './agent-progress-banner'
-import { TaskCommitPanel } from './task-commit-panel'
-import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from './agent-config'
+import { TaskReviewPanel } from './task-review-panel'
 import type { AgentSession } from './agent-types'
-import type { AgentType } from '@/lib/agent/types'
 
-type Mode = 'edit' | 'preview'
+type Mode = 'edit' | 'preview' | 'review'
 
 interface TaskProgress {
   total: number
@@ -24,26 +20,10 @@ interface TaskEditorProps {
   path: string
   mode: Mode
   draft: string
-  dirty: boolean
   progress: TaskProgress | null
   agentSession: AgentSession | null
-  sessionId?: string
-  runAgentType: AgentType
-  runModel: string
-  availableTypes: AgentType[] | undefined
-  isSaving: boolean
-  isDeleting: boolean
-  isAssigning: boolean
-  saveError: string | null
   onModeChange: (mode: Mode) => void
   onDraftChange: (draft: string) => void
-  onSave: () => void
-  onDelete: () => void
-  onReview: () => void
-  onVerify: () => void
-  onAssignToAgent: () => void
-  onRunAgentTypeChange: (agentType: AgentType) => void
-  onRunModelChange: (model: string) => void
   onCancelAgent: () => void
 }
 
@@ -52,26 +32,10 @@ export function TaskEditor({
   path,
   mode,
   draft,
-  dirty,
   progress,
   agentSession,
-  sessionId,
-  runAgentType,
-  runModel,
-  availableTypes,
-  isSaving,
-  isDeleting,
-  isAssigning,
-  saveError,
   onModeChange,
   onDraftChange,
-  onSave,
-  onDelete,
-  onReview,
-  onVerify,
-  onAssignToAgent,
-  onRunAgentTypeChange,
-  onRunModelChange,
   onCancelAgent,
 }: TaskEditorProps) {
   return (
@@ -98,97 +62,40 @@ export function TaskEditor({
             </div>
           )}
 
-          <Switch
-            size="sm"
-            checked={mode === 'preview'}
-            onChange={(e) => onModeChange(e.target.checked ? 'preview' : 'edit')}
-            offLabel="Edit"
-            onLabel="Preview"
-          />
-
-          <button
-            onClick={onSave}
-            disabled={!dirty || isSaving}
-            className="px-2 py-1 rounded text-[10px] font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={dirty ? 'Save (Cmd/Ctrl+S)' : 'Saved'}
-          >
-            {isSaving ? 'Saving...' : dirty ? 'Save' : 'Saved'}
-          </button>
-
-          <div className="w-px h-4 bg-border mx-1" />
-
-          <button
-            onClick={onReview}
-            disabled={!!agentSession}
-            className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Review spec quality (clarity, completeness, actionability)"
-          >
-            Review
-          </button>
-
-          <button
-            onClick={onVerify}
-            disabled={!!agentSession}
-            className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            title="Verify completed items against codebase"
-          >
-            Verify
-          </button>
-
-          <div className="flex items-center gap-1">
-            <Select
-              value={runAgentType}
-              onChange={(e) => onRunAgentTypeChange(e.target.value as AgentType)}
-              variant="sm"
-              disabled={isAssigning || !!agentSession}
-              className="bg-background text-[10px] py-1 min-w-[100px]"
-            >
-              {(Object.keys(agentTypeLabel) as AgentType[]).map((t) => (
-                <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
-                  {agentTypeLabel[t]}
-                </option>
-              ))}
-            </Select>
-            {supportsModelSelection(runAgentType) && (
-              <Select
-                value={runModel}
-                onChange={(e) => onRunModelChange(e.target.value)}
-                variant="sm"
-                disabled={isAssigning || !!agentSession}
-                className="bg-background text-[10px] py-1 min-w-[120px]"
-              >
-                {getModelsForAgentType(runAgentType).map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            )}
+          {/* Mode tabs */}
+          <div className="flex items-center gap-1 border border-border rounded overflow-hidden">
             <button
-              onClick={onAssignToAgent}
-              disabled={isAssigning || !!agentSession || (availableTypes ? !availableTypes.includes(runAgentType) : false)}
-              className="px-2 py-1 rounded text-[10px] font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Assign this task to an AI agent"
+              onClick={() => onModeChange('edit')}
+              className={`px-3 py-1 text-xs font-vcr transition-colors ${
+                mode === 'edit'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              }`}
             >
-              {isAssigning ? 'Assigning...' : 'Run'}
+              Edit
+            </button>
+            <button
+              onClick={() => onModeChange('preview')}
+              className={`px-3 py-1 text-xs font-vcr transition-colors border-l border-border ${
+                mode === 'preview'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              }`}
+            >
+              Preview
+            </button>
+            <button
+              onClick={() => onModeChange('review')}
+              className={`px-3 py-1 text-xs font-vcr transition-colors border-l border-border ${
+                mode === 'review'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              }`}
+            >
+              Review
             </button>
           </div>
-
-          <button
-            onClick={onDelete}
-            disabled={isDeleting}
-            className="px-2 py-1 rounded text-[10px] font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Delete this task"
-          >
-            {isDeleting ? 'Deleting...' : 'Delete'}
-          </button>
         </div>
-
-        {saveError && (
-          <div className="mt-2 p-2 bg-error/10 border border-error/30 rounded text-xs text-error">
-            {saveError}
-          </div>
-        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
@@ -199,19 +106,16 @@ export function TaskEditor({
             className="w-full h-full p-3 bg-background text-xs text-text-primary font-mono border-0 outline-none resize-none"
             spellCheck={false}
           />
-        ) : (
+        ) : mode === 'preview' ? (
           <div className="h-full overflow-y-auto p-4">
             <StreamingMarkdown content={draft} className="text-xs" />
           </div>
+        ) : (
+          <div className="h-full">
+            <TaskReviewPanel taskPath={path} taskTitle={title} />
+          </div>
         )}
       </div>
-
-      {/* Commit Panel - shown when session exists */}
-      {sessionId && (
-        <div className="border-t border-border p-4 bg-panel">
-          <TaskCommitPanel sessionId={sessionId} taskTitle={title} />
-        </div>
-      )}
     </>
   )
 }

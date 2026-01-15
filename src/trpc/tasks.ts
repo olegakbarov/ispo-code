@@ -701,19 +701,65 @@ export const tasksRouter = router({
   /**
    * Get active agent sessions for tasks.
    * Returns a map of taskPath -> session for all tasks with active agents.
+   *
+   * Uses durable streams instead of process monitor for reliability:
+   * - No race conditions during daemon spawn
+   * - Survives server restarts
+   * - Always consistent with actual session state
    */
-  getActiveAgentSessions: procedure.query(() => {
-    const monitor = getProcessMonitor()
-    const allDaemons = monitor.getAllDaemons()
+  getActiveAgentSessions: procedure.query(async () => {
+    const streamAPI = getStreamAPI()
+    const registryEvents = await streamAPI.readRegistry()
 
-    // Filter to daemons that have a taskPath and are still running
-    const taskSessions: Record<string, { sessionId: string; status: string }> = {}
+    // Track deleted sessions
+    const deletedSessionIds = new Set<string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_deleted") {
+        deletedSessionIds.add(event.sessionId)
+      }
+    }
 
-    for (const daemon of allDaemons) {
-      if (daemon.config.taskPath && monitor.isProcessRunning(daemon.pid)) {
-        taskSessions[daemon.config.taskPath] = {
-          sessionId: daemon.sessionId,
-          status: "running",
+    // Find all session_created events with taskPath (exclude deleted sessions)
+    const taskSessions: Record<string, { sessionId: string; status: SessionStatus }> = {}
+
+    for (const event of registryEvents) {
+      if (
+        event.type === "session_created" &&
+        event.taskPath &&
+        !deletedSessionIds.has(event.sessionId)
+      ) {
+        // Find the latest status for this session
+        const sessionEvents = registryEvents.filter((e) => e.sessionId === event.sessionId)
+        const latestStatusEvent = [...sessionEvents]
+          .reverse()
+          .find((e) =>
+            e.type === "session_updated" ||
+            e.type === "session_completed" ||
+            e.type === "session_failed" ||
+            e.type === "session_cancelled"
+          )
+
+        let status: SessionStatus = "pending"
+        if (latestStatusEvent) {
+          if (latestStatusEvent.type === "session_updated") {
+            status = latestStatusEvent.status
+          } else if (latestStatusEvent.type === "session_completed") {
+            status = "completed"
+          } else if (latestStatusEvent.type === "session_failed") {
+            status = "failed"
+          } else if (latestStatusEvent.type === "session_cancelled") {
+            status = "cancelled"
+          }
+        }
+
+        // Only include active sessions (not completed, failed, or cancelled)
+        const activeStatuses: SessionStatus[] = ["pending", "running", "working", "waiting_approval", "waiting_input", "idle"]
+        if (activeStatuses.includes(status)) {
+          // Use the most recent active session for each task
+          taskSessions[event.taskPath] = {
+            sessionId: event.sessionId,
+            status,
+          }
         }
       }
     }

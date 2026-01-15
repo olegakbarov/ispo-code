@@ -36,11 +36,20 @@ export interface FileDiff {
   isNew: boolean
   isDeleted: boolean
   isBinary: boolean
+  isImage?: boolean
 }
 
 export type GitDiffView = "auto" | "staged" | "working"
 
 // === Helper Functions ===
+
+/**
+ * Check if a file is an image based on extension
+ */
+function isImageFile(filename: string): boolean {
+  const ext = filename.toLowerCase().split('.').pop() || ''
+  return ['gif', 'png', 'jpg', 'jpeg', 'webp', 'svg', 'bmp', 'ico'].includes(ext)
+}
 
 /**
  * Execute a git command and return stdout
@@ -251,6 +260,94 @@ export function getRecentCommits(
         date: (date || '').trim()
       }
     })
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Get commits that touched specific files
+ */
+export function getCommitsForFiles(
+  cwd: string,
+  files: string[],
+  limit = 50
+): Array<{
+  hash: string
+  message: string
+  author: string
+  date: string
+  timestamp: number
+  files: string[]
+}> {
+  if (!isGitRepo(cwd)) {
+    return []
+  }
+  if (files.length === 0) {
+    return []
+  }
+
+  const repoRoot = getGitRoot(cwd) ?? cwd
+
+  // Validate all file paths
+  for (const file of files) {
+    if (!isPathSafe(repoRoot, file)) {
+      throw new Error(`Invalid file path: ${file}`)
+    }
+  }
+
+  try {
+    // Get commits that touched any of these files
+    // Format: hash, message, author, timestamp, date, NUL, files touched (one per line)
+    const args = [
+      'log',
+      '-n', String(limit),
+      '--format=%h%x00%B%x00%an%x00%at%x00%ar%x00',
+      '--name-only',
+      '--',
+      ...files
+    ]
+
+    const log = execGit(args.join(' '), cwd, { trim: false })
+
+    // Parse the log output
+    const commits: Array<{
+      hash: string
+      message: string
+      author: string
+      date: string
+      timestamp: number
+      files: string[]
+    }> = []
+
+    // Split by double newline (separates commits)
+    const entries = log.split('\x00\n').filter(Boolean)
+
+    for (const entry of entries) {
+      const lines = entry.split('\n')
+      if (lines.length === 0) continue
+
+      // First line has the commit metadata
+      const metadata = lines[0]?.split('\x00')
+      if (!metadata || metadata.length < 5) continue
+
+      const [hash, message, author, timestampStr, date] = metadata
+      const timestamp = parseInt(timestampStr || '0', 10)
+
+      // Remaining lines are the files (skip empty lines)
+      const touchedFiles = lines.slice(1).filter(Boolean)
+
+      commits.push({
+        hash: (hash || '').trim(),
+        message: (message || '').trim(),
+        author: (author || '').trim(),
+        date: (date || '').trim(),
+        timestamp,
+        files: touchedFiles
+      })
+    }
+
+    return commits
   } catch {
     return []
   }
@@ -678,10 +775,68 @@ export function getFileDiff(
     view === "staged" ? hasStaged : view === "working" ? false : hasStaged
 
   // Check if file is binary - only for files that exist in HEAD or index
+  let isBinary = false
   if (!isUntracked) {
     try {
       const isBinaryCheck = execGit(`diff --no-ext-diff --no-textconv --numstat HEAD -- "${file}"`, cwd)
       if (isBinaryCheck.startsWith("-\t-\t")) {
+        isBinary = true
+
+        // For image files, read binary content as base64 data URLs
+        if (isImageFile(file)) {
+          const getMimeType = (filename: string): string => {
+            const ext = filename.toLowerCase().split('.').pop() || ''
+            const mimeTypes: Record<string, string> = {
+              'gif': 'image/gif',
+              'png': 'image/png',
+              'jpg': 'image/jpeg',
+              'jpeg': 'image/jpeg',
+              'webp': 'image/webp',
+              'svg': 'image/svg+xml',
+              'bmp': 'image/bmp',
+              'ico': 'image/x-icon',
+            }
+            return mimeTypes[ext] || 'application/octet-stream'
+          }
+
+          let oldImageContent = ""
+          let newImageContent = ""
+
+          // Get old image (from HEAD)
+          try {
+            const oldBuffer = Buffer.from(execGit(`show HEAD:"${file}"`, cwd, { trim: false }), 'binary')
+            oldImageContent = `data:${getMimeType(file)};base64,${oldBuffer.toString('base64')}`
+          } catch {
+            // Old version doesn't exist (new image)
+          }
+
+          // Get new image (from working directory or staged)
+          if (!isDeleted) {
+            try {
+              if (useStagedVersion) {
+                const newBuffer = Buffer.from(execGit(`show :"${file}"`, cwd, { trim: false }), 'binary')
+                newImageContent = `data:${getMimeType(file)};base64,${newBuffer.toString('base64')}`
+              } else {
+                const newBuffer = readFileSync(join(repoRoot, file))
+                newImageContent = `data:${getMimeType(file)};base64,${newBuffer.toString('base64')}`
+              }
+            } catch {
+              // Failed to read new image
+            }
+          }
+
+          return {
+            file,
+            oldContent: oldImageContent,
+            newContent: newImageContent,
+            isNew: !oldImageContent && !!newImageContent,
+            isDeleted,
+            isBinary: true,
+            isImage: true,
+          }
+        }
+
+        // For non-image binary files, return empty content
         return {
           file,
           oldContent: "",

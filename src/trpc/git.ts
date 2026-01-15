@@ -8,6 +8,7 @@ import {
   getGitStatus,
   getBranches,
   getRecentCommits,
+  getCommitsForFiles,
   getGitRemotes,
   getCwdPrefix,
   getFileDiff,
@@ -52,6 +53,16 @@ export const gitRouter = router({
     .input(z.object({ limit: z.number().min(1).max(100).optional().default(10) }))
     .query(({ ctx, input }) => {
       return getRecentCommits(ctx.workingDir, input.limit)
+    }),
+
+  /** Get commits that touched specific files */
+  commitsForFiles: procedure
+    .input(z.object({
+      files: z.array(z.string()).min(1, "At least one file is required"),
+      limit: z.number().min(1).max(100).optional().default(50),
+    }))
+    .query(({ ctx, input }) => {
+      return getCommitsForFiles(ctx.workingDir, input.files, input.limit)
     }),
 
   diff: procedure
