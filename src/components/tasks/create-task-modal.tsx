@@ -5,13 +5,16 @@
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
-import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from './agent-config'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
+
+export type TaskType = 'bug' | 'feature'
 
 interface CreateTaskModalProps {
   isOpen: boolean
   isCreating: boolean
   newTitle: string
+  taskType: TaskType
   useAgent: boolean
   createAgentType: PlannerAgentType
   createModel: string
@@ -20,6 +23,7 @@ interface CreateTaskModalProps {
   onClose: () => void
   onCreate: () => void
   onTitleChange: (title: string) => void
+  onTaskTypeChange: (taskType: TaskType) => void
   onUseAgentChange: (useAgent: boolean) => void
   onAgentTypeChange: (agentType: PlannerAgentType) => void
   onModelChange: (model: string) => void
@@ -29,6 +33,7 @@ export function CreateTaskModal({
   isOpen,
   isCreating,
   newTitle,
+  taskType,
   useAgent,
   createAgentType,
   createModel,
@@ -37,6 +42,7 @@ export function CreateTaskModal({
   onClose,
   onCreate,
   onTitleChange,
+  onTaskTypeChange,
   onUseAgentChange,
   onAgentTypeChange,
   onModelChange,
@@ -75,6 +81,40 @@ export function CreateTaskModal({
             />
           </div>
 
+          <div>
+            <div className="font-vcr text-xs text-text-muted mb-2">Task Type</div>
+            <div className="flex gap-3">
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="radio"
+                  name="taskType"
+                  value="feature"
+                  checked={taskType === 'feature'}
+                  onChange={() => onTaskTypeChange('feature')}
+                  disabled={isCreating}
+                  className="w-3 h-3 text-accent cursor-pointer"
+                />
+                <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
+                  Feature
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="radio"
+                  name="taskType"
+                  value="bug"
+                  checked={taskType === 'bug'}
+                  onChange={() => onTaskTypeChange('bug')}
+                  disabled={isCreating}
+                  className="w-3 h-3 text-accent cursor-pointer"
+                />
+                <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
+                  Bug
+                </span>
+              </label>
+            </div>
+          </div>
+
           <label className="flex items-center gap-2 cursor-pointer group">
             <Checkbox
               checked={useAgent}
@@ -82,7 +122,7 @@ export function CreateTaskModal({
               disabled={isCreating || (!canUseAgent && !useAgent)}
             />
             <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
-              Use AI to create detailed task plan
+              {taskType === 'bug' ? 'Debug with AI' : 'Plan with AI'}
             </span>
           </label>
 

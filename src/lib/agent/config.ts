@@ -15,7 +15,14 @@ import {
   type ModelDefinition,
 } from './model-registry'
 
-export type PlannerAgentType = Exclude<AgentType, 'cerebras' | 'gemini'>
+// Core planner type excludes some agents
+export type CorePlannerAgentType = Exclude<AgentType, 'cerebras' | 'gemini'>
+
+// Task UI allows all agent types for planning
+export type PlannerAgentType = AgentType
+
+// Legacy alias for backward compatibility
+export type { CorePlannerAgentType as RestrictedPlannerAgentType }
 
 export const TASK_REVIEW_OUTPUT_START = '===TASK_REVIEW_OUTPUT_START==='
 export const TASK_REVIEW_OUTPUT_END = '===TASK_REVIEW_OUTPUT_END==='

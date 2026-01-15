@@ -5,8 +5,9 @@
 
 import { Select } from '@/components/ui/select'
 import { TaskSessions } from './task-sessions'
-import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from './agent-config'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
+import { Scissors, ExternalLink } from 'lucide-react'
 
 interface TaskSidebarProps {
   // Control state
@@ -34,6 +35,12 @@ interface TaskSidebarProps {
     }
   }
 
+  // Split task
+  canSplit?: boolean
+  splitFrom?: string
+  onSplit?: () => void
+  onNavigateToSplitFrom?: () => void
+
   // Handlers
   onSave: () => void
   onDelete: () => void
@@ -55,6 +62,10 @@ export function TaskSidebar({
   availableTypes,
   agentSession,
   taskSessions,
+  canSplit,
+  splitFrom,
+  onSplit,
+  onNavigateToSplitFrom,
   onSave,
   onDelete,
   onReview,
@@ -108,6 +119,31 @@ export function TaskSidebar({
               Verify
             </button>
           </div>
+
+          {/* Split Task Button */}
+          {canSplit && onSplit && (
+            <button
+              onClick={onSplit}
+              disabled={!!agentSession}
+              className="w-full px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center justify-center gap-2"
+              title="Split this task into multiple subtasks"
+            >
+              <Scissors className="w-3 h-3" />
+              Split Task
+            </button>
+          )}
+
+          {/* Split From Badge */}
+          {splitFrom && onNavigateToSplitFrom && (
+            <button
+              onClick={onNavigateToSplitFrom}
+              className="w-full px-3 py-2 rounded text-xs bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 cursor-pointer transition-colors flex items-center gap-2"
+              title={`Split from: ${splitFrom}`}
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span className="truncate">Split from: {splitFrom.replace('tasks/', '')}</span>
+            </button>
+          )}
 
           {/* Run with Agent */}
           <div className="space-y-2">

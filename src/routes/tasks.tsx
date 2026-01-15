@@ -12,8 +12,9 @@ import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskModal, type TaskType } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
-import type { PlannerAgentType } from '@/components/tasks/agent-config'
-import { getDefaultModelId } from '@/lib/agent/config'
+import { SplitTaskModal } from '@/components/tasks/split-task-modal'
+import { DebateModal } from '@/components/debate'
+import { getDefaultModelId, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
 import { trpc } from '@/lib/trpc-client'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -24,6 +25,8 @@ export const Route = createFileRoute('/tasks')({
       path: z.string().optional(),
       create: z.string().optional(),
       archiveFilter: z.enum(['all', 'active', 'archived']).optional().default('active'),
+      sortBy: z.enum(['updated', 'title', 'progress']).optional(),
+      sortDir: z.enum(['asc', 'desc']).optional(),
     })
     .parse,
   component: TasksPage,
@@ -62,6 +65,22 @@ function TasksPage() {
     }
   )
 
+  // Get sections for split modal
+  const { data: sectionsData } = trpc.tasks.getSections.useQuery(
+    { path: selectedPath ?? '' },
+    {
+      enabled: !!selectedPath && !!workingDir,
+    }
+  )
+
+  // Get full task data (for splitFrom field)
+  const { data: taskData } = trpc.tasks.get.useQuery(
+    { path: selectedPath ?? '' },
+    {
+      enabled: !!selectedPath && !!workingDir,
+    }
+  )
+
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
     const candidates: PlannerAgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
     return candidates.filter((t) => availableTypes.includes(t))
@@ -88,9 +107,12 @@ function TasksPage() {
   const [runAgentType, setRunAgentType] = useState<AgentType>('claude')
   const [runModel, setRunModel] = useState(() => getDefaultModelId('claude'))
 
-  // Review/Verify modal state
-  const [reviewModalOpen, setReviewModalOpen] = useState(false)
-  const [reviewMode, setReviewMode] = useState<'review' | 'verify'>('review')
+  // Review/Verify modal state (Verify uses ReviewModal, Review uses DebateModal)
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false)
+  const [debateModalOpen, setDebateModalOpen] = useState(false)
+
+  // Split modal state
+  const [splitModalOpen, setSplitModalOpen] = useState(false)
 
   // Rewrite state
   const [rewriteComment, setRewriteComment] = useState('')
@@ -399,8 +421,34 @@ function TasksPage() {
   })
 
   const assignToAgentMutation = trpc.tasks.assignToAgent.useMutation({
+    onMutate: async ({ path }) => {
+      // Cancel outgoing refetches
+      await utils.tasks.getActiveAgentSessions.cancel()
+
+      // Snapshot for rollback
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+
+      // Optimistically add placeholder session with 'pending' status
+      if (previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, {
+          ...previousSessions,
+          [path]: {
+            sessionId: `pending-${Date.now()}`,
+            status: 'pending',
+          },
+        })
+      }
+
+      return { previousSessions, path }
+    },
     onSuccess: () => {
       utils.tasks.getActiveAgentSessions.invalidate()
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      }
     },
   })
 
@@ -415,12 +463,6 @@ function TasksPage() {
     },
     onError: (error) => {
       console.error('[cancelAgentMutation] Error:', error)
-    },
-  })
-
-  const reviewWithAgentMutation = trpc.tasks.reviewWithAgent.useMutation({
-    onSuccess: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
@@ -439,6 +481,24 @@ function TasksPage() {
         params: { sessionId: data.sessionId },
         search: { taskPath: data.path },
       })
+    },
+  })
+
+  const splitTaskMutation = trpc.tasks.splitTask.useMutation({
+    onSuccess: (data) => {
+      // Invalidate task list cache
+      utils.tasks.list.invalidate()
+
+      // Close the modal
+      setSplitModalOpen(false)
+
+      // Navigate to first new task
+      if (data.newPaths.length > 0) {
+        navigate({
+          to: '/tasks',
+          search: { path: data.newPaths[0], archiveFilter: 'active' },
+        })
+      }
     },
   })
 
@@ -671,46 +731,89 @@ function TasksPage() {
   }, [cancelAgentMutation, selectedPath, activeSessionId, activeSessionInfo, activeAgentSessions])
 
   const handleReview = useCallback(() => {
-    setReviewMode('review')
-    setReviewModalOpen(true)
+    setDebateModalOpen(true)
   }, [])
 
   const handleVerify = useCallback(() => {
-    setReviewMode('verify')
-    setReviewModalOpen(true)
+    setVerifyModalOpen(true)
   }, [])
 
-  const handleStartReview = useCallback(async (agentType: AgentType, model: string | undefined, instructions?: string) => {
+  const handleStartVerify = useCallback(async (agentType: AgentType, model: string | undefined, instructions?: string) => {
     if (!selectedPath) return
 
     try {
       setSaveError(null)
-      await (reviewMode === 'review'
-        ? reviewWithAgentMutation.mutateAsync({
-            path: selectedPath,
-            agentType,
-            model,
-            instructions,
-          })
-        : verifyWithAgentMutation.mutateAsync({
-            path: selectedPath,
-            agentType,
-            model,
-            instructions,
-          }))
+      await verifyWithAgentMutation.mutateAsync({
+        path: selectedPath,
+        agentType,
+        model,
+        instructions,
+      })
 
-      // Agent progress banner will automatically show review/verify status
+      // Agent progress banner will automatically show verify status
       // User stays on task page to maintain context
     } catch (err) {
-      console.error('Failed to start review:', err)
-      setSaveError(err instanceof Error ? err.message : 'Failed to start review')
+      console.error('Failed to start verify:', err)
+      setSaveError(err instanceof Error ? err.message : 'Failed to start verify')
       throw err // Re-throw so modal can handle it
     }
-  }, [selectedPath, reviewMode, reviewWithAgentMutation, verifyWithAgentMutation])
+  }, [selectedPath, verifyWithAgentMutation])
 
-  const handleCloseReviewModal = useCallback(() => {
-    setReviewModalOpen(false)
+  const handleCloseVerifyModal = useCallback(() => {
+    setVerifyModalOpen(false)
   }, [])
+
+  const handleCloseDebateModal = useCallback(() => {
+    setDebateModalOpen(false)
+  }, [])
+
+  const handleOpenSplitModal = useCallback(() => {
+    setSplitModalOpen(true)
+  }, [])
+
+  const handleCloseSplitModal = useCallback(() => {
+    setSplitModalOpen(false)
+  }, [])
+
+  const handleSplitTask = useCallback(async (sectionIndices: number[], archiveOriginal: boolean) => {
+    if (!selectedPath) return
+
+    try {
+      await splitTaskMutation.mutateAsync({
+        sourcePath: selectedPath,
+        sectionIndices,
+        archiveOriginal,
+      })
+    } catch (err) {
+      console.error('Failed to split task:', err)
+    }
+  }, [selectedPath, splitTaskMutation])
+
+  const handleNavigateToSplitFrom = useCallback(() => {
+    if (!taskData?.splitFrom) return
+
+    navigate({
+      to: '/tasks',
+      search: { path: taskData.splitFrom, archiveFilter: 'all' },
+    })
+  }, [taskData?.splitFrom, navigate])
+
+  const handleDebateAccept = useCallback(async () => {
+    // Refresh the task content after accepting the refined spec
+    if (!selectedPath || !workingDir) return
+
+    // Invalidate list cache for sidebar updates
+    utils.tasks.list.invalidate()
+
+    // Fetch and display updated content (following pattern from agent completion refresh)
+    try {
+      const task = await utils.client.tasks.get.query({ path: selectedPath })
+      setDraft(task.content)
+      setDirty(false)
+    } catch (err) {
+      console.error('Failed to refresh task after debate accept:', err)
+    }
+  }, [selectedPath, workingDir, utils])
 
   const handleRewritePlan = useCallback(async () => {
     if (!selectedPath || !rewriteComment.trim()) return
@@ -820,6 +923,10 @@ function TasksPage() {
               availableTypes={availableTypes}
               agentSession={agentSession}
               taskSessions={taskSessions}
+              canSplit={sectionsData?.canSplit}
+              splitFrom={taskData?.splitFrom}
+              onSplit={handleOpenSplitModal}
+              onNavigateToSplitFrom={handleNavigateToSplitFrom}
               onSave={handleSave}
               onDelete={handleDelete}
               onReview={handleReview}
@@ -851,15 +958,38 @@ function TasksPage() {
         onModelChange={setCreateModel}
       />
 
+      {/* Verify uses ReviewModal (single agent) */}
       <ReviewModal
-        isOpen={reviewModalOpen}
-        mode={reviewMode}
+        isOpen={verifyModalOpen}
+        mode="verify"
         taskTitle={editorTitle}
         agentType={runAgentType}
         model={runModel}
         availableTypes={availableTypes}
-        onClose={handleCloseReviewModal}
-        onStart={handleStartReview}
+        onClose={handleCloseVerifyModal}
+        onStart={handleStartVerify}
+      />
+
+      {/* Review uses DebateModal (multi-model adversarial review) */}
+      {selectedPath && (
+        <DebateModal
+          isOpen={debateModalOpen}
+          taskPath={selectedPath}
+          taskTitle={editorTitle}
+          availableTypes={availableTypes}
+          onClose={handleCloseDebateModal}
+          onAccept={handleDebateAccept}
+        />
+      )}
+
+      {/* Split Task Modal */}
+      <SplitTaskModal
+        isOpen={splitModalOpen}
+        isSplitting={splitTaskMutation.isPending}
+        taskTitle={editorTitle}
+        sections={sectionsData?.sections ?? []}
+        onClose={handleCloseSplitModal}
+        onSplit={handleSplitTask}
       />
 
       <ConfirmDialog

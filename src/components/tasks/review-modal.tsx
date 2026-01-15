@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import { Select } from '@/components/ui/select'
-import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, getDefaultModelId } from './agent-config'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, getDefaultModelId } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 
 type ReviewMode = 'review' | 'verify'
