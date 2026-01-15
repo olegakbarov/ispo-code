@@ -22,6 +22,7 @@ interface TaskEditorProps {
   draft: string
   progress: TaskProgress | null
   agentSession: AgentSession | null
+  taskDescription?: string
   onModeChange: (mode: Mode) => void
   onDraftChange: (draft: string) => void
   onCancelAgent: () => void
@@ -34,6 +35,7 @@ export function TaskEditor({
   draft,
   progress,
   agentSession,
+  taskDescription,
   onModeChange,
   onDraftChange,
   onCancelAgent,
@@ -112,7 +114,7 @@ export function TaskEditor({
           </div>
         ) : (
           <div className="h-full">
-            <TaskReviewPanel taskPath={path} taskTitle={title} />
+            <TaskReviewPanel taskPath={path} taskTitle={title} taskDescription={taskDescription} />
           </div>
         )}
       </div>

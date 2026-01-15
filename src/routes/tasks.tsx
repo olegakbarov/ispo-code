@@ -9,7 +9,6 @@ import { z } from 'zod'
 import type { AgentType } from '@/lib/agent/types'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
-import { TaskReviewPanel } from '@/components/tasks/task-review-panel'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskModal, type TaskType } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
@@ -63,6 +62,15 @@ function TasksPage() {
     }
   )
 
+  // Check if task has uncommitted changes (for archive blocking)
+  const { data: uncommittedStatus } = trpc.tasks.hasUncommittedChanges.useQuery(
+    { path: selectedPath ?? '' },
+    {
+      enabled: !!selectedPath && !!workingDir,
+      refetchInterval: 5000, // Refresh to detect commits
+    }
+  )
+
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
     const candidates: PlannerAgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
     return candidates.filter((t) => availableTypes.includes(t))
@@ -70,7 +78,6 @@ function TasksPage() {
 
   // Local state
   const [mode, setMode] = useState<Mode>('edit')
-  const [view, setView] = useState<'editor' | 'review'>('editor')
   const [draft, setDraft] = useState('')
   const [dirty, setDirty] = useState(false)
   const lastLoadedPathRef = useRef<string | null>(null)
@@ -612,71 +619,38 @@ function TasksPage() {
             </div>
           ) : (
             <>
-              {/* View tabs */}
-              <div className="h-10 px-3 border-b border-border bg-card flex items-center gap-2">
-                <button
-                  onClick={() => setView('editor')}
-                  className={`px-3 py-1.5 rounded text-xs font-vcr transition-colors ${
-                    view === 'editor'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                  }`}
-                >
-                  Editor
-                </button>
-                <button
-                  onClick={() => setView('review')}
-                  className={`px-3 py-1.5 rounded text-xs font-vcr transition-colors ${
-                    view === 'review'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                  }`}
-                >
-                  Review Changes
-                </button>
+              <div className="flex-1 min-h-0 flex flex-col">
+                <TaskEditor
+                  title={editorTitle}
+                  path={selectedPath}
+                  mode={mode}
+                  draft={draft}
+                  progress={progress}
+                  agentSession={agentSession}
+                  taskDescription={draft}
+                  onModeChange={setMode}
+                  onDraftChange={(newDraft) => {
+                    setDraft(newDraft)
+                    setDirty(true)
+                  }}
+                  onCancelAgent={handleCancelAgent}
+                />
               </div>
 
-              {view === 'editor' ? (
-                <>
-                  <div className="flex-1 min-h-0 flex flex-col">
-                    <TaskEditor
-                      title={editorTitle}
-                      path={selectedPath}
-                      mode={mode}
-                      draft={draft}
-                      progress={progress}
-                      agentSession={agentSession}
-                      onModeChange={setMode}
-                      onDraftChange={(newDraft) => {
-                        setDraft(newDraft)
-                        setDirty(true)
-                      }}
-                      onCancelAgent={handleCancelAgent}
-                    />
-                  </div>
-
-                  {/* Footer with rewrite controls */}
-                  <TaskFooter
-                    rewriteComment={rewriteComment}
-                    rewriteAgentType={rewriteAgentType}
-                    rewriteModel={rewriteModel}
-                    isRewriting={rewriteWithAgentMutation.isPending}
-                    availableTypes={availableTypes}
-                    agentSession={agentSession}
-                    onRewriteCommentChange={setRewriteComment}
-                    onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
-                    onRewriteModelChange={setRewriteModel}
-                    onRewritePlan={handleRewritePlan}
-                  />
-                </>
-              ) : (
-                <div className="flex-1 min-h-0">
-                  <TaskReviewPanel
-                    taskPath={selectedPath}
-                    taskTitle={editorTitle}
-                    taskDescription={draft}
-                  />
-                </div>
+              {/* Footer with rewrite controls - only show in edit/preview mode */}
+              {mode !== 'review' && (
+                <TaskFooter
+                  rewriteComment={rewriteComment}
+                  rewriteAgentType={rewriteAgentType}
+                  rewriteModel={rewriteModel}
+                  isRewriting={rewriteWithAgentMutation.isPending}
+                  availableTypes={availableTypes}
+                  agentSession={agentSession}
+                  onRewriteCommentChange={setRewriteComment}
+                  onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
+                  onRewriteModelChange={setRewriteModel}
+                  onRewritePlan={handleRewritePlan}
+                />
               )}
             </>
           )}
@@ -694,6 +668,8 @@ function TasksPage() {
               isRestoring={restoreMutation.isPending}
               saveError={saveError}
               isArchived={selectedSummary?.archived ?? false}
+              hasUncommittedChanges={uncommittedStatus?.hasUncommitted ?? false}
+              uncommittedCount={uncommittedStatus?.uncommittedCount ?? 0}
               runAgentType={runAgentType}
               runModel={runModel}
               availableTypes={availableTypes}
