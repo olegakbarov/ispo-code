@@ -1,5 +1,10 @@
 /**
  * Agent Session Route - View and interact with an agent session
+ *
+ * This route uses a single source of truth for session data:
+ * - `getSessionWithMetadata` is fetched once at the page level
+ * - Session data is passed as props to ThreadSidebar/GitSection
+ * - Adaptive polling reduces network traffic when session is idle
  */
 
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
@@ -11,9 +16,13 @@ import { StatusDot } from '@/components/agents/session-primitives'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
-import type { AgentOutputChunk, SessionStatus, ImageAttachment } from '@/lib/agent/types'
+import type { AgentOutputChunk, SessionStatus, ImageAttachment, AgentSession, AgentSessionMetadata } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
 import { useAudioNotification } from '@/lib/hooks/use-audio-notification'
+import { useAdaptivePolling } from '@/lib/hooks/use-adaptive-polling'
+
+/** Session data with metadata - single source of truth for the page */
+export type SessionWithMetadata = AgentSession & { metadata: AgentSessionMetadata | null }
 
 export const Route = createFileRoute('/agents/$sessionId')({
   validateSearch: z.object({
@@ -303,7 +312,7 @@ function AgentSessionPage() {
         attachments: attachments.length > 0 ? attachments : undefined,
       })
     } else {
-      setMessageQueue([...messageQueue, trimmedMessage])
+      setMessageQueue((prev) => [...prev, trimmedMessage])
       setMessageInput('')
     }
   }
@@ -311,7 +320,7 @@ function AgentSessionPage() {
   const handleEnqueueMessage = () => {
     if (!messageInput.trim()) return
     const trimmedMessage = messageInput.trim()
-    setMessageQueue([...messageQueue, trimmedMessage])
+    setMessageQueue((prev) => [...prev, trimmedMessage])
     setMessageInput('')
   }
 
