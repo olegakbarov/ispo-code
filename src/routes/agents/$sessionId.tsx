@@ -5,19 +5,26 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState, useRef, useEffect } from 'react'
 import { Send, Square, RotateCcw, Trash2 } from 'lucide-react'
+import { z } from 'zod'
 import { PromptDisplay } from '@/components/agents/prompt-display'
 import { StatusDot } from '@/components/agents/session-primitives'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
+import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import type { AgentOutputChunk, SessionStatus } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
 
 export const Route = createFileRoute('/agents/$sessionId')({
+  validateSearch: z.object({
+    taskPath: z.string().optional(),
+  }).parse,
   component: AgentSessionPage,
 })
 
 function AgentSessionPage() {
   const { sessionId } = Route.useParams()
+  const search = Route.useSearch()
+  const taskPath = search.taskPath
   const navigate = useNavigate()
   const utils = trpc.useUtils()
 
@@ -250,14 +257,42 @@ function AgentSessionPage() {
 
   return (
     <div className="flex h-full">
+      {/* Left sidebar - Task list (only when session has taskPath) */}
+      {session.taskPath && (
+        <div className="w-64 border-r border-border bg-card flex flex-col min-h-0">
+          <div className="px-3 py-2 border-b border-border">
+            <span className="font-vcr text-[10px] text-accent">TASKS</span>
+          </div>
+          <TaskListSidebar />
+        </div>
+      )}
+
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        {/* Task planning context banner */}
+        {taskPath && (
+          <div className="px-3 py-2 border-b border-border bg-accent/5 flex items-center gap-2">
+            <span className="font-vcr text-[10px] text-accent">PLANNING TASK</span>
+            <span className="text-xs text-muted-foreground flex-1">{taskPath}</span>
+            {isDone && (
+              <Link
+                to="/tasks"
+                search={{ path: taskPath, archiveFilter: 'active' }}
+                className="px-2 py-1 bg-accent text-background rounded text-xs font-vcr hover:opacity-90 cursor-pointer transition-opacity"
+              >
+                View Task
+              </Link>
+            )}
+          </div>
+        )}
+
         {/* Prompt display - collapsible with plan/task links */}
         <PromptDisplay
           prompt={session.prompt}
           planPath={session.planPath}
           taskPath={session.taskPath}
           isResumable={isResumable}
+          instructions={session.instructions}
         />
 
         {/* Output area */}
