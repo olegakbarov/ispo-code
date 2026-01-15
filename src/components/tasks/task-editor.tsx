@@ -23,6 +23,13 @@ interface TaskEditorProps {
   progress: TaskProgress | null
   agentSession: AgentSession | null
   taskDescription?: string
+  // Archive state for review panel
+  isArchived?: boolean
+  isArchiving?: boolean
+  isRestoring?: boolean
+  onArchive?: () => void
+  onRestore?: () => void
+  // Callbacks
   onModeChange: (mode: Mode) => void
   onDraftChange: (draft: string) => void
   onCancelAgent: () => void
@@ -36,6 +43,11 @@ export function TaskEditor({
   progress,
   agentSession,
   taskDescription,
+  isArchived,
+  isArchiving,
+  isRestoring,
+  onArchive,
+  onRestore,
   onModeChange,
   onDraftChange,
   onCancelAgent,
@@ -114,7 +126,16 @@ export function TaskEditor({
           </div>
         ) : (
           <div className="h-full">
-            <TaskReviewPanel taskPath={path} taskTitle={title} taskDescription={taskDescription} />
+            <TaskReviewPanel
+              taskPath={path}
+              taskTitle={title}
+              taskDescription={taskDescription}
+              isArchived={isArchived}
+              isArchiving={isArchiving}
+              isRestoring={isRestoring}
+              onArchive={onArchive}
+              onRestore={onRestore}
+            />
           </div>
         )}
       </div>

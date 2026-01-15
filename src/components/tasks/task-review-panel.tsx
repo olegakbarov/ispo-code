@@ -4,22 +4,57 @@
  */
 
 import { useState, useMemo, useCallback } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
-import { GitCommit, Loader2, Check, X, ChevronRight, ChevronDown, History, FileText } from "lucide-react"
+import { GitCommit, Loader2, Check, X, ChevronRight, ChevronDown, History, FileText, Archive, RotateCcw } from "lucide-react"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
 import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
+import type { AgentType } from "@/lib/agent/types"
 
 interface TaskReviewPanelProps {
   taskPath: string
   taskTitle: string
   taskDescription?: string
+  isArchived?: boolean
+  isArchiving?: boolean
+  isRestoring?: boolean
+  onArchive?: () => void
+  onRestore?: () => void
 }
 
-export function TaskReviewPanel({ taskPath, taskTitle, taskDescription }: TaskReviewPanelProps) {
+export function TaskReviewPanel({
+  taskPath,
+  taskTitle,
+  taskDescription,
+  isArchived = false,
+  isArchiving = false,
+  isRestoring = false,
+  onArchive,
+  onRestore,
+}: TaskReviewPanelProps) {
   const { theme } = useTheme()
   const utils = trpc.useUtils()
+  const navigate = useNavigate()
   const { data: workingDir } = trpc.system.workingDir.useQuery()
+
+  // Spawn agent mutation
+  const spawnMutation = trpc.agent.spawn.useMutation({
+    onSuccess: (data) => {
+      navigate({ to: '/agents/$sessionId', params: { sessionId: data.sessionId } })
+    },
+  })
+
+  const handleSpawnAgent = useCallback((params: { prompt: string; agentType: AgentType; model?: string }) => {
+    spawnMutation.mutate({
+      prompt: params.prompt,
+      agentType: params.agentType,
+      model: params.model,
+    })
+  }, [spawnMutation])
+
+  // Available agent types
+  const { data: availableAgentTypes = [] } = trpc.agent.availableTypes.useQuery()
 
   // Query for changed files across all task sessions
   const { data: changedFiles = [], isLoading: filesLoading } = trpc.tasks.getChangedFilesForTask.useQuery(
@@ -420,7 +455,12 @@ export function TaskReviewPanel({ taskPath, taskTitle, taskDescription }: TaskRe
                             {commit.files.map((file) => (
                               <div
                                 key={file}
-                                className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 text-xs font-mono"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  handleFileClick(file, "working")
+                                }}
+                                className="flex items-center gap-2 px-2 py-1 rounded hover:bg-accent/50 text-xs font-mono cursor-pointer"
                               >
                                 <FileText className="w-3 h-3 text-muted-foreground shrink-0" />
                                 <span className="truncate">{file}</span>
@@ -437,63 +477,128 @@ export function TaskReviewPanel({ taskPath, taskTitle, taskDescription }: TaskRe
           </div>
         </div>
 
-        {/* Commit controls */}
+        {/* Commit controls / All Committed state */}
         <div className="border-t border-border p-4 space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Commit Message</label>
-              <button
-                onClick={handleGenerateMessage}
-                disabled={selectedFiles.size === 0 || isGeneratingMessage}
-                className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isGeneratingMessage ? "Generating..." : "Generate with AI"}
-              </button>
-            </div>
-            <textarea
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              placeholder="Describe your changes..."
-              className="w-full min-h-[100px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-              disabled={commitMutation.isPending}
-            />
-          </div>
+          {changedFiles.length === 0 ? (
+            /* All changes committed state */
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
+                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center">
+                  <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
+                </div>
+                <div>
+                  <div className="font-medium text-green-700 dark:text-green-300">
+                    All Changes Committed
+                  </div>
+                  <div className="text-sm text-green-600 dark:text-green-400">
+                    This task's files have been committed to git
+                  </div>
+                </div>
+              </div>
 
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              {selectedFiles.size} of {changedFiles.length} files selected
-            </div>
-            <button
-              onClick={handleCommit}
-              disabled={!canCommit}
-              className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {commitMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Committing...
-                </>
+              {/* Archive/Restore button in success state */}
+              {isArchived ? (
+                onRestore && (
+                  <button
+                    onClick={onRestore}
+                    disabled={isRestoring}
+                    className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                  >
+                    {isRestoring ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Restoring...
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-4 h-4" />
+                        Restore Task
+                      </>
+                    )}
+                  </button>
+                )
               ) : (
-                <>
-                  <GitCommit className="w-4 h-4" />
-                  Commit
-                </>
+                onArchive && (
+                  <button
+                    onClick={onArchive}
+                    disabled={isArchiving}
+                    className="w-full px-4 py-3 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                  >
+                    {isArchiving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Archiving...
+                      </>
+                    ) : (
+                      <>
+                        <Archive className="w-4 h-4" />
+                        Archive Task
+                      </>
+                    )}
+                  </button>
+                )
               )}
-            </button>
-          </div>
+            </div>
+          ) : (
+            /* Normal commit controls */
+            <>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium">Commit Message</label>
+                  <button
+                    onClick={handleGenerateMessage}
+                    disabled={selectedFiles.size === 0 || isGeneratingMessage}
+                    className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isGeneratingMessage ? "Generating..." : "Generate with AI"}
+                  </button>
+                </div>
+                <textarea
+                  value={commitMessage}
+                  onChange={(e) => setCommitMessage(e.target.value)}
+                  placeholder="Describe your changes..."
+                  className="w-full min-h-[100px] px-3 py-2 text-sm rounded-md border bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                  disabled={commitMutation.isPending}
+                />
+              </div>
 
-          {/* Success/Error messages */}
-          {commitMutation.isSuccess && (
-            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 px-3 py-2 rounded">
-              <Check className="w-4 h-4" />
-              Successfully committed changes
-            </div>
-          )}
-          {commitMutation.isError && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">
-              <X className="w-4 h-4" />
-              {commitMutation.error instanceof Error ? commitMutation.error.message : "Failed to commit"}
-            </div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  {selectedFiles.size} of {changedFiles.length} files selected
+                </div>
+                <button
+                  onClick={handleCommit}
+                  disabled={!canCommit}
+                  className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {commitMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Committing...
+                    </>
+                  ) : (
+                    <>
+                      <GitCommit className="w-4 h-4" />
+                      Commit
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Success/Error messages */}
+              {commitMutation.isSuccess && (
+                <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/20 px-3 py-2 rounded">
+                  <Check className="w-4 h-4" />
+                  Successfully committed changes
+                </div>
+              )}
+              {commitMutation.isError && (
+                <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">
+                  <X className="w-4 h-4" />
+                  {commitMutation.error instanceof Error ? commitMutation.error.message : "Failed to commit"}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -510,11 +615,15 @@ export function TaskReviewPanel({ taskPath, taskTitle, taskDescription }: TaskRe
             diffData={diffData}
             diffLoading={diffLoading}
             theme={resolvedTheme}
+            availableAgentTypes={availableAgentTypes}
             onSelectFile={handleSelectFile}
             onCloseFile={handleCloseFile}
             onCloseAll={handleCloseAll}
             onViewChange={handleViewChange}
             onFetchDiff={handleFetchDiff}
+            onSpawnAgent={handleSpawnAgent}
+            isSpawning={spawnMutation.isPending}
+            spawnError={spawnMutation.error?.message}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

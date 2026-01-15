@@ -62,15 +62,6 @@ function TasksPage() {
     }
   )
 
-  // Check if task has uncommitted changes (for archive blocking)
-  const { data: uncommittedStatus } = trpc.tasks.hasUncommittedChanges.useQuery(
-    { path: selectedPath ?? '' },
-    {
-      enabled: !!selectedPath && !!workingDir,
-      refetchInterval: 5000, // Refresh to detect commits
-    }
-  )
-
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
     const candidates: PlannerAgentType[] = ['cerebras', 'opencode', 'claude', 'codex']
     return candidates.filter((t) => availableTypes.includes(t))
@@ -628,6 +619,11 @@ function TasksPage() {
                   progress={progress}
                   agentSession={agentSession}
                   taskDescription={draft}
+                  isArchived={selectedSummary?.archived ?? false}
+                  isArchiving={archiveMutation.isPending}
+                  isRestoring={restoreMutation.isPending}
+                  onArchive={handleArchive}
+                  onRestore={handleRestore}
                   onModeChange={setMode}
                   onDraftChange={(newDraft) => {
                     setDraft(newDraft)
@@ -664,23 +660,14 @@ function TasksPage() {
               isSaving={isSaving}
               isDeleting={deleteMutation.isPending}
               isAssigning={assignToAgentMutation.isPending}
-              isArchiving={archiveMutation.isPending}
-              isRestoring={restoreMutation.isPending}
               saveError={saveError}
-              isArchived={selectedSummary?.archived ?? false}
-              hasUncommittedChanges={uncommittedStatus?.hasUncommitted ?? false}
-              uncommittedCount={uncommittedStatus?.uncommittedCount ?? 0}
               runAgentType={runAgentType}
               runModel={runModel}
               availableTypes={availableTypes}
               agentSession={agentSession}
-              sessionId={activeSessionId}
-              taskTitle={selectedSummary?.title}
               taskSessions={taskSessions}
               onSave={handleSave}
               onDelete={handleDelete}
-              onArchive={handleArchive}
-              onRestore={handleRestore}
               onReview={handleReview}
               onVerify={handleVerify}
               onAssignToAgent={handleAssignToAgent}

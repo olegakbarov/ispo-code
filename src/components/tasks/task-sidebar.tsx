@@ -4,7 +4,6 @@
  */
 
 import { Select } from '@/components/ui/select'
-import { TaskCommitPanel } from './task-commit-panel'
 import { TaskSessions } from './task-sessions'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from './agent-config'
 import type { AgentType } from '@/lib/agent/types'
@@ -15,22 +14,13 @@ interface TaskSidebarProps {
   isSaving: boolean
   isDeleting: boolean
   isAssigning: boolean
-  isArchiving?: boolean
-  isRestoring?: boolean
   saveError: string | null
-
-  // Task metadata
-  isArchived?: boolean
 
   // Run controls
   runAgentType: AgentType
   runModel: string
   availableTypes: AgentType[] | undefined
   agentSession: any | null
-
-  // Commit panel
-  sessionId?: string
-  taskTitle?: string
 
   // Sessions list
   taskSessions?: {
@@ -40,14 +30,13 @@ interface TaskSidebarProps {
       verify: any[]
       execution: any[]
       rewrite: any[]
+      comment: any[]
     }
   }
 
   // Handlers
   onSave: () => void
   onDelete: () => void
-  onArchive?: () => void
-  onRestore?: () => void
   onReview: () => void
   onVerify: () => void
   onAssignToAgent: () => void
@@ -60,21 +49,14 @@ export function TaskSidebar({
   isSaving,
   isDeleting,
   isAssigning,
-  isArchiving = false,
-  isRestoring = false,
   saveError,
-  isArchived = false,
   runAgentType,
   runModel,
   availableTypes,
   agentSession,
-  sessionId,
-  taskTitle,
   taskSessions,
   onSave,
   onDelete,
-  onArchive,
-  onRestore,
   onReview,
   onVerify,
   onAssignToAgent,
@@ -82,8 +64,8 @@ export function TaskSidebar({
   onRunModelChange,
 }: TaskSidebarProps) {
   return (
-    <div className="w-[400px] border-l border-border bg-panel overflow-y-auto flex-shrink-0">
-      <div className="p-4 space-y-6">
+    <div className="w-full bg-panel overflow-y-auto">
+      <div className="p-3 space-y-6">
         {/* Controls Section */}
         <div className="space-y-3">
           <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
@@ -170,16 +152,6 @@ export function TaskSidebar({
           </div>
         </div>
 
-        {/* Commit Panel */}
-        {sessionId && (
-          <div className="space-y-3">
-            <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
-              Commit Changes
-            </h3>
-            <TaskCommitPanel sessionId={sessionId} taskTitle={taskTitle} />
-          </div>
-        )}
-
         {/* Task Sessions */}
         {taskSessions && (
           <div className="space-y-3">
@@ -192,33 +164,9 @@ export function TaskSidebar({
               verify={taskSessions.grouped.verify}
               execution={taskSessions.grouped.execution}
               rewrite={taskSessions.grouped.rewrite}
+              comment={taskSessions.grouped.comment}
             />
           </div>
-        )}
-
-        {/* Archive/Restore Button */}
-        {isArchived ? (
-          onRestore && (
-            <button
-              onClick={onRestore}
-              disabled={isRestoring}
-              className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Restore this task to active tasks"
-            >
-              {isRestoring ? 'Restoring...' : 'Restore'}
-            </button>
-          )
-        ) : (
-          onArchive && (
-            <button
-              onClick={onArchive}
-              disabled={isArchiving}
-              className="w-full px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Archive this task"
-            >
-              {isArchiving ? 'Archiving...' : 'Archive'}
-            </button>
-          )
         )}
 
         {/* Delete Button */}
