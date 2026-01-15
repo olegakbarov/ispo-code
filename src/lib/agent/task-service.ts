@@ -5,7 +5,7 @@
  * This service lists, reads, creates, and saves those files safely.
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, renameSync } from "fs"
 import path from "path"
 import { globSync } from "glob"
 
@@ -23,6 +23,8 @@ export interface TaskSummary {
   updatedAt: string
   source: TaskSource
   progress: TaskProgress
+  archived: boolean
+  archivedAt?: string
 }
 
 export interface TaskFile extends TaskSummary {
@@ -32,6 +34,7 @@ export interface TaskFile extends TaskSummary {
 const TASK_GLOBS: Array<{ pattern: string; source: TaskSource }> = [
   { pattern: ".kiro/specs/*/tasks.md", source: "kiro-spec" },
   { pattern: "tasks/**/*.md", source: "tasks-dir" },
+  { pattern: "tasks/archive/**/*.md", source: "tasks-dir" },
   { pattern: ".claude/plans/**/*.md", source: "codemap-plan" },
 ]
 
@@ -56,7 +59,7 @@ function isAllowedTaskPath(relPath: string): boolean {
   if (relPath.startsWith(".kiro/specs/") && relPath.endsWith("/tasks.md")) return true
   if (relPath.startsWith(".kiro/tasks/") && relPath.endsWith(".md")) return true
 
-  // General tasks directory
+  // General tasks directory (including archive)
   if (relPath.startsWith("tasks/") && relPath.endsWith(".md")) return true
 
   return false
@@ -152,12 +155,18 @@ export function listTasks(cwd: string): TaskSummary[] {
       const title = parseTitleFromMarkdown(content, fallbackTitle)
       const progress = parseProgressFromMarkdown(content)
 
+      // Determine if task is archived based on path
+      const archived = relPath.startsWith("tasks/archive/")
+      const archivedAt = archived ? new Date(stat.mtimeMs).toISOString() : undefined
+
       tasks.push({
         path: relPath,
         title,
         updatedAt: new Date(stat.mtimeMs).toISOString(),
         source: sources.get(relPath) ?? sourceForPath(relPath),
         progress,
+        archived,
+        archivedAt,
       })
     } catch {
       // Skip unreadable tasks
@@ -187,12 +196,18 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
   const title = parseTitleFromMarkdown(content, fallbackTitle)
   const progress = parseProgressFromMarkdown(content)
 
+  // Determine if task is archived based on path
+  const archived = relPath.startsWith("tasks/archive/")
+  const archivedAt = archived ? new Date(stat.mtimeMs).toISOString() : undefined
+
   return {
     path: relPath,
     title,
     updatedAt: new Date(stat.mtimeMs).toISOString(),
     source: sourceForPath(relPath),
     progress,
+    archived,
+    archivedAt,
     content,
   }
 }
@@ -252,4 +267,85 @@ export function deleteTask(cwd: string, taskPath: string): { success: boolean } 
   unlinkSync(absPath)
 
   return { success: true }
+}
+
+/**
+ * Archive a task by moving it to tasks/archive/YYYY-MM/
+ */
+export function archiveTask(cwd: string, taskPath: string): { path: string } {
+  const { relPath, absPath } = resolveTaskPath(cwd, taskPath)
+
+  if (!existsSync(absPath)) {
+    throw new Error(`Task not found: ${relPath}`)
+  }
+
+  // Don't archive already archived tasks
+  if (relPath.startsWith("tasks/archive/")) {
+    throw new Error("Task is already archived")
+  }
+
+  // Only archive tasks from tasks/ directory
+  if (!relPath.startsWith("tasks/")) {
+    throw new Error("Can only archive tasks from tasks/ directory")
+  }
+
+  // Generate archive path: tasks/archive/YYYY-MM/filename.md
+  const now = new Date()
+  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  const filename = path.basename(relPath)
+  const archiveDir = path.join(cwd, "tasks", "archive", yearMonth)
+
+  // Create archive directory
+  mkdirSync(archiveDir, { recursive: true })
+
+  // Handle name conflicts by appending -2, -3, etc.
+  let archivePath = `tasks/archive/${yearMonth}/${filename}`
+  let archiveAbsPath = path.join(cwd, archivePath)
+  let i = 2
+  while (existsSync(archiveAbsPath)) {
+    const baseName = path.basename(filename, ".md")
+    archivePath = `tasks/archive/${yearMonth}/${baseName}-${i}.md`
+    archiveAbsPath = path.join(cwd, archivePath)
+    i++
+  }
+
+  // Move the file
+  renameSync(absPath, archiveAbsPath)
+
+  return { path: archivePath }
+}
+
+/**
+ * Restore an archived task by moving it back to tasks/
+ */
+export function restoreTask(cwd: string, archivePath: string): { path: string } {
+  const { relPath, absPath } = resolveTaskPath(cwd, archivePath)
+
+  if (!existsSync(absPath)) {
+    throw new Error(`Task not found: ${relPath}`)
+  }
+
+  // Only restore archived tasks
+  if (!relPath.startsWith("tasks/archive/")) {
+    throw new Error("Can only restore archived tasks")
+  }
+
+  // Generate restored path: tasks/filename.md
+  const filename = path.basename(relPath)
+  let restoredPath = `tasks/${filename}`
+  let restoredAbsPath = path.join(cwd, restoredPath)
+
+  // Handle name conflicts by appending -2, -3, etc.
+  let i = 2
+  while (existsSync(restoredAbsPath)) {
+    const baseName = path.basename(filename, ".md")
+    restoredPath = `tasks/${baseName}-${i}.md`
+    restoredAbsPath = path.join(cwd, restoredPath)
+    i++
+  }
+
+  // Move the file
+  renameSync(absPath, restoredAbsPath)
+
+  return { path: restoredPath }
 }

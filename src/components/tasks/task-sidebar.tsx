@@ -15,7 +15,12 @@ interface TaskSidebarProps {
   isSaving: boolean
   isDeleting: boolean
   isAssigning: boolean
+  isArchiving?: boolean
+  isRestoring?: boolean
   saveError: string | null
+
+  // Task metadata
+  isArchived?: boolean
 
   // Run controls
   runAgentType: AgentType
@@ -41,6 +46,8 @@ interface TaskSidebarProps {
   // Handlers
   onSave: () => void
   onDelete: () => void
+  onArchive?: () => void
+  onRestore?: () => void
   onReview: () => void
   onVerify: () => void
   onAssignToAgent: () => void
@@ -53,7 +60,10 @@ export function TaskSidebar({
   isSaving,
   isDeleting,
   isAssigning,
+  isArchiving = false,
+  isRestoring = false,
   saveError,
+  isArchived = false,
   runAgentType,
   runModel,
   availableTypes,
@@ -63,6 +73,8 @@ export function TaskSidebar({
   taskSessions,
   onSave,
   onDelete,
+  onArchive,
+  onRestore,
   onReview,
   onVerify,
   onAssignToAgent,
@@ -182,6 +194,31 @@ export function TaskSidebar({
               rewrite={taskSessions.grouped.rewrite}
             />
           </div>
+        )}
+
+        {/* Archive/Restore Button */}
+        {isArchived ? (
+          onRestore && (
+            <button
+              onClick={onRestore}
+              disabled={isRestoring}
+              className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Restore this task to active tasks"
+            >
+              {isRestoring ? 'Restoring...' : 'Restore'}
+            </button>
+          )
+        ) : (
+          onArchive && (
+            <button
+              onClick={onArchive}
+              disabled={isArchiving}
+              className="w-full px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              title="Archive this task"
+            >
+              {isArchiving ? 'Archiving...' : 'Archive'}
+            </button>
+          )
         )}
 
         {/* Delete Button */}

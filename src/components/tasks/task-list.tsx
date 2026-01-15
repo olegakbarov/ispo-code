@@ -8,6 +8,8 @@ interface TaskSummary {
   path: string
   title: string
   source: string
+  archived: boolean
+  archivedAt?: string
   progress: {
     total: number
     done: number
@@ -20,14 +22,18 @@ interface ActiveAgentSession {
   status: string
 }
 
+type ArchiveFilter = 'all' | 'active' | 'archived'
+
 interface TaskListProps {
   tasks: TaskSummary[]
   selectedPath: string | null
   filter: string
+  archiveFilter: ArchiveFilter
   isLoading: boolean
   error: string | null
   activeAgentSessions: Record<string, ActiveAgentSession> | undefined
   onFilterChange: (filter: string) => void
+  onArchiveFilterChange: (filter: ArchiveFilter) => void
   onTaskSelect: (path: string) => void
 }
 
@@ -35,22 +41,60 @@ export function TaskList({
   tasks,
   selectedPath,
   filter,
+  archiveFilter,
   isLoading,
   error,
   activeAgentSessions,
   onFilterChange,
+  onArchiveFilterChange,
   onTaskSelect,
 }: TaskListProps) {
   return (
     <div className="w-80 shrink-0 min-h-0 flex flex-col bg-panel">
-      <div className="h-12 px-3 border-b border-border flex items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => onFilterChange(e.target.value)}
-          placeholder="Filter tasks..."
-          variant="sm"
-          className="bg-background border-t border-l border-border/60 flex-1"
-        />
+      <div className="px-3 border-b border-border">
+        <div className="h-12 flex items-center gap-2">
+          <Input
+            value={filter}
+            onChange={(e) => onFilterChange(e.target.value)}
+            placeholder="Filter tasks..."
+            variant="sm"
+            className="bg-background border-t border-l border-border/60 flex-1"
+          />
+        </div>
+
+        {/* Archive filter toggle */}
+        <div className="pb-2 flex items-center gap-1">
+          <button
+            onClick={() => onArchiveFilterChange('all')}
+            className={`px-2 py-1 rounded text-[10px] font-vcr transition-colors ${
+              archiveFilter === 'all'
+                ? 'bg-accent/20 text-accent'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => onArchiveFilterChange('active')}
+            className={`px-2 py-1 rounded text-[10px] font-vcr transition-colors ${
+              archiveFilter === 'active'
+                ? 'bg-accent/20 text-accent'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+            }`}
+          >
+            Active
+          </button>
+          <button
+            onClick={() => onArchiveFilterChange('archived')}
+            className={`px-2 py-1 rounded text-[10px] font-vcr transition-colors ${
+              archiveFilter === 'archived'
+                ? 'bg-accent/20 text-accent'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+            }`}
+          >
+            Archived
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -92,6 +136,11 @@ export function TaskList({
                       />
                     )}
                     <div className="text-xs font-vcr truncate flex-1">{t.title}</div>
+                    {t.archived && (
+                      <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-vcr">
+                        ARCHIVED
+                      </span>
+                    )}
                     {showProgress && (
                       <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-vcr">
                         <span className="text-accent">{done}/{total}</span>
@@ -141,4 +190,4 @@ export function TaskList({
   )
 }
 
-export type { TaskSummary, ActiveAgentSession, TaskListProps }
+export type { TaskSummary, ActiveAgentSession, TaskListProps, ArchiveFilter }
