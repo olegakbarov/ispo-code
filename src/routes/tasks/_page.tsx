@@ -14,7 +14,7 @@ import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
-import { CreateTaskModal } from '@/components/tasks/create-task-modal'
+import { CreateTaskModal, ALL_PLANNER_CANDIDATES } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { ImplementModal } from '@/components/tasks/implement-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
@@ -129,13 +129,6 @@ export function TasksPage({
   const pendingCommitMessage = pendingCommitForSelected?.message ?? null
   const pendingCommitGenerating = pendingCommitForSelected?.isGenerating ?? false
 
-  // Store sessionId in ref so cancel handler always has access, even if query state changes
-  const activeSessionIdRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    if (activeSessionId) {
-      activeSessionIdRef.current = activeSessionId
-    }
-  }, [activeSessionId])
 
   const { data: liveSession } = trpc.agent.get.useQuery(
     { id: activeSessionId ?? '' },
@@ -288,12 +281,13 @@ export function TasksPage({
     onTypeChange: handleVerifyAgentTypeChange,
   })
 
-  // Initialize debug agents when available planner types change
+  // Initialize debug agents with ALL candidates (not just available ones)
+  // This ensures unavailable agents show as disabled with "(N/A)" indicator
   useEffect(() => {
-    if (availablePlannerTypes.length > 0 && create.debugAgents.length === 0) {
-      dispatch({ type: 'INIT_DEBUG_AGENTS', payload: availablePlannerTypes })
+    if (create.debugAgents.length === 0) {
+      dispatch({ type: 'INIT_DEBUG_AGENTS', payload: ALL_PLANNER_CANDIDATES })
     }
-  }, [availablePlannerTypes, create.debugAgents.length])
+  }, [create.debugAgents.length])
 
   // Apply settings defaults on mount
   const {
@@ -1143,23 +1137,10 @@ export function TasksPage({
     }
   }, [selectedPath, editor.dirty, editor.draft, saveMutation, assignToAgentMutation])
 
-  const handleCancelAgent = useCallback(() => {
-    // Use ref to get sessionId - more stable than state which can become undefined during transitions
-    const sessionIdToCancel = activeSessionIdRef.current
-    console.log('[handleCancelAgent] Called with:', {
-      selectedPath,
-      activeSessionId,
-      sessionIdToCancel,
-      activeSessionInfo,
-      activeAgentSessions,
-    })
-    if (!sessionIdToCancel) {
-      console.warn('[handleCancelAgent] No sessionId in ref, cannot cancel')
-      return
-    }
-    console.log('[handleCancelAgent] Calling cancelMutation with id:', sessionIdToCancel)
-    cancelAgentMutation.mutate({ id: sessionIdToCancel })
-  }, [cancelAgentMutation, selectedPath, activeSessionId, activeSessionInfo, activeAgentSessions])
+  const handleCancelAgent = useCallback((sessionId: string) => {
+    console.log('[handleCancelAgent] Cancelling session:', sessionId)
+    cancelAgentMutation.mutate({ id: sessionId })
+  }, [cancelAgentMutation])
 
   const handleReview = useCallback(() => {
     // Navigate to debate mode instead of opening modal
