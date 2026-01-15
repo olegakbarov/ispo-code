@@ -18,6 +18,7 @@ import type { PlannerAgentType } from '@/components/tasks/agent-config'
 import { getDefaultModelId } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
 import { trpc } from '@/lib/trpc-client'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 export const Route = createFileRoute('/tasks')({
   validateSearch: z
@@ -100,6 +101,21 @@ function TasksPage() {
   const [rewriteComment, setRewriteComment] = useState('')
   const [rewriteAgentType, setRewriteAgentType] = useState<AgentType>('claude')
   const [rewriteModel, setRewriteModel] = useState(() => getDefaultModelId('claude'))
+
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean
+    title: string
+    message: string
+    confirmText?: string
+    variant?: 'default' | 'danger'
+    onConfirm: () => void
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  })
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -352,7 +368,27 @@ function TasksPage() {
   const selectTask = useCallback(
     (path: string) => {
       if (path === selectedPath) return
-      if (dirty && !globalThis.confirm('You have unsaved changes. Discard them?')) return
+
+      if (dirty) {
+        setConfirmDialog({
+          open: true,
+          title: 'Unsaved Changes',
+          message: 'You have unsaved changes. Discard them?',
+          confirmText: 'Discard',
+          variant: 'danger',
+          onConfirm: () => {
+            lastLoadedPathRef.current = null
+            prevActiveSessionIdRef.current = null
+            setMode('edit')
+
+            navigate({
+              to: '/tasks',
+              search: (prev: { path?: string }) => ({ ...prev, path }),
+            })
+          },
+        })
+        return
+      }
 
       lastLoadedPathRef.current = null
       prevActiveSessionIdRef.current = null
@@ -436,22 +472,40 @@ function TasksPage() {
 
   const handleDelete = useCallback(async () => {
     if (!selectedPath) return
-    if (!globalThis.confirm('Are you sure you want to delete this task?')) return
-    try {
-      await deleteMutation.mutateAsync({ path: selectedPath })
-    } catch (err) {
-      console.error('Failed to delete task:', err)
-    }
+
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Task',
+      message: 'Are you sure you want to delete this task?',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await deleteMutation.mutateAsync({ path: selectedPath })
+        } catch (err) {
+          console.error('Failed to delete task:', err)
+        }
+      },
+    })
   }, [selectedPath, deleteMutation])
 
   const handleArchive = useCallback(async () => {
     if (!selectedPath) return
-    if (!globalThis.confirm('Archive this task? It will be moved to tasks/archive/')) return
-    try {
-      await archiveMutation.mutateAsync({ path: selectedPath })
-    } catch (err) {
-      console.error('Failed to archive task:', err)
-    }
+
+    setConfirmDialog({
+      open: true,
+      title: 'Archive Task',
+      message: 'Archive this task? It will be moved to tasks/archive/',
+      confirmText: 'Archive',
+      variant: 'default',
+      onConfirm: async () => {
+        try {
+          await archiveMutation.mutateAsync({ path: selectedPath })
+        } catch (err) {
+          console.error('Failed to archive task:', err)
+        }
+      },
+    })
   }, [selectedPath, archiveMutation])
 
   const handleRestore = useCallback(async () => {
@@ -465,28 +519,41 @@ function TasksPage() {
 
   const handleAssignToAgent = useCallback(async () => {
     if (!selectedPath) return
-    if (dirty && !globalThis.confirm('You have unsaved changes. Save before assigning to agent?')) {
+
+    const assignToAgent = async () => {
+      // Save first if dirty
+      if (dirty) {
+        await saveMutation.mutateAsync({ path: selectedPath, content: draft })
+        setDirty(false)
+      }
+
+      try {
+        setSaveError(null)
+        await assignToAgentMutation.mutateAsync({
+          path: selectedPath,
+          agentType: runAgentType,
+          model: runModel || undefined,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
+        setSaveError(msg)
+        console.error('Failed to assign to agent:', err)
+      }
+    }
+
+    if (dirty) {
+      setConfirmDialog({
+        open: true,
+        title: 'Unsaved Changes',
+        message: 'You have unsaved changes. Save before assigning to agent?',
+        confirmText: 'Save & Assign',
+        variant: 'default',
+        onConfirm: assignToAgent,
+      })
       return
     }
 
-    // Save first if dirty
-    if (dirty) {
-      await saveMutation.mutateAsync({ path: selectedPath, content: draft })
-      setDirty(false)
-    }
-
-    try {
-      setSaveError(null)
-      await assignToAgentMutation.mutateAsync({
-        path: selectedPath,
-        agentType: runAgentType,
-        model: runModel || undefined,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
-      setSaveError(msg)
-      console.error('Failed to assign to agent:', err)
-    }
+    await assignToAgent()
   }, [selectedPath, dirty, draft, runAgentType, runModel, saveMutation, assignToAgentMutation])
 
   const handleCancelAgent = useCallback(() => {
@@ -755,6 +822,16 @@ function TasksPage() {
         availableTypes={availableTypes}
         onClose={handleCloseReviewModal}
         onStart={handleStartReview}
+      />
+
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
       />
 
     </div>
