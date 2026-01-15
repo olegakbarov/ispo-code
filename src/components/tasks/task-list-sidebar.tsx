@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
 import { useSettingsStore } from '@/lib/stores/settings'
+import { getTaskListAction, getTaskListActionTitle } from '@/components/tasks/task-list-action'
 
 interface TaskSummary {
   path: string
@@ -54,7 +55,7 @@ const TaskItem = memo(function TaskItem({
   agentSession,
   onSelect,
   onRunImpl,
-  onRunVerify,
+  onRunVerify: _onRunVerify, // Keep in interface for potential context menu use
   onNavigateReview,
   isExpanded,
   onToggleExpand,
@@ -64,7 +65,7 @@ const TaskItem = memo(function TaskItem({
     return (
       <div
         onClick={() => onSelect(task.path)}
-        className={`w-full text-left px-3 py-4 cursor-pointer transition-colors border-t border-border ${
+        className={`w-full text-left px-2 py-3 cursor-pointer transition-colors border-t border-border ${
           isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground/60'
         }`}
       >
@@ -78,21 +79,14 @@ const TaskItem = memo(function TaskItem({
   const showProgress = total > 0
   const donePercent = total > 0 ? (done / total) * 100 : 0
 
-  // Determine task state for action button
-  // - plan ready: done === 0 → run impl
-  // - impl done: 0 < done < total → run verify
-  // - all done: done === total → navigate to review
-  const isComplete = total > 0 && done === total
-  const needsVerify = done > 0 && done < total
+  const action = getTaskListAction({ total, done })
 
   const handleAction = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (hasActiveAgent) return
 
-    if (isComplete) {
+    if (action === 'review') {
       onNavigateReview(task.path)
-    } else if (needsVerify) {
-      onRunVerify(task.path)
     } else {
       onRunImpl(task.path)
     }
@@ -103,26 +97,20 @@ const TaskItem = memo(function TaskItem({
     onToggleExpand?.()
   }
 
-  // Determine action title based on state
-  let actionTitle = "Run implementation"
-  if (isComplete) {
-    actionTitle = "Review & commit"
-  } else if (needsVerify) {
-    actionTitle = "Run verification"
-  }
+  const actionTitle = getTaskListActionTitle(action)
 
   return (
     <div
       onClick={() => onSelect(task.path)}
-      className={`w-full text-left px-3 py-4 cursor-pointer transition-colors border-t border-border flex items-center gap-2 ${
+      className={`w-full text-left px-2 py-3 cursor-pointer transition-colors border-t border-border flex items-center gap-2 ${
         isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground'
       }`}
     >
       {/* Expand/collapse toggle for tasks with subtasks */}
-      {task.hasSubtasks ? (
+      {task.hasSubtasks && (
         <button
           onClick={handleToggleExpand}
-          className="shrink-0 p-0.5 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors"
+          className="shrink-0 -ml-1 p-0.5 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors"
           title={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
         >
           {isExpanded ? (
@@ -131,8 +119,6 @@ const TaskItem = memo(function TaskItem({
             <ChevronRight className="w-3.5 h-3.5" />
           )}
         </button>
-      ) : (
-        <div className="shrink-0 w-4" /> // Spacer for alignment
       )}
 
       {/* Title and progress bar */}
