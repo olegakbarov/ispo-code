@@ -12,7 +12,7 @@ import type { DebugAgentSelection } from '@/lib/stores/tasks-reducer'
 export type TaskType = 'bug' | 'feature'
 
 /** All planner agent type candidates (shown in UI, some may be unavailable) */
-const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter']
+export const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter']
 
 interface CreateTaskModalProps {
   isOpen: boolean
