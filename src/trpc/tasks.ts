@@ -190,7 +190,12 @@ function buildTaskExecutionPrompt(params: {
   taskPath: string
   taskContent: string
   workingDir: string
+  instructions?: string
 }): string {
+  const customInstructionsSection = params.instructions
+    ? `\n## Custom Instructions\n\n${params.instructions}\n`
+    : ''
+
   return `You are a coding assistant. Your job is to execute a task plan that has been prepared for you.
 
 ## Task Plan
@@ -200,7 +205,7 @@ The following task plan is stored at: ${params.taskPath}
 ---
 ${params.taskContent}
 ---
-
+${customInstructionsSection}
 ## Instructions
 
 1. Read and understand the task plan above
@@ -781,6 +786,7 @@ export const tasksRouter = router({
       path: z.string().min(1),
       agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
+      instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const task = getTask(ctx.workingDir, input.path)
@@ -788,6 +794,7 @@ export const tasksRouter = router({
         taskPath: input.path,
         taskContent: task.content,
         workingDir: ctx.workingDir,
+        instructions: input.instructions,
       })
 
       const sessionId = randomBytes(6).toString("hex")
