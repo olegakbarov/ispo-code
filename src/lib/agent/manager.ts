@@ -6,6 +6,7 @@
  * - OpenCode (embedded server SDK)
  * - Claude CLI (subprocess via CLIAgentRunner)
  * - Codex CLI (subprocess via CLIAgentRunner)
+ * - MCPorter (MCP-powered QA agent)
  */
 
 import { EventEmitter } from "events"
@@ -15,10 +16,15 @@ import { getSessionStore } from "./session-store"
 import { CerebrasAgent } from "./cerebras"
 import { GeminiAgent } from "./gemini"
 import { OpencodeAgent } from "./opencode"
+import { MCPorterAgent } from "./mcporter"
 import { CLIAgentRunner, getAvailableAgentTypes } from "./cli-runner"
 import { MetadataAnalyzer } from "./metadata-analyzer"
 import { createWorktree, deleteWorktree, isWorktreeIsolationEnabled } from "./git-worktree"
 import { getGitRoot } from "./git-service"
+import { getContextLimit } from "./model-registry"
+import { getRateLimiter, initRateLimiter } from "./rate-limiter"
+import { SecurityConfig } from "./security-config"
+import { getAbuseDetector } from "./abuse-detector"
 
 type AgentManagerEvents = {
   output: [{ sessionId: string; chunk: AgentOutputChunk }]
@@ -52,8 +58,8 @@ function isSessionResumable(session: AgentSession): boolean {
     return false
   }
 
-  // SDK agents (cerebras, gemini, opencode) are always resumable if completed/idle
-  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "gemini" || session.agentType === "opencode"
+  // SDK agents (cerebras, gemini, opencode, mcporter) are always resumable if completed/idle
+  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "gemini" || session.agentType === "opencode" || session.agentType === "mcporter"
   if (isSdkAgent) {
     return session.status === "completed" || session.status === "idle"
   }
@@ -77,6 +83,20 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
   async spawn(params: SpawnAgentParams): Promise<AgentSession> {
     const store = getSessionStore()
+
+    // Check rate limits if enabled
+    if (SecurityConfig.RATE_LIMIT_ENABLED) {
+      const rateLimiter = getRateLimiter()
+      const userId = params.userId ?? "anonymous" // Use userId if provided, else "anonymous"
+
+      // Estimate tokens for initial request (rough estimate)
+      const estimatedTokens = Math.ceil((params.prompt?.length ?? 0) / 4)
+
+      const rateCheck = rateLimiter.checkLimit(userId, estimatedTokens)
+      if (!rateCheck.allowed) {
+        throw new Error(`Rate limit exceeded: ${rateCheck.reason}`)
+      }
+    }
 
     // Concurrency should be based on processes running in this server instance,
     // not persisted session statuses (which may be stale after restarts).
@@ -109,6 +129,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     // Use worktree path as working directory if available
     const effectiveWorkingDir = worktreePath ?? workingDir
 
+    const userId = params.userId ?? "anonymous"
     const session: AgentSession = {
       id: sessionId,
       prompt: params.prompt,
@@ -122,9 +143,12 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       agentType,
       model: params.model,
       taskPath: params.taskPath,
+      sourceFile: params.sourceFile,
+      sourceLine: params.sourceLine,
       resumable: true, // New sessions are resumable by default
       resumeAttempts: 0,
       resumeHistory: [],
+      userId,
     }
 
     store.createSession(session)
@@ -155,6 +179,17 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     // Check if session exists
     if (!session) {
       return { success: false, error: "Session not found" }
+    }
+
+    // Check rate limits if enabled
+    if (SecurityConfig.RATE_LIMIT_ENABLED && session.userId) {
+      const rateLimiter = getRateLimiter()
+      const estimatedTokens = Math.ceil(message.length / 4)
+
+      const rateCheck = rateLimiter.checkLimit(session.userId, estimatedTokens)
+      if (!rateCheck.allowed) {
+        return { success: false, error: `Rate limit exceeded: ${rateCheck.reason}` }
+      }
     }
 
     // Check if session is currently running
@@ -226,7 +261,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     // Run the agent with resume flag, using worktree path if available
     const effectiveWorkingDir = session.worktreePath ?? session.workingDir
     this.runAgent(sessionId, trimmed, effectiveWorkingDir, agentType, session.model, {
-      isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras",
+      isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras" || agentType === "mcporter",
       cliSessionId: session.cliSessionId,
     })
 
@@ -273,7 +308,8 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
   ): Promise<void> {
     const store = getSessionStore()
     const session = store.getSession(sessionId)
-    const analyzer = new MetadataAnalyzer(agentType, workingDir)
+    const modelLimit = getContextLimit(model ?? "", agentType)
+    const analyzer = new MetadataAnalyzer(agentType, workingDir, modelLimit)
     const isResume = options?.isResume ?? false
     const shouldMarkComplete = Boolean(session?.taskPath)
 
@@ -316,6 +352,16 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
         case "opencode": {
           const agent = new OpencodeAgent({ workingDir, model })
           agentEmitter = agent
+          break
+        }
+        case "mcporter": {
+          const agent = new MCPorterAgent({
+            workingDir,
+            model,
+            messages: session?.mcporterMessages ?? undefined,
+          })
+          agentEmitter = agent
+          getSessionUpdatesOnComplete = () => ({ mcporterMessages: agent.getMessages() })
           break
         }
         case "claude":
@@ -414,6 +460,13 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
           }
           return entry
         })
+
+        // Record token usage for rate limiting
+        if (SecurityConfig.RATE_LIMIT_ENABLED && currentSession?.userId) {
+          const rateLimiter = getRateLimiter()
+          const totalTokens = data.tokensUsed.input + data.tokensUsed.output
+          rateLimiter.recordUsage(currentSession.userId, totalTokens)
+        }
 
         const sessionUpdates = getSessionUpdatesOnComplete ? getSessionUpdatesOnComplete() : {}
         store.updateSession(sessionId, {
@@ -580,6 +633,20 @@ export function getAgentManager(): AgentManager {
     managerInstance.on("error", ({ sessionId, error }) => {
       console.error(`[AgentManager] Session ${sessionId} error:`, error)
     })
+
+    // Initialize rate limiter with security config
+    if (SecurityConfig.RATE_LIMIT_ENABLED) {
+      initRateLimiter({
+        maxRequestsPerMinute: SecurityConfig.RATE_LIMIT_REQUESTS_PER_MINUTE,
+        maxTokensPerRequest: SecurityConfig.RATE_LIMIT_MAX_TOKENS_PER_REQUEST,
+        maxTotalTokensPerMinute: SecurityConfig.RATE_LIMIT_TOKENS_PER_MINUTE,
+        maxTotalTokensPerHour: SecurityConfig.RATE_LIMIT_TOKENS_PER_HOUR,
+        suspensionDurationMs: SecurityConfig.RATE_LIMIT_SUSPENSION_DURATION_MS,
+      })
+
+      // Initialize abuse detector (starts monitoring automatically)
+      getAbuseDetector()
+    }
   }
   return managerInstance
 }

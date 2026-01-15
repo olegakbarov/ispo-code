@@ -23,6 +23,7 @@ import { CLIAgentRunner } from "../lib/agent/cli-runner"
 import { MetadataAnalyzer } from "../lib/agent/metadata-analyzer"
 import { extractTaskReviewOutput } from "../lib/agent/config"
 import { saveTask } from "../lib/agent/task-service"
+import { getContextLimit } from "../lib/agent/model-registry"
 import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
 
 /** Agent interface with optional getMessages for SDK agents */
@@ -106,7 +107,8 @@ export class AgentDaemon {
       bufferSize: 1, // Publish immediately for real-time updates
       debug: process.env.DEBUG === "true",
     })
-    this.analyzer = new MetadataAnalyzer(config.agentType, config.workingDir)
+    const modelLimit = getContextLimit(config.model ?? "", config.agentType)
+    this.analyzer = new MetadataAnalyzer(config.agentType, config.workingDir, modelLimit)
     this.abortController = new AbortController()
   }
 

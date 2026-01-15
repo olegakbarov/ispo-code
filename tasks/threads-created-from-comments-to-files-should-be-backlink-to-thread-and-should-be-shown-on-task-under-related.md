@@ -20,47 +20,43 @@ File comments (via `FileCommentInput` or `DiffPanel` inline comments) don't pers
 
 ### Phase 1: Extend Session Schema
 - [x] Add `sourceFile?: string` and `sourceLine?: number` to `SessionCreatedEvent` in `src/streams/schemas.ts`
-  - ✓ Verified: Fields added at `src/streams/schemas.ts:34-37` with proper JSDoc comments
+  - ✓ Verified: fields present in `src/streams/schemas.ts:34`.
 - [x] Add same fields to `AgentSession` interface in `src/lib/agent/types.ts`
-  - ✓ Verified: Fields added at `src/lib/agent/types.ts:254-257` with JSDoc comments
+  - ✓ Verified: fields present in `src/lib/agent/types.ts:291`.
 - [x] Update `AgentManager.spawnAgent()` to accept and persist these fields (via DaemonConfig + SpawnDaemonConfig)
-  - ✓ Verified: `SpawnAgentParams` includes fields at `src/lib/agent/types.ts:283-286`
-  - ✓ Verified: `SpawnDaemonConfig` includes fields at `src/daemon/spawn-daemon.ts:31-34`
-  - ✓ Verified: `DaemonConfig` includes fields at `src/daemon/agent-daemon.ts:46-50`
+  - ✓ Fixed: Added `sourceFile` and `sourceLine` to session object creation in `src/lib/agent/manager.ts:145-146`.
 
 ### Phase 2: tRPC - Accept Source Context
 - [x] Update `agent.spawn` mutation input to accept `sourceFile`, `sourceLine`, `taskPath`
-  - ✓ Verified: Input schema at `src/trpc/agent.ts:281-285` includes all three fields
+  - ✓ Verified: input schema includes the fields in `src/trpc/agent.ts:281`.
 - [x] Pass through to ProcessMonitor.spawnDaemon()
-  - ✓ Verified: Fields passed at `src/trpc/agent.ts:302-303` to `monitor.spawnDaemon()`
+  - ✓ Verified: values forwarded to `monitor.spawnDaemon` in `src/trpc/agent.ts:302`.
 - [x] Update `tasks.getSessionsForTask` to include source context + "comment" sessionType in response
-  - ✓ Verified: Query at `src/trpc/tasks.ts:862-865` detects `sourceFile` for "comment" type
-  - ✓ Verified: Returns `sourceFile` and `sourceLine` at `src/trpc/tasks.ts:890-891`
+  - ✓ Verified: `sourceFile` drives `comment` sessionType in `src/trpc/tasks.ts:1092`.
+  - ✓ Verified: `sourceFile`/`sourceLine` returned in `src/trpc/tasks.ts:1122`.
 
 ### Phase 3: UI - Comment Creates Session
 - [x] Modify `FileCommentInput` to accept `taskPath`, `sourceFile`, `sourceLine` props
-  - ✓ Verified: Props defined at `src/components/agents/file-comment-input.tsx:14-19`
+  - ✓ Verified: props declared in `src/components/agents/file-comment-input.tsx:15`.
 - [x] On submit → call `agent.spawn` with source context + task linkage + title
-  - ✓ Verified: Mutation call at `src/components/agents/file-comment-input.tsx:62-68` passes all fields
+  - ✓ Verified: spawn payload includes `taskPath`, `sourceFile`, `sourceLine`, `title` in `src/components/agents/file-comment-input.tsx:94`.
 - [ ] Update `DiffPanel` inline comment submit to spawn session with file/line context (out of scope - existing comment flow used)
   - ℹ️ Marked out of scope - existing `FileCommentInput` used for diff comments
 
 ### Phase 4: UI - Display in Task Related
 - [x] `TaskSessions` already groups sessions - add "comment" sessionType
-  - ✓ Verified: Interface at `src/components/tasks/task-sessions.tsx:15` includes `'comment'`
-  - ✓ Verified: Props at `src/components/tasks/task-sessions.tsx:29` include `comment: TaskSession[]`
-  - ✓ Verified: SessionGroup rendered at `src/components/tasks/task-sessions.tsx:171`
+  - ✓ Verified: `comment` added to session types and props in `src/components/tasks/task-sessions.tsx:17`.
+  - ✓ Verified: "Comments" group renders in `src/components/tasks/task-sessions.tsx:328`.
 - [x] Show source file + line preview for comment-originated sessions (📄 badge)
-  - ✓ Verified: Badge rendering at `src/components/tasks/task-sessions.tsx:106-112` shows 📄 icon with filename:line
+  - ✓ Verified: `sourceLabel` badge rendering in `src/components/tasks/task-sessions.tsx:215`.
 - [x] Click navigates to `/agents/$sessionId` (existing behavior)
-  - ✓ Verified: Navigation at `src/components/tasks/task-sessions.tsx:67-70`
+  - ✓ Verified: navigation to `/agents/$sessionId` in `src/components/tasks/task-sessions.tsx:130`.
 
 ### Phase 5: UI - Session Backlink
 - [x] In `thread-sidebar.tsx`, show source file/line badge when session has `sourceFile`
-  - ✓ Verified: Source section at `src/components/agents/thread-sidebar.tsx:93-115` renders when `session.sourceFile` exists
-  - ✓ Verified: Shows FileCode icon + filename:line at lines 97-101
+  - ✓ Verified: source section renders when `session.sourceFile` exists in `src/components/agents/thread-sidebar.tsx:96`.
 - [x] Badge links back to task view via Link to /tasks with path param
-  - ✓ Verified: Link component at `src/components/agents/thread-sidebar.tsx:104-111` navigates to `/tasks` with `path` and `archiveFilter` search params
+  - ✓ Verified: `Link` to `/tasks/$` with `_splat` in `src/components/agents/thread-sidebar.tsx:108`.
 
 ## Key Files
 - `src/streams/schemas.ts` - add `sourceFile`, `sourceLine` to `SessionCreatedEvent`
@@ -73,13 +69,16 @@ File comments (via `FileCommentInput` or `DiffPanel` inline comments) don't pers
 
 ## Success Criteria
 - [x] File comments spawn agent sessions with source file/line context
-  - ✓ Verified: Full chain from UI → tRPC → daemon verified
+  - ✓ Verified: `FileCommentInput` includes `sourceFile`/`sourceLine` in `src/components/agents/file-comment-input.tsx:94`, and `agent.spawn` forwards them in `src/trpc/agent.ts:302`.
 - [x] Sessions with `sourceFile` appear in task "Related Sessions" with file badge
-  - ✓ Verified: `getSessionsForTask` filters for `sourceFile`, `TaskSessions` displays badge
+  - ✓ Verified: `getSessionsForTask` includes `sourceFile`/`sourceLine` and `comment` type in `src/trpc/tasks.ts:1092`.
+  - ✓ Verified: badge renders from `sourceFile` in `src/components/tasks/task-sessions.tsx:215`.
 - [x] Session sidebar shows backlink to originating task + source location
-  - ✓ Verified: `thread-sidebar.tsx` Source section with task backlink
+  - ✓ Verified: source badge and task link in `src/components/agents/thread-sidebar.tsx:96`.
 - [x] Source context persists in durable streams (via SessionCreatedEvent)
-  - ✓ Verified: `agent-daemon.ts:128-139` publishes `sourceFile`/`sourceLine` to registry
+  - ✓ Verified: `SessionCreatedEvent` includes `sourceFile`/`sourceLine` in `src/streams/schemas.ts:34`.
+  - ✓ Verified: registry publish includes `sourceFile`/`sourceLine` in `src/daemon/agent-daemon.ts:128`.
+  - ✓ Verified: reconstruction reads `sourceFile`/`sourceLine` in `src/trpc/agent.ts:175`.
 
 ## Design Decisions (Resolved)
 1. **Threads = Agent Sessions** - comment threads spawn agent sessions, not standalone comments
@@ -89,22 +88,19 @@ File comments (via `FileCommentInput` or `DiffPanel` inline comments) don't pers
 ## Verification Results
 
 ### Summary
-All **17 completed items** have been verified as correctly implemented:
+- Completed items verified: 17/18 (all implementation items complete, 1 out of scope).
 
-| Phase | Items | Status |
-|-------|-------|--------|
-| Phase 1: Schema | 3/3 | ✓ Complete |
-| Phase 2: tRPC | 3/3 | ✓ Complete |
-| Phase 3: UI Comment | 2/2 (+1 out of scope) | ✓ Complete |
-| Phase 4: Task Related | 3/3 | ✓ Complete |
-| Phase 5: Backlink | 2/2 | ✓ Complete |
-| Success Criteria | 4/4 | ✓ Complete |
+### Tests
+- `npm run test:run` failed: git worktree lock permission errors and Cerebras connection errors in `src/lib/agent/manager.test.ts`.
 
-### Key Implementation Details Verified
-1. **Data Flow**: `sourceFile`/`sourceLine` flow correctly through: UI → tRPC mutation → ProcessMonitor → DaemonConfig → AgentDaemon → Registry stream
-2. **Session Reconstruction**: `reconstructSessionFromStreams()` in `agent.ts:168-169` properly extracts source context from registry events
-3. **Task Session Grouping**: `getSessionsForTask` query correctly identifies "comment" sessions via `sourceFile` presence (line 865)
-4. **UI Components**: Both `TaskSessions` (📄 badge) and `ThreadSidebar` (Source section with backlink) render source context appropriately
+### Issues
+- ~~`AgentManager.spawn` omits `sourceFile`/`sourceLine` in the created session object (`src/lib/agent/manager.ts:132`).~~ **FIXED** - Added fields to session creation at `src/lib/agent/manager.ts:145-146`.
 
-### No Issues Found
-All completed items are correctly implemented with proper TypeScript types, JSDoc comments, and consistent patterns throughout the codebase.
+## Implementation Complete
+
+All implementation tasks have been completed. The fix ensures that when file comments create agent sessions, the `sourceFile` and `sourceLine` context is properly persisted throughout the system:
+
+1. **Data Flow**: `FileCommentInput` → `agent.spawn` tRPC → `ProcessMonitor.spawnDaemon` → `AgentManager.spawn` → Session object
+2. **Persistence**: Source context stored in `AgentSession` and published to durable streams via `SessionCreatedEvent`
+3. **Display**: Task sessions show source badges, thread sidebar shows backlinks to originating task
+4. **Build Status**: TypeScript compilation successful with no errors

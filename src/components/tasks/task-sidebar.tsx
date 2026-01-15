@@ -41,7 +41,7 @@ interface TaskSidebarProps {
   onReview: () => void
   onVerify: () => void
   onAssignToAgent: () => void
-  onCancelAgent?: () => void
+  onCancelAgent?: (sessionId: string) => void
 }
 
 export function TaskSidebar({
@@ -69,33 +69,8 @@ export function TaskSidebar({
   return (
     <div className="w-full h-full bg-panel overflow-y-auto flex flex-col">
       <div className="p-3 flex-1 flex flex-col">
-        {/* Sessions Section - Most Prominent */}
-        <div className="space-y-2 mb-4">
-          <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
-            Sessions
-          </h3>
-          {taskSessions ? (
-            <TaskSessions
-              planning={taskSessions.grouped.planning}
-              review={taskSessions.grouped.review}
-              verify={taskSessions.grouped.verify}
-              execution={taskSessions.grouped.execution}
-              rewrite={taskSessions.grouped.rewrite}
-              comment={taskSessions.grouped.comment}
-              onCancelSession={onCancelAgent ? () => onCancelAgent() : undefined}
-            />
-          ) : (
-            <div className="p-4 border border-border/40 rounded text-center">
-              <p className="text-xs text-text-muted">No sessions yet</p>
-              <p className="text-[10px] text-text-muted mt-1">
-                Sessions will appear here when you run an agent
-              </p>
-            </div>
-          )}
-        </div>
-
         {/* Controls Section */}
-        <div className="space-y-3 pt-2 border-t border-border/50">
+        <div className="space-y-3 mb-4">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
               Controls
@@ -158,6 +133,31 @@ export function TaskSidebar({
               <ExternalLink className="w-3 h-3" />
               <span className="truncate">Split from: {splitFrom.replace('tasks/', '')}</span>
             </button>
+          )}
+        </div>
+
+        {/* Sessions Section */}
+        <div className="space-y-2 pt-2 border-t border-border/50">
+          <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
+            Sessions
+          </h3>
+          {taskSessions ? (
+            <TaskSessions
+              planning={taskSessions.grouped.planning}
+              review={taskSessions.grouped.review}
+              verify={taskSessions.grouped.verify}
+              execution={taskSessions.grouped.execution}
+              rewrite={taskSessions.grouped.rewrite}
+              comment={taskSessions.grouped.comment}
+              onCancelSession={onCancelAgent}
+            />
+          ) : (
+            <div className="p-4 border border-border/40 rounded text-center">
+              <p className="text-xs text-text-muted">No sessions yet</p>
+              <p className="text-[10px] text-text-muted mt-1">
+                Sessions will appear here when you run an agent
+              </p>
+            </div>
           )}
         </div>
 

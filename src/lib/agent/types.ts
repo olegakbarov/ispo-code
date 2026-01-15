@@ -300,6 +300,8 @@ export interface AgentSession {
   resumeAttempts?: number
   /** History of resume attempts */
   resumeHistory?: ResumeHistoryEntry[]
+  /** User identifier for rate limiting */
+  userId?: string
 }
 
 /**
@@ -323,6 +325,8 @@ export interface SpawnAgentParams {
   sourceLine?: number
   /** Image attachments for multimodal input */
   attachments?: ImageAttachment[]
+  /** User identifier for rate limiting (defaults to "anonymous") */
+  userId?: string
 }
 
 /**
