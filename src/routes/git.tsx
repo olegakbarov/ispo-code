@@ -44,6 +44,25 @@ function GitPage() {
   const utils = trpc.useUtils()
   const { theme } = useTheme()
 
+  // Resolve system theme with SSR-safe guard
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
+  useEffect(() => {
+    if (theme === 'system' && typeof window !== 'undefined') {
+      const matches = window.matchMedia('(prefers-color-scheme: dark)').matches
+      setResolvedTheme(matches ? 'dark' : 'light')
+
+      // Listen for theme changes
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      const listener = (e: MediaQueryListEvent) => {
+        setResolvedTheme(e.matches ? 'dark' : 'light')
+      }
+      mediaQuery.addEventListener('change', listener)
+      return () => mediaQuery.removeEventListener('change', listener)
+    } else if (theme !== 'system') {
+      setResolvedTheme(theme)
+    }
+  }, [theme])
+
   // Queries - only enabled when workingDir is set
   const statusQuery = trpc.git.status.useQuery(undefined, {
     enabled: !!workingDir,
@@ -401,7 +420,7 @@ function GitPage() {
               diffData={diffData}
               diffLoading={diffLoading}
               availableAgentTypes={['cerebras', 'opencode']}
-              theme={theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme}
+              theme={resolvedTheme}
               onSelectFile={handleSelectFile}
               onCloseFile={handleCloseFile}
               onCloseAll={handleCloseAll}

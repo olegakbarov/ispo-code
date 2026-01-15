@@ -32,7 +32,13 @@ export async function initializeStreamsServer(config?: StreamServerConfig): Prom
       serverStarted = true
       console.log('[Streams] ✓ Durable streams server initialized')
     })
-    .catch((error) => {
+    .catch((error: unknown) => {
+      // If port is already in use, assume another instance is running
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE') {
+        console.log('[Streams] ✓ Streams server already running (port in use)')
+        serverStarted = true // Mark as "started" since one is available
+        return
+      }
       console.error('[Streams] ✗ Failed to initialize streams server:', error)
       // Reset so it can be retried
       serverPromise = null

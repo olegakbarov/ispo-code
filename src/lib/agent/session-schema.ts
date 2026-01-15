@@ -43,6 +43,24 @@ const CerebrasMessageDataSchema = z.object({
 })
 
 /**
+ * Schema for Gemini message data (Vercel AI SDK format)
+ */
+const GeminiMessageDataSchema = z.object({
+  role: z.enum(["system", "user", "assistant", "tool"]),
+  content: z.union([
+    z.string(),
+    z.array(z.object({
+      type: z.string(),
+      text: z.string().optional(),
+      toolCallId: z.string().optional(),
+      toolName: z.string().optional(),
+      args: z.unknown().optional(),
+      result: z.unknown().optional(),
+    })),
+  ]),
+})
+
+/**
  * Schema for edited file info
  */
 const EditedFileInfoSchema = z.object({
@@ -180,7 +198,7 @@ export const AgentSessionSchema = z.object({
   workingDir: z.string(),
   output: z.array(AgentOutputChunkSchema),
   error: z.string().optional(),
-  agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).optional(),
+  agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).optional(),
   model: z.string().optional(),
   metadata: AgentSessionMetadataSchema.nullable().optional(),
   tokensUsed: z.object({
@@ -190,6 +208,7 @@ export const AgentSessionSchema = z.object({
   cliSessionId: z.string().optional(),
   messages: z.array(ConversationMessageSchema).optional(),
   cerebrasMessages: z.array(CerebrasMessageDataSchema).optional(),
+  geminiMessages: z.array(GeminiMessageDataSchema).optional(),
   taskPath: z.string().optional(),
   planPath: z.string().optional(),
   resumable: z.boolean().optional(),

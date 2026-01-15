@@ -8,7 +8,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import type { AgentType } from '@/lib/agent/types'
-import { OPENCODE_MODELS } from '@/lib/agent/config'
+import { getModelsForAgentType, supportsModelSelection, getDefaultModelId, agentTypeLabel } from '@/lib/agent/config'
 
 // Lazy load MultiFileDiff to avoid SSR issues with lru_map ESM interop
 const MultiFileDiff = lazy(() =>
@@ -531,7 +531,7 @@ export function DiffPanel({
       onSpawnAgent({
         prompt,
         agentType,
-        model: agentType === 'opencode' && model ? model : undefined,
+        model: model || undefined,
       })
       setSendOpen(false)
     } catch (err) {
@@ -821,8 +821,8 @@ export function DiffPanel({
 
               <div>
                 <div className="font-vcr text-xs text-muted-foreground mb-2">Agent Type</div>
-                <div className="flex gap-2">
-                  {(['opencode', 'codex', 'claude'] as AgentType[]).map((type) => {
+                <div className="flex gap-2 flex-wrap">
+                  {(['cerebras', 'gemini', 'opencode', 'claude', 'codex'] as AgentType[]).map((type) => {
                     const available = isAvailable(type)
                     const selected = agentType === type
                     return (
@@ -830,8 +830,11 @@ export function DiffPanel({
                         key={type}
                         type="button"
                         disabled={!available}
-                        onClick={() => setAgentType(type)}
-                        className={`flex-1 px-3 py-2 rounded border cursor-pointer transition-colors text-xs font-vcr ${
+                        onClick={() => {
+                          setAgentType(type)
+                          setModel(getDefaultModelId(type))
+                        }}
+                        className={`flex-1 min-w-[80px] px-3 py-2 rounded border cursor-pointer transition-colors text-xs font-vcr ${
                           selected
                             ? 'border-primary bg-primary/10 text-primary'
                             : available
@@ -839,14 +842,14 @@ export function DiffPanel({
                               : 'border-border bg-background text-muted-foreground cursor-not-allowed opacity-50'
                         }`}
                       >
-                        {type}
+                        {agentTypeLabel[type]}
                       </button>
                     )
                   })}
                 </div>
               </div>
 
-              {agentType === 'opencode' && (
+              {supportsModelSelection(agentType) && (
                 <div>
                   <div className="font-vcr text-xs text-muted-foreground mb-2">Model</div>
                   <Select
@@ -855,9 +858,9 @@ export function DiffPanel({
                     variant="sm"
                     className="bg-background"
                   >
-                    {OPENCODE_MODELS.map((m) => (
+                    {getModelsForAgentType(agentType).map((m) => (
                       <option key={m.value} value={m.value}>
-                        {m.label}
+                        {m.label}{m.description ? ` - ${m.description}` : ''}
                       </option>
                     ))}
                   </Select>

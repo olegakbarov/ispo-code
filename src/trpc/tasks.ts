@@ -285,7 +285,8 @@ export const tasksRouter = router({
   createWithAgent: procedure
     .input(z.object({
       title: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      model: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       // Create the task file first with placeholder content
@@ -309,6 +310,7 @@ export const tasksRouter = router({
       monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
+        model: input.model,
         prompt,
         workingDir: ctx.workingDir,
         streamServerUrl,
@@ -342,7 +344,8 @@ export const tasksRouter = router({
   assignToAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      model: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const task = getTask(ctx.workingDir, input.path)
@@ -360,6 +363,7 @@ export const tasksRouter = router({
       monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
+        model: input.model,
         prompt,
         workingDir: ctx.workingDir,
         streamServerUrl,
@@ -382,7 +386,8 @@ export const tasksRouter = router({
   reviewWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      model: z.string().optional(),
       instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -402,6 +407,7 @@ export const tasksRouter = router({
       monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
+        model: input.model,
         prompt,
         workingDir: ctx.workingDir,
         streamServerUrl,
@@ -424,7 +430,8 @@ export const tasksRouter = router({
   verifyWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).default("claude"),
+      model: z.string().optional(),
       instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -444,6 +451,7 @@ export const tasksRouter = router({
       monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
+        model: input.model,
         prompt,
         workingDir: ctx.workingDir,
         streamServerUrl,

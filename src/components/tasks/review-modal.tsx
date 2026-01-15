@@ -1,11 +1,11 @@
 /**
  * Modal for configuring task review/verification
- * Collects agent type and optional instructions before spawning a new session
+ * Collects agent type, model, and optional instructions before spawning a new session
  */
 
 import { useState, useEffect } from 'react'
 import { Select } from '@/components/ui/select'
-import { agentTypeLabel } from './agent-config'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, getDefaultModelId } from './agent-config'
 import type { AgentType } from '@/lib/agent/types'
 
 type ReviewMode = 'review' | 'verify'
@@ -15,9 +15,10 @@ interface ReviewModalProps {
   mode: ReviewMode
   taskTitle: string
   agentType: AgentType
+  model: string
   availableTypes: AgentType[] | undefined
   onClose: () => void
-  onStart: (agentType: AgentType, instructions?: string) => Promise<void>
+  onStart: (agentType: AgentType, model: string | undefined, instructions?: string) => Promise<void>
 }
 
 export function ReviewModal({
@@ -25,11 +26,13 @@ export function ReviewModal({
   mode,
   taskTitle,
   agentType: initialAgentType,
+  model: initialModel,
   availableTypes,
   onClose,
   onStart,
 }: ReviewModalProps) {
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(initialAgentType)
+  const [selectedModel, setSelectedModel] = useState(initialModel)
   const [customInstructions, setCustomInstructions] = useState('')
   const [isStarting, setIsStarting] = useState(false)
 
@@ -37,10 +40,17 @@ export function ReviewModal({
   useEffect(() => {
     if (isOpen) {
       setSelectedAgentType(initialAgentType)
+      setSelectedModel(initialModel)
       setCustomInstructions('')
       setIsStarting(false)
     }
-  }, [isOpen, initialAgentType])
+  }, [isOpen, initialAgentType, initialModel])
+
+  // Reset model when agent type changes
+  const handleAgentTypeChange = (newType: AgentType) => {
+    setSelectedAgentType(newType)
+    setSelectedModel(getDefaultModelId(newType))
+  }
 
   const title = mode === 'review' ? 'Review Task Spec' : 'Verify Task Completion'
   const description = mode === 'review'
@@ -50,7 +60,7 @@ export function ReviewModal({
   const handleStart = async () => {
     setIsStarting(true)
     try {
-      await onStart(selectedAgentType, customInstructions.trim() || undefined)
+      await onStart(selectedAgentType, selectedModel || undefined, customInstructions.trim() || undefined)
       onClose()
     } catch (err) {
       console.error('Failed to start review/verify:', err)
@@ -87,7 +97,7 @@ export function ReviewModal({
             <div className="font-vcr text-xs text-text-muted mb-2">Agent Type</div>
             <Select
               value={selectedAgentType}
-              onChange={(e) => setSelectedAgentType(e.target.value as AgentType)}
+              onChange={(e) => handleAgentTypeChange(e.target.value as AgentType)}
               variant="sm"
               className="bg-background"
               disabled={isStarting}
@@ -99,6 +109,25 @@ export function ReviewModal({
               ))}
             </Select>
           </div>
+
+          {supportsModelSelection(selectedAgentType) && (
+            <div>
+              <div className="font-vcr text-xs text-text-muted mb-2">Model</div>
+              <Select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                variant="sm"
+                className="bg-background"
+                disabled={isStarting}
+              >
+                {getModelsForAgentType(selectedAgentType).map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}{m.description ? ` - ${m.description}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
 
           <div>
             <div className="font-vcr text-xs text-text-muted mb-2">

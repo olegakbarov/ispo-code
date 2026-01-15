@@ -267,10 +267,10 @@ export function getWorktreeForSession(
 /**
  * Check if worktree isolation is enabled
  *
- * @returns true if ENABLE_WORKTREE_ISOLATION is set to 'true'
+ * Enabled by default. Set DISABLE_WORKTREE_ISOLATION=true to disable.
  */
 export function isWorktreeIsolationEnabled(): boolean {
-  return process.env.ENABLE_WORKTREE_ISOLATION === "true"
+  return process.env.DISABLE_WORKTREE_ISOLATION !== "true"
 }
 
 /**

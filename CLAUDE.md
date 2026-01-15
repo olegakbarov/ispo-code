@@ -48,14 +48,12 @@ npm run start        # Preview production build
 
 ## Worktree Isolation
 
-**Feature**: `ENABLE_WORKTREE_ISOLATION=true` - Isolate concurrent agent sessions via git worktrees
-
-### Overview
-
-When enabled, each agent session runs in an isolated git worktree on a unique branch (`agentz/session-{id}`). This prevents:
+Each agent session runs in an isolated git worktree on a unique branch (`agentz/session-{id}`). This prevents:
 - Concurrent agents conflicting on same files
 - Mixed commits across sessions
 - Cross-session contamination
+
+**Enabled by default.** To disable: `export DISABLE_WORKTREE_ISOLATION=true`
 
 ### Architecture
 
@@ -73,16 +71,6 @@ When enabled, each agent session runs in an isolated git worktree on a unique br
 - Sidebar shows "WT" badge when session uses worktree
 - Git status displays worktree branch name
 - Commit operations scoped to session files
-
-### Usage
-
-```bash
-# Enable worktree isolation
-export ENABLE_WORKTREE_ISOLATION=true
-
-# Start server
-npm run dev
-```
 
 **Session-specific git operations** (via tRPC):
 - Server automatically resolves `X-Session-Id` header to worktree path

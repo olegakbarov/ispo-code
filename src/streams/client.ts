@@ -3,19 +3,33 @@
  *
  * Provides client connections to the durable streams server.
  * Used by both the API layer (for reading) and agent daemons (for writing).
+ * Supports dynamic port discovery via server info file.
  */
 
 import { DurableStream } from "@durable-streams/client"
 import type { RegistryEvent, SessionStreamEvent } from "./schemas"
 import { REGISTRY_STREAM, getSessionStreamPath } from "./schemas"
+import { readServerInfo } from "./server"
 
-const STREAM_SERVER_URL = process.env.STREAM_SERVER_URL || "http://localhost:4201"
+const DEFAULT_STREAM_SERVER_URL = "http://127.0.0.1:4201"
 
 /**
- * Get the stream server base URL
+ * Get the stream server base URL (with discovery support)
  */
 export function getStreamServerUrl(): string {
-  return STREAM_SERVER_URL
+  // Check environment variable first
+  if (process.env.STREAM_SERVER_URL) {
+    return process.env.STREAM_SERVER_URL
+  }
+
+  // Try reading from discovery file
+  const serverInfo = readServerInfo()
+  if (serverInfo) {
+    return serverInfo.url
+  }
+
+  // Fallback to default
+  return DEFAULT_STREAM_SERVER_URL
 }
 
 /**
@@ -23,7 +37,7 @@ export function getStreamServerUrl(): string {
  */
 export function createStreamHandle(streamPath: string): DurableStream {
   return new DurableStream({
-    url: `${STREAM_SERVER_URL}${streamPath}`,
+    url: `${getStreamServerUrl()}${streamPath}`,
   })
 }
 
@@ -34,7 +48,7 @@ export class StreamAPI {
   private baseUrl: string
 
   constructor(serverUrl?: string) {
-    this.baseUrl = serverUrl || STREAM_SERVER_URL
+    this.baseUrl = serverUrl || getStreamServerUrl()
   }
 
   /**
@@ -83,6 +97,15 @@ export class StreamAPI {
    */
   async appendToSession(sessionId: string, event: SessionStreamEvent): Promise<void> {
     const streamPath = getSessionStreamPath(sessionId)
+    await this.ensureStreamExists(streamPath)
+    const handle = this.getHandle(streamPath)
+    await handle.append([JSON.stringify(event)])
+  }
+
+  /**
+   * Append a generic event to any stream (e.g., control streams)
+   */
+  async append(streamPath: string, event: unknown): Promise<void> {
     await this.ensureStreamExists(streamPath)
     const handle = this.getHandle(streamPath)
     await handle.append([JSON.stringify(event)])

@@ -27,13 +27,13 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable }: Promp
     : prompt
 
   return (
-    <div className="min-h-12 px-3 py-2 border-b border-border/60 bg-panel/30 flex items-center">
+    <div className="flex-shrink-0 px-3 py-2 border-b border-border/60 bg-panel/30">
       <div className="flex items-start gap-2">
         {/* Expand/collapse button */}
         {shouldCollapse && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex-shrink-0 p-0.5 text-text-muted hover:text-text-secondary transition-colors cursor-pointer"
+            className="flex-shrink-0 p-0.5 mt-0.5 text-text-muted hover:text-text-secondary transition-colors cursor-pointer"
             title={expanded ? 'Collapse prompt' : 'Expand prompt'}
           >
             {expanded ? (
@@ -46,7 +46,7 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable }: Promp
 
         {/* Prompt text */}
         <div className="flex-1 min-w-0">
-          <div className={`text-xs text-text-secondary ${expanded ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>
+          <div className={`text-xs text-text-secondary ${expanded ? 'whitespace-pre-wrap max-h-48 overflow-y-auto' : 'line-clamp-2'}`}>
             {displayPrompt}
           </div>
         </div>

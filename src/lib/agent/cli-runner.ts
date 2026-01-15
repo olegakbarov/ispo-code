@@ -89,6 +89,10 @@ export function getAvailableAgentTypes(): AgentType[] {
   if (process.env.CEREBRAS_API_KEY?.trim()) {
     types.push("cerebras")
   }
+  // Gemini agent via Vercel AI SDK - requires GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY
+  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()) {
+    types.push("gemini")
+  }
   return types
 }
 
@@ -769,13 +773,12 @@ export class CLIAgentRunner extends EventEmitter {
     }
 
     // Codex returns needs_follow_up to indicate if session can accept more input
+    // We track this but don't block resumes - let users try anyway
     if (typeof json.needs_follow_up === "boolean") {
       this.emit("resumable", json.needs_follow_up)
+      // Log but don't error - allow resume attempts even if Codex says no
       if (!json.needs_follow_up) {
-        const msg = "Session cannot be resumed (Codex reports needs_follow_up: false)"
-        this.reportedError ??= msg
-        this.emitChunk("error", msg)
-        return
+        console.log(`[CLIRunner] Codex reported needs_follow_up: false for session`)
       }
     }
 

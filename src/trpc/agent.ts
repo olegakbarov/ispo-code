@@ -20,7 +20,7 @@ import type { AgentSession, AgentOutputChunk, SessionStatus } from "@/lib/agent/
 import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdEvent } from "@/streams/schemas"
 import { createControlEvent, createRegistryEvent, getControlStreamPath } from "@/streams/schemas"
 
-const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras"])
+const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras", "gemini"])
 
 /**
  * Feature flag: Use durable streams for new sessions
@@ -273,18 +273,30 @@ export const agentRouter = router({
   cancel: procedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
+      console.log(`[tRPC:cancel] Cancelling session ${input.id}`)
+
       if (USE_DURABLE_STREAMS) {
         const monitor = getProcessMonitor()
         const daemon = monitor.getDaemon(input.id)
 
-        if (daemon && isDaemonRunning(daemon.pid)) {
-          const killed = killDaemon(daemon.pid)
-          monitor.killDaemon(input.id)
-          return { success: killed }
+        if (!daemon) {
+          console.log(`[tRPC:cancel] No daemon found for session ${input.id}`)
+          return { success: false }
         }
 
-        // Daemon not found or not running
-        return { success: false }
+        console.log(`[tRPC:cancel] Found daemon with PID ${daemon.pid}`)
+
+        if (!isDaemonRunning(daemon.pid)) {
+          console.log(`[tRPC:cancel] Daemon ${daemon.pid} is not running`)
+          monitor.killDaemon(input.id)
+          return { success: false }
+        }
+
+        console.log(`[tRPC:cancel] Killing daemon ${daemon.pid}`)
+        const killed = killDaemon(daemon.pid)
+        monitor.killDaemon(input.id)
+        console.log(`[tRPC:cancel] Kill result: ${killed}`)
+        return { success: killed }
       }
 
       const manager = getAgentManager()

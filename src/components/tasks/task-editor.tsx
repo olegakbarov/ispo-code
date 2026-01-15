@@ -6,7 +6,8 @@ import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { AgentProgressBanner } from './agent-progress-banner'
-import { agentTypeLabel } from './agent-config'
+import { TaskCommitPanel } from './task-commit-panel'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from './agent-config'
 import type { AgentSession } from './agent-types'
 import type { AgentType } from '@/lib/agent/types'
 
@@ -26,7 +27,9 @@ interface TaskEditorProps {
   dirty: boolean
   progress: TaskProgress | null
   agentSession: AgentSession | null
+  sessionId?: string
   runAgentType: AgentType
+  runModel: string
   availableTypes: AgentType[] | undefined
   isSaving: boolean
   isDeleting: boolean
@@ -40,6 +43,7 @@ interface TaskEditorProps {
   onVerify: () => void
   onAssignToAgent: () => void
   onRunAgentTypeChange: (agentType: AgentType) => void
+  onRunModelChange: (model: string) => void
   onCancelAgent: () => void
 }
 
@@ -51,7 +55,9 @@ export function TaskEditor({
   dirty,
   progress,
   agentSession,
+  sessionId,
   runAgentType,
+  runModel,
   availableTypes,
   isSaving,
   isDeleting,
@@ -65,6 +71,7 @@ export function TaskEditor({
   onVerify,
   onAssignToAgent,
   onRunAgentTypeChange,
+  onRunModelChange,
   onCancelAgent,
 }: TaskEditorProps) {
   return (
@@ -142,6 +149,21 @@ export function TaskEditor({
                 </option>
               ))}
             </Select>
+            {supportsModelSelection(runAgentType) && (
+              <Select
+                value={runModel}
+                onChange={(e) => onRunModelChange(e.target.value)}
+                variant="sm"
+                disabled={isAssigning || !!agentSession}
+                className="bg-background text-[10px] py-1 min-w-[120px]"
+              >
+                {getModelsForAgentType(runAgentType).map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            )}
             <button
               onClick={onAssignToAgent}
               disabled={isAssigning || !!agentSession || (availableTypes ? !availableTypes.includes(runAgentType) : false)}
@@ -183,6 +205,13 @@ export function TaskEditor({
           </div>
         )}
       </div>
+
+      {/* Commit Panel - shown when session exists */}
+      {sessionId && (
+        <div className="border-t border-border p-4 bg-panel">
+          <TaskCommitPanel sessionId={sessionId} taskTitle={title} />
+        </div>
+      )}
     </>
   )
 }

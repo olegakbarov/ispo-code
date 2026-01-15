@@ -9,10 +9,15 @@
  *   node agent-daemon.js --config='{"sessionId":"abc123","agentType":"cerebras",...}'
  */
 
+// Load environment variables before any other imports
+import { config } from "dotenv"
+config()
+
 import { EventEmitter } from "events"
 import { StreamPublisher } from "./stream-publisher"
 import { createRegistryEvent, createSessionEvent } from "../streams/schemas"
 import { CerebrasAgent } from "../lib/agent/cerebras"
+import { GeminiAgent } from "../lib/agent/gemini"
 import { OpencodeAgent } from "../lib/agent/opencode"
 import { CLIAgentRunner } from "../lib/agent/cli-runner"
 import { MetadataAnalyzer } from "../lib/agent/metadata-analyzer"
@@ -41,6 +46,7 @@ export class AgentDaemon {
   private config: DaemonConfig
   private analyzer: MetadataAnalyzer
   private abortController: AbortController
+  private agent?: EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }
 
   constructor(config: DaemonConfig) {
     this.config = config
@@ -103,13 +109,13 @@ export class AgentDaemon {
       )
 
       // 4. Create and wire up the agent
-      const agent = await this.createAgent(agentType, workingDir, model, cliSessionId)
+      this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId)
 
       // Wire up event handlers
-      this.setupAgentHandlers(agent, sessionId)
+      this.setupAgentHandlers(this.agent, sessionId)
 
       // 5. Run the agent
-      await agent.run(prompt)
+      await this.agent.run(prompt)
 
       // 6. Publish completion
       const metadata = this.analyzer.getMetadata()
@@ -161,6 +167,9 @@ export class AgentDaemon {
     switch (agentType) {
       case "cerebras": {
         return new CerebrasAgent({ workingDir, model }) as any
+      }
+      case "gemini": {
+        return new GeminiAgent({ workingDir, model }) as any
       }
       case "opencode": {
         return new OpencodeAgent({ workingDir, model }) as any
@@ -253,11 +262,28 @@ export class AgentDaemon {
   }
 
   /**
-   * Abort the running agent
+   * Abort the running agent and publish cancellation event
    */
-  abort(): void {
+  async abort(): Promise<void> {
     this.abortController.abort()
+    if (this.agent) {
+      this.agent.abort()
+    }
     console.log(`[AgentDaemon] Aborting session ${this.config.sessionId}`)
+
+    // Publish cancellation event to streams
+    try {
+      await this.publisher.publishRegistry(
+        createRegistryEvent.cancelled({ sessionId: this.config.sessionId })
+      )
+      await this.publisher.publishSession(
+        this.config.sessionId,
+        createSessionEvent.statusChange("cancelled")
+      )
+      await this.publisher.close()
+    } catch (err) {
+      console.error(`[AgentDaemon] Failed to publish cancellation event:`, err)
+    }
   }
 }
 
@@ -295,15 +321,15 @@ async function main() {
   const daemon = new AgentDaemon(config)
 
   // Handle termination signals
-  process.on("SIGTERM", () => {
+  process.on("SIGTERM", async () => {
     console.log("[AgentDaemon] Received SIGTERM, aborting...")
-    daemon.abort()
+    await daemon.abort()
     process.exit(143)
   })
 
-  process.on("SIGINT", () => {
+  process.on("SIGINT", async () => {
     console.log("[AgentDaemon] Received SIGINT, aborting...")
-    daemon.abort()
+    await daemon.abort()
     process.exit(130)
   })
 

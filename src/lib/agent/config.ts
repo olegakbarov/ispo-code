@@ -1,37 +1,77 @@
 /**
  * Agent configuration - types, models, and constants
+ *
+ * Model definitions are now centralized in model-registry.ts
+ * This file re-exports model options for backward compatibility
  */
 
 import type { AgentType } from './types'
+import {
+  getModelOptions,
+  getDefaultModelId,
+  getContextLimit,
+  supportsModelSelection,
+  type ModelOption,
+  type ModelDefinition,
+} from './model-registry'
 
-export type PlannerAgentType = Exclude<AgentType, 'cerebras'>
+export type PlannerAgentType = Exclude<AgentType, 'cerebras' | 'gemini'>
 
 export const TASK_REVIEW_OUTPUT_START = '===TASK_REVIEW_OUTPUT_START==='
 export const TASK_REVIEW_OUTPUT_END = '===TASK_REVIEW_OUTPUT_END==='
-
-/** Common models for OpenCode */
-export const OPENCODE_MODELS = [
-  { value: '', label: 'Default' },
-  // Cerebras (20x faster inference)
-  { value: 'cerebras/zai-glm-4.7', label: 'Cerebras GLM 4.7 (357B)' },
-  { value: 'cerebras/llama-3.3-70b', label: 'Cerebras Llama 3.3 70B' },
-  { value: 'cerebras/qwen-3-32b', label: 'Cerebras Qwen 3 32B' },
-  // Anthropic
-  { value: 'anthropic/claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-  { value: 'anthropic/claude-opus-4-20250514', label: 'Claude Opus 4' },
-  // OpenAI
-  { value: 'openai/gpt-4o', label: 'GPT-4o' },
-  { value: 'openai/o1', label: 'OpenAI o1' },
-  // Google
-  { value: 'google/gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-]
 
 export const agentTypeLabel: Record<AgentType, string> = {
   claude: 'Claude CLI',
   codex: 'Codex CLI',
   opencode: 'OpenCode',
   cerebras: 'Cerebras GLM',
+  gemini: 'Google Gemini',
 }
+
+/**
+ * Convert ModelOption to the legacy {value, label} format for UI components
+ */
+function toLegacyFormat(options: ModelOption[]): Array<{ value: string; label: string; description?: string }> {
+  return options.map(o => ({
+    value: o.value,
+    label: o.label,
+    description: o.description,
+  }))
+}
+
+// Re-export model options in legacy format for backward compatibility
+export const OPENCODE_MODELS = [
+  { value: '', label: 'Default' },
+  ...toLegacyFormat(getModelOptions('opencode')),
+]
+
+export const GEMINI_MODELS = toLegacyFormat(getModelOptions('gemini'))
+
+export const CEREBRAS_MODELS = toLegacyFormat(getModelOptions('cerebras'))
+
+export const CLAUDE_MODELS = toLegacyFormat(getModelOptions('claude'))
+
+export const CODEX_MODELS = toLegacyFormat(getModelOptions('codex'))
+
+/**
+ * Get all model options for a given agent type
+ */
+export function getModelsForAgentType(agentType: AgentType): Array<{ value: string; label: string; description?: string }> {
+  const options = getModelOptions(agentType)
+  // Add default empty option for agents that support it
+  if (agentType === 'opencode') {
+    return [{ value: '', label: 'Default' }, ...toLegacyFormat(options)]
+  }
+  return toLegacyFormat(options)
+}
+
+/**
+ * Check if agent type supports model selection in UI
+ */
+export { supportsModelSelection, getDefaultModelId, getContextLimit }
+
+// Re-export types
+export type { ModelOption, ModelDefinition }
 
 export function extractTaskReviewOutput(text: string): string | null {
   const startIdx = text.indexOf(TASK_REVIEW_OUTPUT_START)

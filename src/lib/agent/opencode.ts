@@ -150,25 +150,85 @@ export class OpencodeAgent extends EventEmitter {
   }
 
   /**
-   * Process streaming events
+   * Process streaming events from OpenCode SDK
+   *
+   * OpenCode uses these event types:
+   * - message.updated: Message info updated (check finish field for completion)
+   * - message.part.updated: Part content (text, tool calls, etc.)
    */
   private async processEvents(
     events: Awaited<ReturnType<Awaited<ReturnType<typeof createOpencode>>["client"]["global"]["event"]>>
   ): Promise<void> {
     try {
-      // The SDK returns a stream property for SSE events
       const stream = events.stream
       if (!stream) return
+
+      // Track seen text parts to avoid duplicates
+      const seenParts = new Set<string>()
 
       for await (const rawEvent of stream) {
         if (this.aborted) break
 
-        // Cast event to expected structure
         const event = rawEvent as { type?: string; properties?: Record<string, unknown> }
         const eventType = event.type ?? ""
         const props = event.properties
 
         switch (eventType) {
+          // OpenCode SDK: message.updated contains message info with finish status
+          case "message.updated": {
+            const info = props?.info as { sessionID?: string; finish?: string; role?: string; time?: { completed?: number }; tokens?: { input?: number; output?: number } } | undefined
+            // Only process events for our session
+            if (info?.sessionID !== this.sessionId) break
+
+            // Track token usage
+            if (info.tokens) {
+              this.totalTokens.input += info.tokens.input ?? 0
+              this.totalTokens.output += info.tokens.output ?? 0
+            }
+
+            // Check if message finished (finish field set or time.completed exists)
+            if (info.role === "assistant" && (info.finish || info.time?.completed)) {
+              return // Session complete
+            }
+            break
+          }
+
+          // OpenCode SDK: message.part.updated contains the actual content
+          case "message.part.updated": {
+            const part = props as { id?: string; sessionID?: string; type?: string; text?: string; tool?: string; state?: { status?: string; input?: unknown; output?: string } }
+            // Only process events for our session
+            if (part?.sessionID !== this.sessionId) break
+
+            // Skip already processed parts
+            if (part.id && seenParts.has(part.id)) break
+            if (part.id) seenParts.add(part.id)
+
+            switch (part.type) {
+              case "text":
+                if (part.text) this.emitOutput("text", part.text)
+                break
+              case "reasoning":
+                if (part.text) this.emitOutput("thinking", part.text)
+                break
+              case "tool":
+                if (part.tool && part.state) {
+                  if (part.state.status === "running" || !part.state.output) {
+                    this.emitOutput("tool_use", JSON.stringify({ name: part.tool, input: part.state.input }), { toolName: part.tool, tool: part.tool })
+                  }
+                  if (part.state.status === "completed" && part.state.output) {
+                    this.emitOutput("tool_result", part.state.output)
+                  }
+                }
+                break
+              case "step-start":
+              case "step-finish":
+                // Ignore step markers
+                break
+            }
+            break
+          }
+
+          // Legacy event types (for backwards compatibility)
           case "message.part.text":
           case "message.text":
           case "assistant.text": {
@@ -181,11 +241,7 @@ export class OpencodeAgent extends EventEmitter {
           case "tool.call":
           case "assistant.tool": {
             const toolName = (props?.name as string) ?? "unknown"
-            this.emitOutput(
-              "tool_use",
-              JSON.stringify({ name: toolName, input: props?.input ?? props?.args }),
-              { toolName, tool: toolName }
-            )
+            this.emitOutput("tool_use", JSON.stringify({ name: toolName, input: props?.input ?? props?.args }), { toolName, tool: toolName })
             break
           }
 
@@ -196,31 +252,11 @@ export class OpencodeAgent extends EventEmitter {
             break
           }
 
-          case "message.part.thinking":
-          case "thinking":
-          case "assistant.thinking": {
-            const thinking = (props?.text as string) ?? (props?.content as string)
-            if (thinking) this.emitOutput("thinking", thinking)
-            break
-          }
-
           case "error": {
             const error = (props?.message as string) ?? (props?.error as string) ?? "Unknown error"
             this.emitOutput("error", error)
             break
           }
-
-          case "session.complete":
-          case "message.complete":
-          case "assistant.complete":
-            // Session finished
-            return
-
-          default:
-            // Log unknown events as system messages for debugging
-            if (props?.text || props?.content) {
-              this.emitOutput("system", String(props.text ?? props.content))
-            }
         }
       }
     } catch (err) {

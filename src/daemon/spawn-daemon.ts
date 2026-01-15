@@ -90,13 +90,25 @@ export function isDaemonRunning(pid: number): boolean {
 }
 
 /**
- * Kill a daemon process
+ * Kill a daemon process and its entire process group
+ *
+ * Since daemons are spawned with detached:true, they run in their own
+ * process group. We need to kill the entire group to stop child processes.
  */
 export function killDaemon(pid: number): boolean {
   try {
-    process.kill(pid, "SIGTERM")
+    // Kill the process group (negative PID on Unix)
+    // This ensures child processes (like claude/codex CLI) are also terminated
+    if (process.platform !== 'win32') {
+      process.kill(-pid, "SIGTERM")
+    } else {
+      // Windows doesn't support process groups the same way
+      process.kill(pid, "SIGTERM")
+    }
+    console.log(`[killDaemon] Sent SIGTERM to process group ${pid}`)
     return true
-  } catch {
+  } catch (err) {
+    console.error(`[killDaemon] Failed to kill process ${pid}:`, err)
     return false
   }
 }

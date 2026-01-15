@@ -29,7 +29,6 @@ interface TaskListProps {
   activeAgentSessions: Record<string, ActiveAgentSession> | undefined
   onFilterChange: (filter: string) => void
   onTaskSelect: (path: string) => void
-  onCreateClick: () => void
 }
 
 export function TaskList({
@@ -41,7 +40,6 @@ export function TaskList({
   activeAgentSessions,
   onFilterChange,
   onTaskSelect,
-  onCreateClick,
 }: TaskListProps) {
   return (
     <div className="w-80 shrink-0 min-h-0 flex flex-col bg-panel">
@@ -53,12 +51,6 @@ export function TaskList({
           variant="sm"
           className="bg-background border-t border-l border-border/60 flex-1"
         />
-        <button
-          onClick={onCreateClick}
-          className="px-2 py-1 rounded text-[10px] font-vcr bg-accent text-background cursor-pointer hover:opacity-90 shrink-0"
-        >
-          + New Task
-        </button>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">

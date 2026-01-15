@@ -3,6 +3,7 @@
  * Used by both $sessionId route and ThreadSidebar
  */
 
+import { useState } from 'react'
 import type { SessionStatus } from '@/lib/agent/types'
 
 /** Section container with title */
@@ -11,6 +12,48 @@ export function Section({ title, children }: { title: string; children: React.Re
     <div className="space-y-2">
       <h3 className="font-vcr text-xs text-muted-foreground uppercase tracking-wide">{title}</h3>
       <div className="space-y-1.5">{children}</div>
+    </div>
+  )
+}
+
+/** Collapsible section with expand/collapse state (persisted in localStorage) */
+export function CollapsibleSection({
+  title,
+  summary,
+  storageKey,
+  defaultCollapsed = false,
+  children,
+}: {
+  title: string
+  summary?: string
+  storageKey: string
+  defaultCollapsed?: boolean
+  children: React.ReactNode
+}) {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const stored = localStorage.getItem(storageKey)
+    return stored !== null ? stored === 'true' : defaultCollapsed
+  })
+
+  const toggleCollapsed = () => {
+    const newState = !isCollapsed
+    setIsCollapsed(newState)
+    localStorage.setItem(storageKey, String(newState))
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={toggleCollapsed}
+        className="w-full flex items-center justify-between font-vcr text-xs text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+      >
+        <span>{title}</span>
+        <span className="text-[10px]">{isCollapsed ? '▸' : '▾'}</span>
+      </button>
+      {isCollapsed && summary && (
+        <div className="text-[10px] font-mono text-muted-foreground">{summary}</div>
+      )}
+      {!isCollapsed && <div className="space-y-1.5">{children}</div>}
     </div>
   )
 }
@@ -86,20 +129,57 @@ export function StatusDot({ status }: { status: SessionStatus }) {
   )
 }
 
-/** Progress bar for token usage etc. */
-export function ProgressBar({ value, max, label }: { value: number; max: number; label: string }) {
+/** Progress bar for token usage with threshold markers */
+export function ProgressBar({
+  value,
+  max,
+  label,
+  showThresholds = true,
+  showRemaining = false,
+}: {
+  value: number
+  max: number
+  label: string
+  showThresholds?: boolean
+  showRemaining?: boolean
+}) {
   const percentage = Math.min((value / max) * 100, 100)
-  const color = percentage > 80 ? 'bg-chart-4' : percentage > 60 ? 'bg-primary' : 'bg-chart-1'
+  const remaining = max - value
+
+  // Color based on utilization
+  const color = percentage > 80 ? 'bg-destructive' : percentage > 60 ? 'bg-chart-4' : 'bg-chart-1'
+  const textColor = percentage > 80 ? 'text-destructive' : percentage > 60 ? 'text-chart-4' : 'text-foreground/70'
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[10px]">
         <span className="font-vcr text-muted-foreground">Tokens</span>
-        <span className="font-mono text-foreground/70">{label}</span>
+        <span className={`font-mono ${textColor}`}>{label}</span>
       </div>
-      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+      <div className="relative h-2 bg-secondary rounded-full overflow-hidden">
+        {/* Progress bar */}
         <div className={`h-full ${color} transition-all duration-300`} style={{ width: `${percentage}%` }} />
+
+        {/* Threshold markers */}
+        {showThresholds && (
+          <>
+            <div className="absolute left-[60%] top-0 bottom-0 w-px bg-border" />
+            <div className="absolute left-[80%] top-0 bottom-0 w-px bg-destructive/30" />
+          </>
+        )}
       </div>
+      {showRemaining && remaining > 0 && (
+        <div className="flex items-center justify-between text-[9px]">
+          <span className="font-vcr text-muted-foreground">Remaining</span>
+          <span className="font-mono text-foreground/50">{formatContextNumber(remaining)}</span>
+        </div>
+      )}
     </div>
   )
+}
+
+function formatContextNumber(num: number): string {
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
+  return num.toLocaleString()
 }

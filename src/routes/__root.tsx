@@ -4,6 +4,7 @@ import {
   HeadContent,
   Scripts,
   Link,
+  useMatchRoute,
 } from '@tanstack/react-router'
 import '@/lib/client/browser-logger'
 import '@/lib/server/setup-server-logging'
@@ -124,7 +125,6 @@ function RootDocument() {
 }
 
 function Sidebar() {
-  const [agentsExpanded, setAgentsExpanded] = useState(true)
   const { theme, toggleTheme } = useTheme()
   const nextTheme = theme === 'dark' ? 'light' : 'dark'
   const utils = trpc.useUtils()
@@ -148,7 +148,7 @@ function Sidebar() {
   const sessionCount = sessions.length
 
   return (
-    <aside className="w-[268px] bg-card flex flex-col border-r border-border">
+    <aside className="w-80 bg-card flex flex-col border-r border-border">
       <header className="h-12 flex items-center gap-2 px-3 border-b border-border">
         <Cpu className="w-5 h-5 text-primary" />
         <h1 className="font-vcr text-sm text-primary">Agentz</h1>
@@ -164,58 +164,52 @@ function Sidebar() {
       </header>
 
       <nav className="divide-y divide-border/40">
-        <NavLink to="/tasks" icon={<ListTodo className="w-4 h-4" />}>Tasks</NavLink>
+        <TasksNavRow />
         <NavLink to="/git" icon={<GitBranch className="w-4 h-4" />}>Git</NavLink>
       </nav>
 
       <div className="flex-1 overflow-y-auto">
         {/* AGENTS */}
         <div>
-          <button
-            onClick={() => setAgentsExpanded(!agentsExpanded)}
-            className="w-full flex items-center justify-between px-3 py-2 text-sm font-vcr text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
-          >
-            <span className="flex items-center gap-2">
+          {/* Agents Header with New Agent Button */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border/40">
+            <div className="flex items-center gap-2 text-sm font-vcr text-muted-foreground">
               <Bot className="w-4 h-4" />
-              Agents
+              <span>Agents</span>
               {sessionCount > 0 && (
                 <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded-full">
                   {sessionCount}
                 </span>
               )}
-            </span>
-            <span className="text-xs">{agentsExpanded ? '−' : '+'}</span>
-          </button>
-
-          {agentsExpanded && (
-            <div className="relative">
-              {/* New Agent Button */}
-              <Link
-                to="/"
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-vcr text-primary hover:bg-secondary cursor-pointer transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                <span>New Agent</span>
-              </Link>
-
-              {/* Agent Sessions */}
-              {sessions.length > 0 ? (
-                <div>
-                  {sessions.map((session) => (
-                    <AgentSessionLink
-                      key={session.id}
-                      session={session}
-                      onDelete={handleDeleteSession}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No sessions
-                </div>
-              )}
             </div>
-          )}
+            <Link
+              to="/"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-vcr bg-primary text-primary-foreground hover:opacity-90 cursor-pointer transition-opacity"
+              title="New Agent"
+            >
+              <Plus className="w-3 h-3" />
+              <span>New</span>
+            </Link>
+          </div>
+
+          {/* Agent Sessions */}
+          <div className="relative">
+            {sessions.length > 0 ? (
+              <div>
+                {sessions.map((session) => (
+                  <AgentSessionLink
+                    key={session.id}
+                    session={session}
+                    onDelete={handleDeleteSession}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="px-3 py-2 text-xs text-muted-foreground">
+                No sessions
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -242,6 +236,35 @@ function NavLink({ to, icon, children }: { to: string; icon?: React.ReactNode; c
       {icon}
       {children}
     </Link>
+  )
+}
+
+function TasksNavRow() {
+  const matchRoute = useMatchRoute()
+  const isActive = !!matchRoute({ to: '/tasks', fuzzy: true })
+
+  return (
+    <div
+      className={`flex items-center justify-between px-3 py-2 text-sm font-vcr transition-colors ${
+        isActive
+          ? 'text-primary bg-secondary'
+          : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+      }`}
+    >
+      <Link to="/tasks" className="flex items-center gap-2 min-w-0 flex-1">
+        <ListTodo className="w-4 h-4" />
+        <span className="truncate">Tasks</span>
+      </Link>
+      <Link
+        to="/tasks"
+        search={{ create: '1' }}
+        className="ml-2 inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-vcr bg-primary text-primary-foreground hover:opacity-90 cursor-pointer transition-opacity shrink-0"
+        title="New Task"
+      >
+        <Plus className="w-3 h-3" />
+        <span>New Task</span>
+      </Link>
+    </div>
   )
 }
 

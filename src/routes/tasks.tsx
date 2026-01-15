@@ -12,6 +12,7 @@ import { TaskEditor } from '@/components/tasks/task-editor'
 import { CreateTaskModal } from '@/components/tasks/create-task-modal'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import type { PlannerAgentType } from '@/components/tasks/agent-config'
+import { getDefaultModelId } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
 import { trpc } from '@/lib/trpc-client'
 
@@ -19,6 +20,7 @@ export const Route = createFileRoute('/tasks')({
   validateSearch: z
     .object({
       path: z.string().optional(),
+      create: z.string().optional(),
     })
     .parse,
   component: TasksPage,
@@ -68,9 +70,11 @@ function TasksPage() {
 
   // Agent type for "Create task with agent" (planning only)
   const [createAgentType, setCreateAgentType] = useState<PlannerAgentType>('cerebras')
+  const [createModel, setCreateModel] = useState(() => getDefaultModelId('cerebras'))
 
   // Agent type for "Run with Agent"
   const [runAgentType, setRunAgentType] = useState<AgentType>('claude')
+  const [runModel, setRunModel] = useState(() => getDefaultModelId('claude'))
 
   // Review/Verify modal state
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
@@ -113,7 +117,9 @@ function TasksPage() {
   useEffect(() => {
     if (availablePlannerTypes.length === 0) return
     if (!availablePlannerTypes.includes(createAgentType)) {
-      setCreateAgentType(availablePlannerTypes[0])
+      const newType = availablePlannerTypes[0]
+      setCreateAgentType(newType)
+      setCreateModel(getDefaultModelId(newType))
     }
   }, [availablePlannerTypes, createAgentType])
 
@@ -122,10 +128,23 @@ function TasksPage() {
     if (availableTypes.length === 0) return
     if (availableTypes.includes(runAgentType)) return
 
-    const preferred: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode']
+    const preferred: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'gemini']
     const next = preferred.find((t) => availableTypes.includes(t)) ?? availableTypes[0]
     setRunAgentType(next)
+    setRunModel(getDefaultModelId(next))
   }, [availableTypes, runAgentType])
+
+  // Handler for create agent type change
+  const handleCreateAgentTypeChange = useCallback((newType: PlannerAgentType) => {
+    setCreateAgentType(newType)
+    setCreateModel(getDefaultModelId(newType))
+  }, [])
+
+  // Handler for run agent type change
+  const handleRunAgentTypeChange = useCallback((newType: AgentType) => {
+    setRunAgentType(newType)
+    setRunModel(getDefaultModelId(newType))
+  }, [])
 
   // Mutations
   const saveMutation = trpc.tasks.save.useMutation({
@@ -305,10 +324,25 @@ function TasksPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [handleSave])
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setNewTitle('')
     setCreateOpen(true)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (search.create !== '1') return
+    if (!workingDir) return
+
+    openCreate()
+    navigate({
+      to: '/tasks',
+      search: (prev: { path?: string; create?: string }) => ({
+        ...prev,
+        create: undefined,
+      }),
+      replace: true,
+    })
+  }, [search.create, workingDir, openCreate, navigate])
 
   const handleCreate = async () => {
     const title = newTitle.trim()
@@ -319,6 +353,7 @@ function TasksPage() {
         await createWithAgentMutation.mutateAsync({
           title,
           agentType: createAgentType,
+          model: createModel || undefined,
         })
       } else {
         await createMutation.mutateAsync({ title })
@@ -357,13 +392,14 @@ function TasksPage() {
       await assignToAgentMutation.mutateAsync({
         path: selectedPath,
         agentType: runAgentType,
+        model: runModel || undefined,
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to assign to agent'
       setSaveError(msg)
       console.error('Failed to assign to agent:', err)
     }
-  }, [selectedPath, dirty, draft, runAgentType, saveMutation, assignToAgentMutation])
+  }, [selectedPath, dirty, draft, runAgentType, runModel, saveMutation, assignToAgentMutation])
 
   const handleCancelAgent = useCallback(() => {
     if (!activeSessionId) return
@@ -380,7 +416,7 @@ function TasksPage() {
     setReviewModalOpen(true)
   }, [])
 
-  const handleStartReview = useCallback(async (agentType: AgentType, instructions?: string) => {
+  const handleStartReview = useCallback(async (agentType: AgentType, model: string | undefined, instructions?: string) => {
     if (!selectedPath) return
 
     try {
@@ -389,11 +425,13 @@ function TasksPage() {
         ? reviewWithAgentMutation.mutateAsync({
             path: selectedPath,
             agentType,
+            model,
             instructions,
           })
         : verifyWithAgentMutation.mutateAsync({
             path: selectedPath,
             agentType,
+            model,
             instructions,
           }))
 
@@ -461,7 +499,6 @@ function TasksPage() {
           activeAgentSessions={activeAgentSessions}
           onFilterChange={setFilter}
           onTaskSelect={selectTask}
-          onCreateClick={openCreate}
         />
 
         {/* Right: Editor/Preview */}
@@ -479,7 +516,9 @@ function TasksPage() {
               dirty={dirty}
               progress={progress}
               agentSession={agentSession}
+              sessionId={activeSessionId}
               runAgentType={runAgentType}
+              runModel={runModel}
               availableTypes={availableTypes}
               isSaving={isSaving}
               isDeleting={deleteMutation.isPending}
@@ -495,7 +534,8 @@ function TasksPage() {
               onReview={handleReview}
               onVerify={handleVerify}
               onAssignToAgent={handleAssignToAgent}
-              onRunAgentTypeChange={setRunAgentType}
+              onRunAgentTypeChange={handleRunAgentTypeChange}
+              onRunModelChange={setRunModel}
               onCancelAgent={handleCancelAgent}
             />
           )}
@@ -508,13 +548,15 @@ function TasksPage() {
         newTitle={newTitle}
         useAgent={useAgent}
         createAgentType={createAgentType}
+        createModel={createModel}
         availableTypes={availableTypes}
         availablePlannerTypes={availablePlannerTypes}
         onClose={() => setCreateOpen(false)}
         onCreate={handleCreate}
         onTitleChange={setNewTitle}
         onUseAgentChange={setUseAgent}
-        onAgentTypeChange={setCreateAgentType}
+        onAgentTypeChange={handleCreateAgentTypeChange}
+        onModelChange={setCreateModel}
       />
 
       <ReviewModal
@@ -522,6 +564,7 @@ function TasksPage() {
         mode={reviewMode}
         taskTitle={editorTitle}
         agentType={runAgentType}
+        model={runModel}
         availableTypes={availableTypes}
         onClose={handleCloseReviewModal}
         onStart={handleStartReview}

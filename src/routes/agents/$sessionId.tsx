@@ -6,9 +6,8 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState, useRef, useEffect } from 'react'
 import { Send, Square, RotateCcw, Trash2 } from 'lucide-react'
 import { PromptDisplay } from '@/components/agents/prompt-display'
-import { Section, InfoRow, StatusBadge, StatusDot } from '@/components/agents/session-primitives'
-import { ProgressDisplay, extractTodos } from '@/components/agents/progress-display'
-import { ResumeHistory } from '@/components/agents/resume-history'
+import { StatusDot } from '@/components/agents/session-primitives'
+import { ThreadSidebar } from '@/components/agents/thread-sidebar'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import type { AgentOutputChunk, SessionStatus } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
@@ -60,6 +59,7 @@ function AgentSessionPage() {
   }, [session, isLoading, retryCount, sessionId, utils])
 
   const [messageInput, setMessageInput] = useState('')
+  const [messageQueue, setMessageQueue] = useState<string[]>([])
   const outputRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -67,9 +67,6 @@ function AgentSessionPage() {
   const allOutput = useMemo((): AgentOutputChunk[] => {
     return session?.output ?? []
   }, [session?.output])
-
-  // Extract todo list from output
-  const todos = useMemo(() => extractTodos(allOutput), [allOutput])
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -147,6 +144,7 @@ function AgentSessionPage() {
   const sendMessageMutation = trpc.agent.sendMessage.useMutation({
     onSuccess: () => {
       setMessageInput('')
+      setMessageQueue((prevQueue) => prevQueue.length > 0 ? prevQueue.slice(1) : prevQueue)
       utils.agent.get.invalidate({ id: sessionId })
     },
     onError: (error) => {
@@ -189,9 +187,31 @@ function AgentSessionPage() {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!messageInput.trim() || !canSendMessage) return
-    sendMessageMutation.mutate({ sessionId, message: messageInput.trim() })
+    if (!messageInput.trim()) return
+
+    const trimmedMessage = messageInput.trim()
+
+    if (canSendMessage) {
+      sendMessageMutation.mutate({ sessionId, message: trimmedMessage })
+    } else {
+      setMessageQueue([...messageQueue, trimmedMessage])
+      setMessageInput('')
+    }
   }
+
+  const handleEnqueueMessage = () => {
+    if (!messageInput.trim()) return
+    const trimmedMessage = messageInput.trim()
+    setMessageQueue([...messageQueue, trimmedMessage])
+    setMessageInput('')
+  }
+
+  useEffect(() => {
+    if (canSendMessage && messageQueue.length > 0 && !sendMessageMutation.isPending) {
+      const nextMessage = messageQueue[0]
+      sendMessageMutation.mutate({ sessionId, message: nextMessage })
+    }
+  }, [canSendMessage, messageQueue.length, sendMessageMutation.isPending, sessionId])
 
   if (isLoading) {
     return (
@@ -290,13 +310,17 @@ function AgentSessionPage() {
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && canSendMessage) {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    handleSendMessage(e)
+                    if (canSendMessage) {
+                      handleSendMessage(e)
+                    } else {
+                      handleEnqueueMessage()
+                    }
                   }
                 }}
-                placeholder={canSendMessage ? "Message... (Enter to send)" : "Waiting for agent..."}
-                disabled={!canSendMessage || isMutating}
+                placeholder={canSendMessage ? "Message... (Enter to send)" : messageQueue.length > 0 ? `Queue (${messageQueue.length}) - Enter to queue message` : "Agent working... (Enter to queue message)"}
+                disabled={isMutating}
                 rows={2}
                 className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed border-b border-border/40"
               />
@@ -320,6 +344,13 @@ function AgentSessionPage() {
             {totalTokens && (
               <span className="text-muted-foreground" title={`In: ${tokens!.input} / Out: ${tokens!.output}`}>
                 {totalTokens.toLocaleString()} tok
+              </span>
+            )}
+
+            {/* Queue indicator */}
+            {messageQueue.length > 0 && (
+              <span className="text-accent font-vcr" title={`${messageQueue.length} message${messageQueue.length > 1 ? 's' : ''} queued`}>
+                Queue: {messageQueue.length}
               </span>
             )}
 
@@ -360,67 +391,24 @@ function AgentSessionPage() {
               </>
             )}
 
-            {/* Send button - only when can send */}
+            {/* Send/Queue button - only when not done */}
             {!isDone && (
               <button
-                onClick={handleSendMessage}
-                disabled={!messageInput.trim() || !canSendMessage || isMutating}
-                className="flex items-center gap-1 px-2 py-1 bg-primary text-primary-foreground rounded cursor-pointer hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
-                title={canSendMessage ? "Send message" : "Waiting for agent"}
+                onClick={canSendMessage ? handleSendMessage : handleEnqueueMessage}
+                disabled={!messageInput.trim() || isMutating}
+                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity ${canSendMessage ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}
+                title={canSendMessage ? "Send message" : "Queue message"}
               >
                 <Send className="w-3 h-3" />
-                <span className="font-vcr">Send</span>
+                <span className="font-vcr">{canSendMessage ? 'Send' : 'Queue'}</span>
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Sidebar - shows session metadata */}
-      <div className="w-72 border-l border-border bg-card overflow-y-auto">
-        <div className="p-4 space-y-6">
-          <Section title="Thread">
-            <StatusBadge status={session.status} />
-            <InfoRow label="Agent" value={session.agentType ?? 'unknown'} />
-            <InfoRow label="Started" value={new Date(session.startedAt).toLocaleString()} />
-            {session.completedAt && (
-              <InfoRow label="Completed" value={new Date(session.completedAt).toLocaleString()} />
-            )}
-            {session.resumeAttempts !== undefined && session.resumeAttempts > 0 && (
-              <InfoRow label="Resume attempts" value={String(session.resumeAttempts)} />
-            )}
-            {session.lastResumedAt && (
-              <InfoRow label="Last resumed" value={new Date(session.lastResumedAt).toLocaleString()} />
-            )}
-          </Section>
-
-          {tokens && (
-            <Section title="Tokens">
-              <InfoRow label="Input" value={tokens.input.toLocaleString()} />
-              <InfoRow label="Output" value={tokens.output.toLocaleString()} />
-              <InfoRow label="Total" value={(tokens.input + tokens.output).toLocaleString()} />
-            </Section>
-          )}
-
-          <Section title="Output">
-            <InfoRow label="Chunks" value={String(allOutput.length)} />
-            <InfoRow label="Text" value={String(allOutput.filter(c => c.type === 'text').length)} />
-            <InfoRow label="Tool calls" value={String(allOutput.filter(c => c.type === 'tool_use').length)} />
-          </Section>
-
-          {session.resumeHistory && session.resumeHistory.length > 0 && (
-            <Section title="Resume History">
-              <ResumeHistory history={session.resumeHistory} />
-            </Section>
-          )}
-
-          {todos && todos.length > 0 && (
-            <Section title="Progress">
-              <ProgressDisplay todos={todos} />
-            </Section>
-          )}
-        </div>
-      </div>
+      {/* Sidebar - shows session metadata + git commit panel */}
+      <ThreadSidebar sessionId={sessionId} />
     </div>
   )
 }

@@ -13,6 +13,7 @@ import { randomBytes } from "crypto"
 import type { AgentSession, AgentOutputChunk, SpawnAgentParams, SessionStatus, AgentType, ResumeHistoryEntry } from "./types"
 import { getSessionStore } from "./session-store"
 import { CerebrasAgent } from "./cerebras"
+import { GeminiAgent } from "./gemini"
 import { OpencodeAgent } from "./opencode"
 import { CLIAgentRunner, getAvailableAgentTypes } from "./cli-runner"
 import { MetadataAnalyzer } from "./metadata-analyzer"
@@ -51,8 +52,8 @@ function isSessionResumable(session: AgentSession): boolean {
     return false
   }
 
-  // SDK agents (cerebras, opencode) are always resumable if completed/idle
-  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "opencode"
+  // SDK agents (cerebras, gemini, opencode) are always resumable if completed/idle
+  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "gemini" || session.agentType === "opencode"
   if (isSdkAgent) {
     return session.status === "completed" || session.status === "idle"
   }
@@ -300,6 +301,16 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
           })
           agentEmitter = agent
           getSessionUpdatesOnComplete = () => ({ cerebrasMessages: agent.getMessages() })
+          break
+        }
+        case "gemini": {
+          const agent = new GeminiAgent({
+            workingDir,
+            model,
+            messages: session?.geminiMessages ?? undefined,
+          })
+          agentEmitter = agent
+          getSessionUpdatesOnComplete = () => ({ geminiMessages: agent.getMessages() })
           break
         }
         case "opencode": {

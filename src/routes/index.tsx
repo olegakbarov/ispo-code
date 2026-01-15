@@ -3,11 +3,11 @@
  */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { AgentType } from '@/lib/agent/types'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { OPENCODE_MODELS } from '@/lib/agent/config'
+import { getModelsForAgentType, supportsModelSelection, getDefaultModelId } from '@/lib/agent/config'
 import { trpc } from '@/lib/trpc-client'
 
 export const Route = createFileRoute('/')({
@@ -17,7 +17,7 @@ export const Route = createFileRoute('/')({
 const agentLabels: Record<AgentType, { name: string; description: string }> = {
   claude: {
     name: 'Claude CLI',
-    description: 'Anthropic Claude Code CLI (claude -p)',
+    description: 'Anthropic Claude Code CLI',
   },
   codex: {
     name: 'Codex CLI',
@@ -25,11 +25,15 @@ const agentLabels: Record<AgentType, { name: string; description: string }> = {
   },
   opencode: {
     name: 'OpenCode',
-    description: 'Multi-provider agent (Anthropic, OpenAI, Google)',
+    description: 'Multi-provider agent',
   },
   cerebras: {
     name: 'Cerebras GLM',
-    description: 'GLM 4.7 (357B) with tool use - 20x faster',
+    description: 'GLM 4.7 - 20x faster',
+  },
+  gemini: {
+    name: 'Google Gemini',
+    description: 'Gemini 2.0 - 1M context',
   },
 }
 
@@ -42,6 +46,15 @@ function NewAgentPage() {
 
   // Fetch available agent types from server
   const { data: availableTypes = [] } = trpc.agent.availableTypes.useQuery()
+
+  // Get models for current agent type
+  const models = getModelsForAgentType(agentType)
+  const hasModelSelection = supportsModelSelection(agentType)
+
+  // Reset model when agent type changes
+  useEffect(() => {
+    setModel(getDefaultModelId(agentType))
+  }, [agentType])
 
   // Spawn mutation
   const spawnMutation = trpc.agent.spawn.useMutation({
@@ -83,7 +96,7 @@ function NewAgentPage() {
           <label className="block font-vcr text-xs text-text-muted mb-2">
             Agent Type
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {(Object.keys(agentLabels) as AgentType[]).map((type) => {
               const available = isAvailable(type)
               const selected = agentType === type
@@ -93,7 +106,7 @@ function NewAgentPage() {
                   type="button"
                   disabled={!available}
                   onClick={() => setAgentType(type)}
-                  className={`flex-1 p-3 rounded border cursor-pointer transition-colors ${
+                  className={`flex-1 min-w-[140px] p-3 rounded border cursor-pointer transition-colors ${
                     selected
                       ? 'border-accent bg-accent/10 text-accent'
                       : available
@@ -105,7 +118,7 @@ function NewAgentPage() {
                   <div className="text-xs mt-1 opacity-70">{agentLabels[type].description}</div>
                   {!available && (
                     <div className="text-xs mt-1 text-error">
-                      Not installed
+                      Not available
                     </div>
                   )}
                 </button>
@@ -114,8 +127,8 @@ function NewAgentPage() {
           </div>
         </div>
 
-        {/* Model Selection (OpenCode only) */}
-        {agentType === 'opencode' && (
+        {/* Model Selection - shown for all agents with multiple models */}
+        {hasModelSelection && (
           <div>
             <label className="block font-vcr text-xs text-text-muted mb-2">
               Model
@@ -124,21 +137,26 @@ function NewAgentPage() {
               value={model}
               onChange={(e) => setModel(e.target.value)}
             >
-              {OPENCODE_MODELS.map((m) => (
+              {models.map((m) => (
                 <option key={m.value} value={m.value}>
-                  {m.label}
+                  {m.label}{m.description ? ` - ${m.description}` : ''}
                 </option>
               ))}
             </Select>
-            <p className="text-xs text-text-muted mt-1">
-              Or enter custom: provider/model (e.g., openai/gpt-4-turbo)
-            </p>
-            <Input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="Custom model (optional)"
-              className="mt-2"
-            />
+            {/* Custom model input for opencode */}
+            {agentType === 'opencode' && (
+              <>
+                <p className="text-xs text-text-muted mt-1">
+                  Or enter custom: provider/model (e.g., openai/gpt-4-turbo)
+                </p>
+                <Input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="Custom model (optional)"
+                  className="mt-2"
+                />
+              </>
+            )}
           </div>
         )}
 

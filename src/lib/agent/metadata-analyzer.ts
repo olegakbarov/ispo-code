@@ -26,6 +26,7 @@ const MODEL_CONTEXT_LIMITS: Record<AgentType, number> = {
   codex: 128_000, // GPT-4o
   opencode: 200_000, // Varies by provider, default to Claude
   cerebras: 8_192, // GLM-4.7 / Llama-3.3-70b
+  gemini: 1_048_576, // Gemini 2.0 (1M tokens)
 }
 
 /**
@@ -43,10 +44,13 @@ export class MetadataAnalyzer {
   private metadata: AgentSessionMetadata
   private readonly agentType: AgentType
   private readonly workingDir: string
+  private readonly sessionStartTime: number
+  private isInAssistantMessage: boolean = false
 
   constructor(agentType: AgentType, workingDir: string, modelLimit?: number) {
     this.agentType = agentType
     this.workingDir = workingDir
+    this.sessionStartTime = Date.now()
     this.metadata = this.initializeMetadata(agentType, modelLimit)
   }
 
@@ -94,6 +98,9 @@ export class MetadataAnalyzer {
    */
   processChunk(chunk: AgentOutputChunk): void {
     switch (chunk.type) {
+      case "user_message":
+        this.processUserMessage(chunk)
+        break
       case "tool_use":
         this.processToolUse(chunk)
         break
@@ -114,8 +121,21 @@ export class MetadataAnalyzer {
         break
     }
 
+    // Update duration based on session start time
+    this.metadata.duration = Date.now() - this.sessionStartTime
+
     // Update context window estimate after each chunk
     this.updateContextWindowEstimate()
+  }
+
+  /**
+   * Process user_message chunk to count user messages
+   */
+  private processUserMessage(_chunk: AgentOutputChunk): void {
+    this.metadata.userMessageCount++
+    this.metadata.messageCount++
+    // Reset assistant message tracking when user sends a new message
+    this.isInAssistantMessage = false
   }
 
   /**
@@ -284,6 +304,13 @@ export class MetadataAnalyzer {
   private processText(chunk: AgentOutputChunk): void {
     this.metadata.outputMetrics.textChunks++
     this.metadata.outputMetrics.totalCharacters += chunk.content.length
+
+    // Count this as an assistant message if it's the first text chunk in a response
+    if (!this.isInAssistantMessage) {
+      this.metadata.assistantMessageCount++
+      this.metadata.messageCount++
+      this.isInAssistantMessage = true
+    }
 
     // Rough token estimate: ~4 chars per token
     const estimatedTokens = Math.ceil(chunk.content.length / CHARS_PER_TOKEN)

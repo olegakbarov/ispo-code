@@ -5,7 +5,7 @@
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
-import { agentTypeLabel, type PlannerAgentType } from './agent-config'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from './agent-config'
 import type { AgentType } from '@/lib/agent/types'
 
 interface CreateTaskModalProps {
@@ -14,6 +14,7 @@ interface CreateTaskModalProps {
   newTitle: string
   useAgent: boolean
   createAgentType: PlannerAgentType
+  createModel: string
   availableTypes: AgentType[] | undefined
   availablePlannerTypes: PlannerAgentType[]
   onClose: () => void
@@ -21,6 +22,7 @@ interface CreateTaskModalProps {
   onTitleChange: (title: string) => void
   onUseAgentChange: (useAgent: boolean) => void
   onAgentTypeChange: (agentType: PlannerAgentType) => void
+  onModelChange: (model: string) => void
 }
 
 export function CreateTaskModal({
@@ -29,6 +31,7 @@ export function CreateTaskModal({
   newTitle,
   useAgent,
   createAgentType,
+  createModel,
   availableTypes,
   availablePlannerTypes,
   onClose,
@@ -36,6 +39,7 @@ export function CreateTaskModal({
   onTitleChange,
   onUseAgentChange,
   onAgentTypeChange,
+  onModelChange,
 }: CreateTaskModalProps) {
   if (!isOpen) return null
   const canUseAgent = availablePlannerTypes.length > 0
@@ -83,22 +87,43 @@ export function CreateTaskModal({
           </label>
 
           {useAgent && canUseAgent && (
-            <div>
-              <div className="font-vcr text-xs text-text-muted mb-2">Agent Type</div>
-              <Select
-                value={createAgentType}
-                onChange={(e) => onAgentTypeChange(e.target.value as PlannerAgentType)}
-                variant="sm"
-                disabled={isCreating}
-                className="bg-background"
-              >
-                {availablePlannerTypes.map((t) => (
-                  <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
-                    {agentTypeLabel[t]}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            <>
+              <div>
+                <div className="font-vcr text-xs text-text-muted mb-2">Agent Type</div>
+                <Select
+                  value={createAgentType}
+                  onChange={(e) => onAgentTypeChange(e.target.value as PlannerAgentType)}
+                  variant="sm"
+                  disabled={isCreating}
+                  className="bg-background"
+                >
+                  {availablePlannerTypes.map((t) => (
+                    <option key={t} value={t} disabled={availableTypes ? !availableTypes.includes(t) : false}>
+                      {agentTypeLabel[t]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              {supportsModelSelection(createAgentType) && (
+                <div>
+                  <div className="font-vcr text-xs text-text-muted mb-2">Model</div>
+                  <Select
+                    value={createModel}
+                    onChange={(e) => onModelChange(e.target.value)}
+                    variant="sm"
+                    disabled={isCreating}
+                    className="bg-background"
+                  >
+                    {getModelsForAgentType(createAgentType).map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}{m.description ? ` - ${m.description}` : ''}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+            </>
           )}
         </div>
 

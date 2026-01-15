@@ -23,6 +23,9 @@ export type { GitStatus } from "./git-service"
 export { CerebrasAgent, createCerebrasAgent, CEREBRAS_MODELS } from "./cerebras"
 export type { CerebrasAgentOptions, CerebrasEvents } from "./cerebras"
 
+export { GeminiAgent, createGeminiAgent, GEMINI_MODELS } from "./gemini"
+export type { GeminiAgentOptions, GeminiEvents } from "./gemini"
+
 export { OpencodeAgent, createOpencodeAgent } from "./opencode"
 export type { OpencodeAgentOptions, OpencodeEvents } from "./opencode"
 
