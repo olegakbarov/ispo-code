@@ -30,6 +30,9 @@ interface UseAgentSessionTrackingParams {
   taskSessions: TaskSessionsData | undefined
 }
 
+/** Statuses considered active (not terminal) */
+const ACTIVE_STATUSES = ['pending', 'running', 'working', 'waiting_approval', 'waiting_input', 'idle']
+
 export function useAgentSessionTracking({
   activeSessionId,
   activeSessionInfo,
@@ -38,13 +41,28 @@ export function useAgentSessionTracking({
   const utils = trpc.useUtils()
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Prefer Planning Session - find active planning session if one exists
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const activePlanningSessionId = useMemo(() => {
+    if (!taskSessions?.grouped.planning) return undefined
+    const activePlanning = taskSessions.grouped.planning.find(
+      (s) => ACTIVE_STATUSES.includes(s.status)
+    )
+    return activePlanning?.sessionId
+  }, [taskSessions?.grouped.planning])
+
+  // Use planning session if active, otherwise fall back to generic active session
+  const effectiveSessionId = activePlanningSessionId ?? activeSessionId
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Live Session Query
   // ─────────────────────────────────────────────────────────────────────────────
 
   const { data: liveSession } = trpc.agent.get.useQuery(
-    { id: activeSessionId ?? '' },
+    { id: effectiveSessionId ?? '' },
     {
-      enabled: !!activeSessionId,
+      enabled: !!effectiveSessionId,
       refetchInterval: 1000,
     }
   )
@@ -59,10 +77,10 @@ export function useAgentSessionTracking({
   } | null>(null)
 
   useEffect(() => {
-    if (!activeSessionId) return
+    if (!effectiveSessionId) return
 
     const nextStatus = liveSession?.status ?? activeSessionInfo?.status
-    const nextId = liveSession?.id ?? activeSessionId
+    const nextId = liveSession?.id ?? effectiveSessionId
 
     if (!nextStatus) return
 
@@ -70,13 +88,13 @@ export function useAgentSessionTracking({
       if (prev?.id === nextId && prev.status === nextStatus) return prev
       return { id: nextId, status: nextStatus }
     })
-  }, [activeSessionId, activeSessionInfo?.status, liveSession?.id, liveSession?.status])
+  }, [effectiveSessionId, activeSessionInfo?.status, liveSession?.id, liveSession?.status])
 
   const prevAudioSessionIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     const prev = prevAudioSessionIdRef.current
-    const current = activeSessionId ?? null
+    const current = effectiveSessionId ?? null
     prevAudioSessionIdRef.current = current
 
     if (!prev || current) return
@@ -96,18 +114,18 @@ export function useAgentSessionTracking({
       .catch((error) => {
         console.error('Failed to fetch final session status for audio notification:', error)
       })
-  }, [activeSessionId, audioSessionSnapshot?.id, audioSessionSnapshot?.status, utils.client.agent.get])
+  }, [effectiveSessionId, audioSessionSnapshot?.id, audioSessionSnapshot?.status, utils.client.agent.get])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Agent Session Memo
   // ─────────────────────────────────────────────────────────────────────────────
 
   const agentSession: AgentSession | null = useMemo(() => {
-    if (!activeSessionId) return null
+    if (!effectiveSessionId) return null
 
     if (!liveSession) {
       return {
-        id: activeSessionId,
+        id: effectiveSessionId,
         status: activeSessionInfo?.status ?? 'running',
         prompt: 'Agent running...',
         output: [],
@@ -121,7 +139,7 @@ export function useAgentSessionTracking({
       output: liveSession.output,
       error: liveSession.error,
     }
-  }, [activeSessionId, activeSessionInfo?.status, liveSession])
+  }, [effectiveSessionId, activeSessionInfo?.status, liveSession])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Audio Notification
@@ -136,12 +154,8 @@ export function useAgentSessionTracking({
   // Is Active Planning Session
   // ─────────────────────────────────────────────────────────────────────────────
 
-  const isActivePlanningSession = useMemo(() => {
-    if (!agentSession?.id || !taskSessions?.grouped.planning) return false
-    return taskSessions.grouped.planning.some(
-      (s) => s.sessionId === agentSession.id && ['pending', 'running', 'working'].includes(s.status)
-    )
-  }, [agentSession?.id, taskSessions?.grouped.planning])
+  // True when we're tracking an active planning session
+  const isActivePlanningSession = !!activePlanningSessionId
 
   return {
     liveSession,
