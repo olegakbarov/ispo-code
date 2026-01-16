@@ -23,6 +23,8 @@ export interface CLIRunnerConfig {
   model?: string
   /** Image attachments for multimodal input */
   attachments?: ImageAttachment[]
+  /** Use Claude subscription (Max/Pro) instead of API key */
+  claudeUseSubscription?: boolean
 }
 
 /**
@@ -350,7 +352,7 @@ export class CLIAgentRunner extends EventEmitter {
    * Run the CLI agent
    */
   async run(config: CLIRunnerConfig): Promise<void> {
-    const { agentType, workingDir, isResume } = config
+    const { agentType, workingDir, isResume, claudeUseSubscription } = config
 
     const { command, args, promptTransport, stdinPrompt, tempFiles } = this.buildCommand(config)
 
@@ -406,6 +408,12 @@ export class CLIAgentRunner extends EventEmitter {
         // HOME over CLAUDE_CONFIG_DIR so Claude continues to find existing credentials.
         if (agentType === "claude") {
           env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING ??= "1"
+
+          // Use subscription auth (Max/Pro) instead of API key billing
+          // When enabled, remove API key to force OAuth-based auth
+          if (claudeUseSubscription) {
+            delete env.ANTHROPIC_API_KEY
+          }
 
           const home = env.HOME || ""
           let homeWritable = false
@@ -686,7 +694,9 @@ export class CLIAgentRunner extends EventEmitter {
           stdinPrompt: promptTransport === "stdin" ? prompt : undefined,
         }
       })
-      .exhaustive()
+      .otherwise(() => {
+        throw new Error(`Agent type '${agentType}' is not a CLI agent`)
+      })
   }
 
   /**

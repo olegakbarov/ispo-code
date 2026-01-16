@@ -2,11 +2,55 @@
  * System tRPC Router - Basic system info queries
  */
 
-import { existsSync, readdirSync } from "fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join, resolve } from "path"
 import { homedir } from "os"
 import { z } from "zod"
 import { router, procedure } from "./trpc"
+
+// Config file path for server-side settings
+const CONFIG_DIR = ".ispo-code"
+const CONFIG_FILE = "config.json"
+
+interface ServerConfig {
+  claudeUseSubscription?: boolean
+}
+
+/** Get the config file path for the current working directory */
+function getConfigPath(workingDir: string): string {
+  return join(workingDir, CONFIG_DIR, CONFIG_FILE)
+}
+
+/** Read server config from file */
+export function readServerConfig(workingDir: string): ServerConfig {
+  try {
+    const configPath = getConfigPath(workingDir)
+    if (existsSync(configPath)) {
+      const content = readFileSync(configPath, "utf-8")
+      return JSON.parse(content) as ServerConfig
+    }
+  } catch {
+    // Ignore read errors, return empty config
+  }
+  return {}
+}
+
+/** Write server config to file */
+function writeServerConfig(workingDir: string, config: ServerConfig): void {
+  const configDir = join(workingDir, CONFIG_DIR)
+  const configPath = getConfigPath(workingDir)
+
+  // Ensure directory exists
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true })
+  }
+
+  // Merge with existing config
+  const existing = readServerConfig(workingDir)
+  const merged = { ...existing, ...config }
+
+  writeFileSync(configPath, JSON.stringify(merged, null, 2), "utf-8")
+}
 
 export const systemRouter = router({
   /**
@@ -54,5 +98,23 @@ export const systemRouter = router({
       } catch (error) {
         throw new Error(`Failed to read directory: ${error}`)
       }
+    }),
+
+  /**
+   * Get Claude subscription auth setting
+   */
+  getClaudeUseSubscription: procedure.query(({ ctx }) => {
+    const config = readServerConfig(ctx.workingDir)
+    return config.claudeUseSubscription ?? false
+  }),
+
+  /**
+   * Set Claude subscription auth setting
+   */
+  setClaudeUseSubscription: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ ctx, input }) => {
+      writeServerConfig(ctx.workingDir, { claudeUseSubscription: input.enabled })
+      return { success: true }
     }),
 })

@@ -25,6 +25,7 @@ import { MetadataAnalyzer } from "../lib/agent/metadata-analyzer"
 import { extractTaskReviewOutput } from "../lib/agent/config"
 import { saveTask } from "../lib/agent/task-service"
 import { getContextLimit } from "../lib/agent/model-registry"
+import { readServerConfig } from "../trpc/system"
 import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, OpencodeMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
 
 /** Agent interface with optional getMessages for SDK agents */
@@ -65,6 +66,8 @@ export interface DaemonConfig {
     owner: string
     repo: string
   }
+  /** Use Claude subscription (Max/Pro) instead of API key */
+  claudeUseSubscription?: boolean
 }
 
 /**
@@ -124,7 +127,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId, githubRepo } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId, githubRepo, claudeUseSubscription } =
       this.config
     const { daemonNonce } = this.config
 
@@ -188,7 +191,7 @@ export class AgentDaemon {
 
       // 4. Create and wire up the agent
       const { reconstructedMessages, attachments } = this.config
-      this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId, reconstructedMessages, attachments)
+      this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId, reconstructedMessages, attachments, claudeUseSubscription)
 
       // Wire up event handlers
       this.setupAgentHandlers(this.agent, sessionId)
@@ -280,8 +283,12 @@ export class AgentDaemon {
     model?: string,
     cliSessionId?: string,
     reconstructedMessages?: unknown[],
-    attachments?: ImageAttachment[]
+    attachments?: ImageAttachment[],
+    claudeUseSubscription?: boolean
   ): Promise<SDKAgentLike> {
+    // Read server config for Claude subscription setting if not explicitly provided
+    const effectiveClaudeUseSubscription = claudeUseSubscription ?? readServerConfig(workingDir).claudeUseSubscription ?? false
+
     return match(agentType)
       .with("cerebras", () => {
         return new CerebrasAgent({
@@ -347,6 +354,7 @@ export class AgentDaemon {
               isResume: Boolean(cliSessionId),
               model,
               attachments: pendingAttachments,
+              claudeUseSubscription: effectiveClaudeUseSubscription,
             })
             pendingAttachments = undefined // Clear after use
           },

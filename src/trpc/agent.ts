@@ -338,6 +338,8 @@ export const agentRouter = router({
         owner: z.string(),
         repo: z.string(),
       }).optional(),
+      /** Use Claude subscription (Max/Pro) instead of API key */
+      claudeUseSubscription: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const sessionId = randomBytes(6).toString("hex")
@@ -360,6 +362,7 @@ export const agentRouter = router({
         daemonNonce,
         attachments: input.attachments,
         githubRepo: input.githubRepo,
+        claudeUseSubscription: input.claudeUseSubscription,
       })
 
       return {
