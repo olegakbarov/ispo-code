@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import type { AgentType } from '@/lib/agent/types'
 import { getModelsForAgentType, supportsModelSelection, getDefaultModelId, agentTypeLabel } from '@/lib/agent/config'
+import { FileCommentInput } from '@/components/agents/file-comment-input'
 
 // Lazy load MultiFileDiff to avoid SSR issues with lru_map ESM interop
 const MultiFileDiff = lazy(() =>
@@ -73,6 +74,8 @@ interface DiffPanelProps {
   theme?: ThemeType
   /** Hide comment/send controls (for task review mode) */
   reviewMode?: boolean
+  /** Task path for task-linked commenting in review mode */
+  taskPath?: string
   onSelectFile: (file: string) => void
   onCloseFile: (file: string) => void
   onCloseAll: () => void
@@ -179,6 +182,7 @@ export function DiffPanel({
   availableAgentTypes = [],
   theme = 'dark',
   reviewMode = false,
+  taskPath,
   onSelectFile,
   onCloseFile,
   onCloseAll,
@@ -190,6 +194,8 @@ export function DiffPanel({
 }: DiffPanelProps) {
   const [commentsByKey, setCommentsByKey] = useState<Record<string, LineComment[]>>({})
   const [draft, setDraft] = useState<CommentDraft | null>(null)
+  // Task review mode: track which line has active comment input
+  const [taskCommentLine, setTaskCommentLine] = useState<{ lineNumber: number; side: CommentSide } | null>(null)
 
   const [sendOpen, setSendOpen] = useState(false)
   const [sendKeys, setSendKeys] = useState<Set<string>>(new Set())
@@ -271,6 +277,11 @@ export function DiffPanel({
       annotations.push({ side: draft.side, lineNumber: draft.lineNumber, metadata: null })
     }
 
+    // Task review mode: include active task comment line
+    if (taskCommentLine && Number.isFinite(taskCommentLine.lineNumber)) {
+      annotations.push({ side: taskCommentLine.side, lineNumber: taskCommentLine.lineNumber, metadata: null })
+    }
+
     const uniq = new Map<string, { side: CommentSide; lineNumber: number; metadata: null }>()
     for (const a of annotations) {
       uniq.set(`${a.side}:${a.lineNumber}`, a)
@@ -281,7 +292,7 @@ export function DiffPanel({
       a.lineNumber === b.lineNumber ? a.side.localeCompare(b.side) : a.lineNumber - b.lineNumber
     )
     return uniqueAnnotations
-  }, [activeFile, activeView, commentsByLineKey, draft])
+  }, [activeFile, activeView, commentsByLineKey, draft, taskCommentLine])
 
   const hasStaged = activeFile ? status.staged.some((f) => f.file === activeFile) : false
   const hasWorking = activeFile
@@ -292,6 +303,12 @@ export function DiffPanel({
   const handleLineClick = useCallback(
     (props: { lineNumber: number; annotationSide: CommentSide }) => {
       if (!activeFile) return
+      // In task review mode with taskPath, use task-linked comment input
+      if (reviewMode && taskPath) {
+        setTaskCommentLine({ lineNumber: props.lineNumber, side: props.annotationSide })
+        return
+      }
+      // Standard mode: use local comment draft
       setDraft({
         file: activeFile,
         view: activeView,
@@ -300,12 +317,13 @@ export function DiffPanel({
         body: '',
       })
     },
-    [activeFile, activeView]
+    [activeFile, activeView, reviewMode, taskPath]
   )
 
   // Close drafts when switching files/views
   useEffect(() => {
     setDraft(null)
+    setTaskCommentLine(null)
   }, [activeFile, activeView])
 
   const saveDraft = () => {
@@ -665,13 +683,52 @@ export function DiffPanel({
             className="block w-full min-w-0"
             oldFile={{ name: activeFile, contents: diffData.oldContent }}
             newFile={{ name: activeFile, contents: diffData.newContent }}
-            lineAnnotations={reviewMode ? [] : lineAnnotations}
-            renderAnnotation={reviewMode ? () => null : (annotation) => {
+            lineAnnotations={reviewMode && !taskPath ? [] : lineAnnotations}
+            renderAnnotation={(reviewMode && !taskPath) ? () => null : (annotation) => {
+              const file = activeFile
+              if (!file) return null
+
+              // Task review mode with taskPath: show FileCommentInput for task-linked commenting
+              if (reviewMode && taskPath) {
+                const isActiveTaskComment =
+                  taskCommentLine &&
+                  taskCommentLine.lineNumber === annotation.lineNumber &&
+                  taskCommentLine.side === annotation.side
+
+                if (!isActiveTaskComment) return null
+
+                return (
+                  <div
+                    className="my-1 rounded border border-border bg-card px-2 py-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-vcr text-[10px] text-muted-foreground">
+                        {annotation.side} L{annotation.lineNumber}
+                      </div>
+                      <Button
+                        onClick={() => setTaskCommentLine(null)}
+                        variant="ghost"
+                        size="xs"
+                        className="h-auto px-1 py-0 text-[10px]"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                    <FileCommentInput
+                      fileName={file}
+                      taskPath={taskPath}
+                      sourceFile={file}
+                      sourceLine={annotation.lineNumber}
+                    />
+                  </div>
+                )
+              }
+
+              // Standard mode: use local comment draft system
               const key = `${annotation.side}:${annotation.lineNumber}`
               const list = commentsByLineKey.get(key) ?? []
               const view = activeView
-              const file = activeFile
-              if (!file) return null
 
               const isDraftForThisLine =
                 !!draft &&

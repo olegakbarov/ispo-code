@@ -298,6 +298,7 @@ export function TaskReviewPanel({
               onViewChange={handleViewChange}
               onFetchDiff={handleFetchDiff}
               reviewMode
+              taskPath={taskPath}
             />
           </ErrorBoundary>
         ) : (
