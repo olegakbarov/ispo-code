@@ -11,6 +11,10 @@ import { agentTypeLabel, getModelsForAgentType, getDefaultModelId } from "@/lib/
 import type { AgentType } from "@/lib/agent/types"
 import type { PlannerAgentType } from "@/lib/agent/config"
 import { useTheme } from "@/components/theme"
+import { ALL_PLANNER_CANDIDATES } from "@/components/tasks/create-task-form"
+
+/** All agent types for verification dropdown (includes all AgentType values) */
+const ALL_AGENT_TYPES: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'gemini', 'mcporter']
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -514,11 +518,14 @@ function AgentDefaultsSection({
               className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
               <option value="">Use system default</option>
-              {availablePlannerTypes.map((type) => (
-                <option key={type} value={type}>
-                  {agentTypeLabel[type]}
-                </option>
-              ))}
+              {ALL_PLANNER_CANDIDATES.map((type) => {
+                const isAvailable = availablePlannerTypes.includes(type)
+                return (
+                  <option key={type} value={type} disabled={!isAvailable}>
+                    {agentTypeLabel[type]}{!isAvailable ? ' (Not available)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </div>
 
@@ -536,11 +543,14 @@ function AgentDefaultsSection({
               className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
               <option value="">Use system default</option>
-              {availableTypes.map((type) => (
-                <option key={type} value={type}>
-                  {agentTypeLabel[type as AgentType]}
-                </option>
-              ))}
+              {ALL_AGENT_TYPES.map((type) => {
+                const isAvailable = availableTypes.includes(type)
+                return (
+                  <option key={type} value={type} disabled={!isAvailable}>
+                    {agentTypeLabel[type]}{!isAvailable ? ' (Not available)' : ''}
+                  </option>
+                )
+              })}
             </select>
           </div>
 
