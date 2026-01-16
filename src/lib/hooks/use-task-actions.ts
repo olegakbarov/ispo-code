@@ -38,8 +38,23 @@ interface TaskSummary {
   archived: boolean
 }
 
+interface TaskSessionInfo {
+  sessionId: string
+  sessionType?: 'planning' | 'review' | 'verify' | 'execution' | 'debug' | 'rewrite' | 'comment' | 'orchestrator'
+  status?: string
+}
+
 interface TaskSessionsData {
-  all: Array<{ sessionId: string }>
+  all: Array<TaskSessionInfo>
+  grouped?: {
+    planning: Array<TaskSessionInfo>
+    review: Array<TaskSessionInfo>
+    verify: Array<TaskSessionInfo>
+    execution: Array<TaskSessionInfo>
+    rewrite: Array<TaskSessionInfo>
+    comment: Array<TaskSessionInfo>
+    orchestrator: Array<TaskSessionInfo>
+  }
 }
 
 interface UseTaskActionsParams {
@@ -278,11 +293,40 @@ export function useTaskActions({
         )
       }
     } else {
-      // For basic create, mutation handles reconciliation
+      // For basic create (no-plan), auto-start implementation after creation
       // Pass optimisticPath so mutation can clean up if path differs
       createMutation.mutate(
         { title },
         {
+          onSuccess: (result) => {
+            // Auto-start implementation with selected agent/model
+            const taskPath = result.path
+            const agentType = run.agentType
+            const model = run.model
+
+            console.log('[auto-start] No-plan task created, auto-starting implementation...', {
+              taskPath,
+              agentType,
+              model,
+            })
+
+            // Delay slightly to allow UI to update
+            setTimeout(() => {
+              assignToAgentMutation.mutate(
+                {
+                  path: taskPath,
+                  agentType,
+                  model,
+                  instructions: undefined,
+                },
+                {
+                  onError: (err) => {
+                    console.error('[auto-start] Failed to auto-start implementation:', err)
+                  },
+                }
+              )
+            }, 500)
+          },
           onError: (err) => {
             console.error('Failed to create task:', err)
             // Rollback: remove optimistic data
@@ -307,10 +351,13 @@ export function useTaskActions({
     create.agentType,
     create.model,
     create.autoRun,
+    run.agentType,
+    run.model,
     tasks,
     debugWithAgentsMutation,
     createWithAgentMutation,
     createMutation,
+    assignToAgentMutation,
     dispatch,
     clearCreateTitleDraft,
     navigate,
@@ -910,6 +957,18 @@ export function useTaskActions({
         }, 2000)
       } else if (phase === 'execution') {
         // Implementation completed → auto-trigger verification
+        // BUT first, validate that there's actually a completed execution session
+        // This prevents verification from running if no implementation was done
+        const executionSessions = taskSessions?.grouped?.execution ?? []
+        const hasCompletedExecution = executionSessions.some(
+          (s) => s.status === 'completed'
+        )
+
+        if (!hasCompletedExecution) {
+          console.log('[auto-run] Skipping verification: no completed execution session found')
+          return
+        }
+
         console.log('[auto-run] Implementation completed, triggering verification...')
 
         // Delay to allow UI to update
@@ -931,6 +990,7 @@ export function useTaskActions({
     agentSession?.title,
     agentSession?.prompt,
     taskDataForAutoRun?.content,
+    taskSessions?.grouped?.execution,
     run.agentType,
     run.model,
     verify.agentType,
