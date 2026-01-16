@@ -1,0 +1,310 @@
+/**
+ * Agent Session Detail Page
+ *
+ * Displays a single agent session with:
+ * - Prompt display (collapsible)
+ * - Progress banner (status, cancel button)
+ * - Output renderer (text, tool calls, results)
+ * - Thread sidebar (git, changed files, metadata)
+ *
+ * Supports actions:
+ * - Cancel: Stop a running session
+ * - Approve: Approve a pending tool operation
+ * - Resume: Send a follow-up message to a completed session
+ */
+
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { useState, useRef, useEffect } from 'react'
+import { ArrowLeft, Send, CheckCircle, XCircle } from 'lucide-react'
+import { z } from 'zod'
+import { trpc } from '@/lib/trpc-client'
+import { useAdaptivePolling, computeSessionHash } from '@/lib/hooks/use-adaptive-polling'
+import { PromptDisplay } from '@/components/agents/prompt-display'
+import { AgentProgressBanner } from '@/components/agents/progress-banner'
+import { OutputRenderer } from '@/components/agents/output-renderer'
+import { ThreadSidebar } from '@/components/agents/thread-sidebar'
+import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
+import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
+import type { ImageAttachment } from '@/lib/agent/types'
+
+export const Route = createFileRoute('/agents/$sessionId')({
+  parseParams: (params) => ({
+    sessionId: z.string().min(1).parse(params.sessionId),
+  }),
+  component: AgentSessionPage,
+})
+
+function AgentSessionPage() {
+  const { sessionId } = Route.useParams()
+  const [resumeMessage, setResumeMessage] = useState('')
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
+  const outputContainerRef = useRef<HTMLDivElement>(null)
+
+  // Fetch session with metadata
+  const { data: session, isLoading, error, refetch } = trpc.agent.getSessionWithMetadata.useQuery(
+    { id: sessionId },
+    { refetchInterval: false } // We'll control polling manually
+  )
+
+  // Adaptive polling based on session status
+  const { refetchInterval, reset: resetPolling } = useAdaptivePolling({
+    status: session?.status,
+    dataHash: computeSessionHash(session ?? null),
+  })
+
+  // Apply adaptive polling
+  trpc.agent.getSessionWithMetadata.useQuery(
+    { id: sessionId },
+    { refetchInterval }
+  )
+
+  // Reset polling when sessionId changes
+  useEffect(() => {
+    resetPolling()
+  }, [sessionId, resetPolling])
+
+  // Auto-scroll to bottom when new output arrives
+  useEffect(() => {
+    if (outputContainerRef.current && session?.output) {
+      const container = outputContainerRef.current
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
+      if (isNearBottom) {
+        container.scrollTop = container.scrollHeight
+      }
+    }
+  }, [session?.output?.length])
+
+  // Mutations
+  const cancelMutation = trpc.agent.cancel.useMutation({
+    onSuccess: () => refetch(),
+  })
+
+  const approveMutation = trpc.agent.approve.useMutation({
+    onSuccess: () => refetch(),
+  })
+
+  const resumeMutation = trpc.agent.sendMessage.useMutation({
+    onSuccess: () => {
+      setResumeMessage('')
+      setAttachments([])
+      resetPolling()
+      refetch()
+    },
+  })
+
+  const handleCancel = () => {
+    cancelMutation.mutate({ id: sessionId })
+  }
+
+  const handleApprove = (approved: boolean) => {
+    approveMutation.mutate({ sessionId, approved })
+  }
+
+  const handleResume = () => {
+    if (!resumeMessage.trim()) return
+    resumeMutation.mutate({
+      sessionId,
+      message: resumeMessage.trim(),
+      attachments: attachments.length > 0 ? attachments : undefined,
+    })
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleResume()
+    }
+  }
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Spinner size="sm" />
+          <span className="font-vcr text-sm">Loading session...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <div className="text-destructive font-vcr text-sm">
+          Error loading session: {error.message}
+        </div>
+        <Link
+          to="/"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          ← Back to dashboard
+        </Link>
+      </div>
+    )
+  }
+
+  // Session not found
+  if (!session) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <div className="text-muted-foreground font-vcr text-sm">
+          Session not found
+        </div>
+        <Link
+          to="/"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          ← Back to dashboard
+        </Link>
+      </div>
+    )
+  }
+
+  const isRunning = session.status === 'running' || session.status === 'pending' || session.status === 'working'
+  const isWaitingApproval = session.status === 'waiting_approval'
+  const isWaitingInput = session.status === 'waiting_input'
+  const isTerminal = session.status === 'completed' || session.status === 'failed' || session.status === 'cancelled'
+  const canResume = isTerminal && session.resumable !== false
+
+  return (
+    <div className="flex h-full">
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
+          <Link
+            to="/"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Back to dashboard"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-vcr text-sm truncate">
+              {session.title || session.prompt.slice(0, 60)}
+            </h1>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-mono">{session.agentType}</span>
+              {session.model && (
+                <>
+                  <span>·</span>
+                  <span className="font-mono">{session.model}</span>
+                </>
+              )}
+              <span>·</span>
+              <span className="font-mono">{sessionId.slice(0, 8)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Prompt */}
+        <PromptDisplay
+          prompt={session.prompt}
+          taskPath={session.taskPath}
+          isResumable={canResume}
+          instructions={session.instructions}
+          githubRepo={session.githubRepo}
+        />
+
+        {/* Progress banner */}
+        {(isRunning || isTerminal) && (
+          <AgentProgressBanner session={session} onCancel={handleCancel} />
+        )}
+
+        {/* Approval banner */}
+        {isWaitingApproval && (
+          <div className="px-4 py-3 border-b border-warning/30 bg-warning/10">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-warning">
+                <span className="font-vcr text-xs">WAITING FOR APPROVAL</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleApprove(false)}
+                  disabled={approveMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-vcr rounded border border-destructive/50 text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Reject
+                </button>
+                <button
+                  onClick={() => handleApprove(true)}
+                  disabled={approveMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-vcr rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Approve
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Output */}
+        <div
+          ref={outputContainerRef}
+          className="flex-1 overflow-y-auto p-4 space-y-2"
+        >
+          {session.output.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              {isRunning ? (
+                <div className="flex items-center gap-2">
+                  <Spinner size="sm" />
+                  <span className="font-vcr">Waiting for output...</span>
+                </div>
+              ) : (
+                <span className="font-vcr">No output yet</span>
+              )}
+            </div>
+          ) : (
+            <OutputRenderer chunks={session.output} />
+          )}
+        </div>
+
+        {/* Resume input (for completed/resumable sessions or waiting_input) */}
+        {(canResume || isWaitingInput) && (
+          <div className="border-t border-border p-4 bg-card/50">
+            <div className="space-y-2">
+              <ImageAttachmentInput
+                attachments={attachments}
+                onChange={setAttachments}
+              />
+              <div className="flex items-end gap-2">
+                <Textarea
+                  value={resumeMessage}
+                  onChange={(e) => setResumeMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={isWaitingInput ? "Respond to agent..." : "Send follow-up message..."}
+                  variant="sm"
+                  className="flex-1 min-h-[60px] max-h-[200px] resize-y"
+                  disabled={resumeMutation.isPending}
+                />
+                <button
+                  onClick={handleResume}
+                  disabled={!resumeMessage.trim() || resumeMutation.isPending}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-vcr rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {resumeMutation.isPending ? (
+                    <Spinner size="xs" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  Send
+                </button>
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                Press ⌘+Enter to send
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sidebar */}
+      <ThreadSidebar sessionId={sessionId} session={session} />
+    </div>
+  )
+}

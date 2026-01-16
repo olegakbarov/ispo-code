@@ -4,6 +4,7 @@
  */
 
 import { useMemo } from 'react'
+import { Link } from '@tanstack/react-router'
 import { match, P } from 'ts-pattern'
 import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { Spinner } from '@/components/ui/spinner'
@@ -139,16 +140,12 @@ function ActiveSessionCard({
     return null
   }, [session.output])
 
-  const handleClick = () => {
-    // Session is already visible in current task UI - no navigation needed
-    // TODO: Could add visual feedback or expand session details in sidebar
-  }
-
   return (
     <div className={`rounded-lg border ${statusColor === 'text-accent' ? 'border-accent/50 bg-accent/5' : 'border-warning/50 bg-warning/5'}`}>
-      <button
-        onClick={handleClick}
-        className="w-full text-left p-3 hover:bg-white/5 transition-colors rounded-t-lg"
+      <Link
+        to="/agents/$sessionId"
+        params={{ sessionId: session.sessionId }}
+        className="block w-full text-left p-3 hover:bg-white/5 transition-colors rounded-t-lg"
       >
         <div className="flex items-center gap-2 mb-1">
           {showSpinner ? (
@@ -178,7 +175,7 @@ function ActiveSessionCard({
             {lastOutput}
           </div>
         )}
-      </button>
+      </Link>
       {onCancel && SPINNER_STATUSES.includes(session.status) && (
         <div className="border-t border-current/20 px-3 py-2">
           <button
@@ -201,11 +198,6 @@ function SessionCard({ session }: { session: TaskSession }) {
   const statusColor = STATUS_COLORS[session.status]
   const statusIcon = STATUS_ICONS[session.status]
   const showSpinner = SPINNER_STATUSES.includes(session.status)
-
-  const handleClick = () => {
-    // Session is already visible in current task UI - no navigation needed
-    // TODO: Could add visual feedback or expand session details in sidebar
-  }
 
   // Format timestamp to relative time
   const getRelativeTime = (timestamp: string) => {
@@ -230,9 +222,10 @@ function SessionCard({ session }: { session: TaskSession }) {
     : null
 
   return (
-    <button
-      onClick={handleClick}
-      className="w-full text-left px-2 py-1.5 rounded hover:bg-panel-hover transition-colors group"
+    <Link
+      to="/agents/$sessionId"
+      params={{ sessionId: session.sessionId }}
+      className="block w-full text-left px-2 py-1.5 rounded hover:bg-panel-hover transition-colors group"
       title={session.title}
     >
       <div className="flex items-center gap-2">
@@ -255,7 +248,7 @@ function SessionCard({ session }: { session: TaskSession }) {
           📄 {sourceLabel}
         </div>
       )}
-    </button>
+    </Link>
   )
 }
 
