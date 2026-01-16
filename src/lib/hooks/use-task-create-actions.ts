@@ -149,6 +149,7 @@ export function useTaskCreateActions({
             agentType: create.agentType,
             model: create.model || undefined,
             autoRun: create.autoRun,
+            includeQuestions: create.includeQuestions,
           },
           { onError: (err) => console.error('Failed to create task with agent:', err) }
         )
@@ -212,6 +213,7 @@ export function useTaskCreateActions({
     create.agentType,
     create.model,
     create.autoRun,
+    create.includeQuestions,
     run.agentType,
     run.model,
     tasks,

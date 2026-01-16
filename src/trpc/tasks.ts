@@ -364,12 +364,71 @@ Begin by ${relatedBugs.length > 0 ? "reviewing the related bugs, then " : ""}inv
 /**
  * System prompt for task expansion agent.
  * The agent receives the user's prompt and generates a detailed task plan.
+ * Optionally asks clarifying questions first when includeQuestions is true.
  */
 function buildTaskExpansionPrompt(params: {
   title: string
   taskPath: string
   workingDir: string
+  includeQuestions?: boolean
 }): string {
+  // When includeQuestions is enabled, ask questions first, then refine plan
+  if (params.includeQuestions) {
+    return `Task planning agent. Convert brief description into concise, actionable plan.
+
+## Task
+"${params.title}"
+
+## Instructions
+1. Explore codebase for context
+2. **Ask 2-4 clarifying questions** using the AskUserQuestion tool to refine requirements
+3. Wait for user response
+4. Write refined plan to: ${params.taskPath}
+
+## Question Guidelines
+- Ask about ambiguous requirements, scope boundaries, or implementation preferences
+- Focus on questions that would significantly change the plan
+- Use the AskUserQuestion tool (NOT text output) to ask questions
+
+## Format (for final plan after questions answered)
+
+\`\`\`markdown
+# ${params.title}
+
+## Problem Statement
+What & why (2-3 sentences max)
+
+## Scope
+**In:** bullet list
+**Out:** bullet list
+
+## Implementation Plan
+
+### Phase: [Name]
+- [ ] Action (one clear step, no elaboration)
+- [ ] Action
+
+## Key Files
+- \`path/file.ts\` - changes needed
+
+## Success Criteria
+- [ ] Measurable outcome
+
+## Unresolved Questions
+- Any remaining questions, if any
+\`\`\`
+
+## Rules (CRITICAL)
+- **BE CONCISE** - Follow CLAUDE.md style: sacrifice grammar for concision
+- Use fragments, not full sentences
+- No marketing language or filler
+- Each checkbox: one action, no elaboration
+- Specific file paths, no vague terms
+- Working dir: ${params.workingDir}
+
+Start by exploring codebase, then ask clarifying questions using AskUserQuestion tool.`
+  }
+
   return `Task planning agent. Convert brief description into concise, actionable plan.
 
 ## Task
@@ -717,9 +776,11 @@ export const tasksRouter = router({
     .input(z.object({
       title: z.string().min(1),
       taskType: z.enum(["bug", "feature"]).default("feature"),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
       model: z.string().optional(),
       autoRun: z.boolean().default(true),
+      /** Include clarifying questions before generating final plan */
+      includeQuestions: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
       // Validate CLI availability before creating task
@@ -746,6 +807,7 @@ export const tasksRouter = router({
             title: input.title,
             taskPath,
             workingDir: ctx.workingDir,
+            includeQuestions: input.includeQuestions,
           })
 
       const sessionId = randomBytes(6).toString("hex")
@@ -930,7 +992,7 @@ export const tasksRouter = router({
     .input(z.object({
       path: z.string().min(1),
       message: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("codex"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("codex"),
       model: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1145,7 +1207,7 @@ Begin working on the task now.`
   assignToAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -1189,7 +1251,7 @@ Begin working on the task now.`
   reviewWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -1234,7 +1296,7 @@ Begin working on the task now.`
   verifyWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -1279,7 +1341,7 @@ Begin working on the task now.`
   rewriteWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
       model: z.string().optional(),
       userComment: z.string().min(1),
     }))
@@ -1865,7 +1927,7 @@ Begin working on the task now.`
     .input(z.object({
       title: z.string().min(1),
       agents: z.array(z.object({
-        agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]),
+        agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]),
         model: z.string().optional(),
       })).min(1).max(5),
       autoRun: z.boolean().default(true),

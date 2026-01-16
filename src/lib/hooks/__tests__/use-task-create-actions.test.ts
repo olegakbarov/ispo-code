@@ -524,6 +524,7 @@ describe('Task Creation - Auto-Start Implementation (No-Plan)', () => {
           agentType: 'codex',
           model: 'claude-sonnet-3.5-latest',
           autoRun: true,
+          includeQuestions: false,
         },
         {
           onError: (err: Error) => console.error('Failed to create task with agent:', err),
@@ -539,6 +540,7 @@ describe('Task Creation - Auto-Start Implementation (No-Plan)', () => {
         title,
         agentType: 'codex',
         autoRun: true,
+        includeQuestions: false,
       }),
       expect.objectContaining({
         onError: expect.any(Function),
@@ -549,6 +551,42 @@ describe('Task Creation - Auto-Start Implementation (No-Plan)', () => {
     expect(mockAssignToAgentMutation.mutate).not.toHaveBeenCalled()
 
     consoleLogSpy.mockRestore()
+  })
+
+  it('should pass includeQuestions=true for plan-with-agent creates when enabled', () => {
+    const title = 'Add user authentication'
+    const mockCreateWithAgentMutation = {
+      mutate: vi.fn(),
+    }
+
+    // Simulate plan-with-agent create with includeQuestions enabled
+    const createWithQuestionsTask = () => {
+      mockCreateWithAgentMutation.mutate(
+        {
+          title,
+          agentType: 'codex',
+          model: 'claude-sonnet-3.5-latest',
+          autoRun: true,
+          includeQuestions: true,
+        },
+        {
+          onError: (err: Error) => console.error('Failed to create task with agent:', err),
+        }
+      )
+    }
+
+    createWithQuestionsTask()
+
+    // Verify createWithAgentMutation was called with includeQuestions: true
+    expect(mockCreateWithAgentMutation.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title,
+        includeQuestions: true,
+      }),
+      expect.objectContaining({
+        onError: expect.any(Function),
+      })
+    )
   })
 
   it('should handle auto-start implementation errors gracefully', () => {

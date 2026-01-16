@@ -27,6 +27,8 @@ interface CreateTaskModalProps {
   debugAgents: DebugAgentSelection[]
   /** Auto-run phases: planning→impl→verify */
   autoRun: boolean
+  /** Include clarifying questions in AI planning */
+  includeQuestions: boolean
   /** Implementation agent type (for !useAgent create) */
   runAgentType: AgentType
   /** Implementation model (for !useAgent create) */
@@ -39,6 +41,7 @@ interface CreateTaskModalProps {
   onAgentTypeChange: (agentType: PlannerAgentType) => void
   onModelChange: (model: string) => void
   onAutoRunChange: (autoRun: boolean) => void
+  onIncludeQuestionsChange: (includeQuestions: boolean) => void
   onToggleDebugAgent: (agentType: PlannerAgentType) => void
   onDebugAgentModelChange: (agentType: PlannerAgentType, model: string) => void
   onRunAgentTypeChange: (agentType: AgentType) => void
@@ -57,6 +60,7 @@ export function CreateTaskModal({
   availablePlannerTypes,
   debugAgents,
   autoRun,
+  includeQuestions,
   runAgentType,
   runModel,
   onClose,
@@ -67,6 +71,7 @@ export function CreateTaskModal({
   onAgentTypeChange,
   onModelChange,
   onAutoRunChange,
+  onIncludeQuestionsChange,
   onToggleDebugAgent,
   onDebugAgentModelChange,
   onRunAgentTypeChange,
@@ -122,6 +127,7 @@ export function CreateTaskModal({
               availablePlannerTypes={availablePlannerTypes}
               debugAgents={debugAgents}
               autoRun={autoRun}
+              includeQuestions={includeQuestions}
               runAgentType={runAgentType}
               runModel={runModel}
               onCreate={onCreate}
@@ -131,6 +137,7 @@ export function CreateTaskModal({
               onAgentTypeChange={onAgentTypeChange}
               onModelChange={onModelChange}
               onAutoRunChange={onAutoRunChange}
+              onIncludeQuestionsChange={onIncludeQuestionsChange}
               onToggleDebugAgent={onToggleDebugAgent}
               onDebugAgentModelChange={onDebugAgentModelChange}
               onRunAgentTypeChange={onRunAgentTypeChange}

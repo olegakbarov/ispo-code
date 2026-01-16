@@ -10,12 +10,12 @@ import { Select } from '@/components/ui/select'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import type { DebugAgentSelection } from '@/lib/stores/tasks-reducer'
-import { Sparkles, Bug, Zap, Bot, Cpu } from 'lucide-react'
+import { Sparkles, Bug, Zap, Bot, Cpu, HelpCircle } from 'lucide-react'
 
 export type TaskType = 'bug' | 'feature'
 
 /** All planner agent type candidates (shown in UI, some may be unavailable) */
-export const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter']
+export const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter', 'openrouter']
 
 /** cmdk-style group heading */
 function GroupHeading({ children }: { children: React.ReactNode }) {
@@ -39,6 +39,8 @@ export interface CreateTaskFormProps {
   debugAgents: DebugAgentSelection[]
   /** Auto-run phases: planning→impl→verify */
   autoRun: boolean
+  /** Include clarifying questions in AI planning */
+  includeQuestions: boolean
   /** Implementation agent type (for !useAgent create) */
   runAgentType: AgentType
   /** Implementation model (for !useAgent create) */
@@ -50,6 +52,7 @@ export interface CreateTaskFormProps {
   onAgentTypeChange: (agentType: PlannerAgentType) => void
   onModelChange: (model: string) => void
   onAutoRunChange: (autoRun: boolean) => void
+  onIncludeQuestionsChange: (includeQuestions: boolean) => void
   onToggleDebugAgent: (agentType: PlannerAgentType) => void
   onDebugAgentModelChange: (agentType: PlannerAgentType, model: string) => void
   /** Set implementation agent type (for !useAgent create) */
@@ -72,6 +75,7 @@ export function CreateTaskForm({
   availablePlannerTypes,
   debugAgents,
   autoRun,
+  includeQuestions,
   runAgentType,
   runModel,
   onCreate,
@@ -81,6 +85,7 @@ export function CreateTaskForm({
   onAgentTypeChange,
   onModelChange,
   onAutoRunChange,
+  onIncludeQuestionsChange,
   onToggleDebugAgent,
   onDebugAgentModelChange,
   onRunAgentTypeChange,
@@ -178,6 +183,24 @@ export function CreateTaskForm({
               <span className="text-sm font-vcr text-foreground">Auto-run phases</span>
               <span className="text-xs text-muted-foreground/60 ml-auto">
                 plan → impl → verify
+              </span>
+            </label>
+          )}
+
+          {useAgent && canUseAgent && taskType === 'feature' && (
+            <label className={`flex items-center gap-4 px-4 py-3 rounded-md cursor-pointer transition-colors ${
+              includeQuestions ? 'bg-accent/10' : 'hover:bg-accent/5'
+            }`}>
+              <Checkbox
+                checked={includeQuestions}
+                onChange={() => onIncludeQuestionsChange(!includeQuestions)}
+                disabled={isCreating}
+                size="lg"
+              />
+              <HelpCircle className="w-5 h-5 text-muted-foreground" />
+              <span className="text-sm font-vcr text-foreground">Ask clarifying questions</span>
+              <span className="text-xs text-muted-foreground/60 ml-auto">
+                refine plan
               </span>
             </label>
           )}
