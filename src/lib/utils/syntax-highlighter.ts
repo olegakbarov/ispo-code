@@ -5,8 +5,17 @@
 
 import { createHighlighter, type Highlighter, type BundledLanguage } from "shiki"
 
-// Singleton highlighter instance
-let highlighterPromise: Promise<Highlighter> | null = null
+// Cache highlighter on globalThis to survive HMR/module reloads
+// This prevents the "20 instances created" warning
+const HIGHLIGHTER_KEY = "__shiki_highlighter__" as const
+
+interface GlobalWithHighlighter {
+  [HIGHLIGHTER_KEY]?: Promise<Highlighter>
+}
+
+function getGlobalCache(): GlobalWithHighlighter {
+  return globalThis as GlobalWithHighlighter
+}
 
 // Languages we support - loaded on demand
 const SUPPORTED_LANGUAGES: BundledLanguage[] = [
@@ -35,15 +44,17 @@ export type SupportedLanguage = BundledLanguage | "plain"
 
 /**
  * Get or create the singleton highlighter
+ * Uses globalThis cache to survive HMR/module reloads
  */
 async function getHighlighter(): Promise<Highlighter> {
-  if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
+  const cache = getGlobalCache()
+  if (!cache[HIGHLIGHTER_KEY]) {
+    cache[HIGHLIGHTER_KEY] = createHighlighter({
       themes: ["github-dark", "github-light"],
       langs: SUPPORTED_LANGUAGES,
     })
   }
-  return highlighterPromise
+  return cache[HIGHLIGHTER_KEY]
 }
 
 /**
@@ -248,7 +259,7 @@ export function stripLineNumbers(content: string): { code: string; startLine: nu
  * Useful for determining if we can use highlighting immediately
  */
 export function isHighlighterReady(): boolean {
-  return highlighterPromise !== null
+  return getGlobalCache()[HIGHLIGHTER_KEY] !== undefined
 }
 
 /**
@@ -256,4 +267,32 @@ export function isHighlighterReady(): boolean {
  */
 export function preloadHighlighter(): void {
   getHighlighter()
+}
+
+/**
+ * Dispose the highlighter instance and clear cache
+ * Call during HMR cleanup or app teardown to prevent leaks
+ */
+export async function disposeHighlighter(): Promise<void> {
+  const cache = getGlobalCache()
+  const promise = cache[HIGHLIGHTER_KEY]
+  if (promise) {
+    try {
+      const highlighter = await promise
+      highlighter.dispose()
+    } catch {
+      // Ignore errors during dispose
+    }
+    delete cache[HIGHLIGHTER_KEY]
+  }
+  // Also clear the highlight result cache
+  highlightCache.clear()
+}
+
+// HMR cleanup: dispose highlighter when this module is replaced
+// This prevents orphaned instances during development
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeHighlighter()
+  })
 }
