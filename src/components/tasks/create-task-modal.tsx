@@ -1,11 +1,14 @@
 /**
- * Modal for creating new tasks
+ * Modal for creating new tasks - cmdk-style command palette aesthetic
  */
 
+import { useEffect } from 'react'
+import { Plus } from 'lucide-react'
 import type { AgentType } from '@/lib/agent/types'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import type { DebugAgentSelection } from '@/lib/stores/tasks-reducer'
-import { CreateTaskForm, CreateTaskActions, type TaskType } from './create-task-form'
+import { CreateTaskForm, type TaskType } from './create-task-form'
+import { Spinner } from '@/components/ui/spinner'
 
 // Re-export for backward compatibility
 export { ALL_PLANNER_CANDIDATES, type TaskType } from './create-task-form'
@@ -69,6 +72,16 @@ export function CreateTaskModal({
   onRunAgentTypeChange,
   onRunModelChange,
 }: CreateTaskModalProps) {
+  // Handle escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isCreating) onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isCreating, onClose])
+
   if (!isOpen) return null
 
   const canCreate =
@@ -77,56 +90,80 @@ export function CreateTaskModal({
     (!useAgent || taskType !== 'bug' || debugAgents.some((da) => da.selected))
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-md bg-panel border border-border rounded shadow-lg">
-        <div className="flex items-center justify-between p-3 border-b border-border">
-          <div className="font-vcr text-sm text-accent">New Task</div>
-          <button
-            onClick={onClose}
-            disabled={isCreating}
-            className="px-2 py-1 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            x
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop with blur */}
+      <div
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm"
+        onClick={() => !isCreating && onClose()}
+      />
 
-        <div className="p-4">
-          <CreateTaskForm
-            isCreating={isCreating}
-            newTitle={newTitle}
-            taskType={taskType}
-            useAgent={useAgent}
-            createAgentType={createAgentType}
-            createModel={createModel}
-            availableTypes={availableTypes}
-            availablePlannerTypes={availablePlannerTypes}
-            debugAgents={debugAgents}
-            autoRun={autoRun}
-            runAgentType={runAgentType}
-            runModel={runModel}
-            onCreate={onCreate}
-            onTitleChange={onTitleChange}
-            onTaskTypeChange={onTaskTypeChange}
-            onUseAgentChange={onUseAgentChange}
-            onAgentTypeChange={onAgentTypeChange}
-            onModelChange={onModelChange}
-            onAutoRunChange={onAutoRunChange}
-            onToggleDebugAgent={onToggleDebugAgent}
-            onDebugAgentModelChange={onDebugAgentModelChange}
-            onRunAgentTypeChange={onRunAgentTypeChange}
-            onRunModelChange={onRunModelChange}
-            onCancel={onClose}
-            autoFocus={true}
-          />
-        </div>
+      {/* Floating container - positioned at top like cmdk */}
+      <div className="fixed left-1/2 top-[12%] -translate-x-1/2 w-full max-w-[768px] px-6">
+        <div className="relative z-50 bg-card/95 backdrop-blur-md border border-border/50 rounded-xl shadow-2xl overflow-hidden">
+          {/* Header - cmdk style with icon */}
+          <div className="flex items-center gap-4 px-6 py-4 border-b border-border/50">
+            <Plus className="w-6 h-6 text-accent shrink-0" />
+            <span className="flex-1 text-base font-vcr text-foreground">New Task</span>
+            <kbd className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-border/30 rounded font-vcr text-muted-foreground">
+              ESC
+            </kbd>
+          </div>
 
-        <div className="p-3 border-t border-border">
-          <CreateTaskActions
-            isCreating={isCreating}
-            canCreate={canCreate}
-            onCreate={onCreate}
-            onCancel={onClose}
-          />
+          {/* Form content */}
+          <div className="p-6 max-h-[70vh] overflow-y-auto">
+            <CreateTaskForm
+              isCreating={isCreating}
+              newTitle={newTitle}
+              taskType={taskType}
+              useAgent={useAgent}
+              createAgentType={createAgentType}
+              createModel={createModel}
+              availableTypes={availableTypes}
+              availablePlannerTypes={availablePlannerTypes}
+              debugAgents={debugAgents}
+              autoRun={autoRun}
+              runAgentType={runAgentType}
+              runModel={runModel}
+              onCreate={onCreate}
+              onTitleChange={onTitleChange}
+              onTaskTypeChange={onTaskTypeChange}
+              onUseAgentChange={onUseAgentChange}
+              onAgentTypeChange={onAgentTypeChange}
+              onModelChange={onModelChange}
+              onAutoRunChange={onAutoRunChange}
+              onToggleDebugAgent={onToggleDebugAgent}
+              onDebugAgentModelChange={onDebugAgentModelChange}
+              onRunAgentTypeChange={onRunAgentTypeChange}
+              onRunModelChange={onRunModelChange}
+              onCancel={onClose}
+              autoFocus={true}
+            />
+          </div>
+
+          {/* Footer - integrated action bar */}
+          <div className="flex items-center justify-between px-6 py-4 border-t border-border/50 bg-background/30">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground/60 font-vcr">
+              <kbd className="px-2 py-1 bg-border/30 rounded">⌘↵</kbd>
+              <span>to create</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onClose}
+                disabled={isCreating}
+                className="px-4 py-2 rounded text-sm font-vcr text-muted-foreground hover:text-foreground hover:bg-accent/10 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onCreate}
+                disabled={isCreating || !canCreate}
+                className="flex items-center gap-3 px-4 py-2 rounded text-sm font-vcr bg-accent text-accent-foreground cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              >
+                {isCreating && <Spinner size="sm" />}
+                {isCreating ? 'Creating...' : 'Create'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

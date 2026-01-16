@@ -4,7 +4,7 @@ import { Check, Minus } from "lucide-react"
 export interface CheckboxProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "size"> {
   /** Size variant */
-  size?: "sm" | "md"
+  size?: "sm" | "md" | "lg"
   /** Indeterminate state (partial selection) */
   indeterminate?: boolean
 }
@@ -33,11 +33,13 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
     const sizeClasses = {
       sm: "w-3 h-3",
       md: "w-4 h-4",
+      lg: "w-5 h-5",
     }
 
     const iconSizes = {
       sm: "w-2 h-2",
       md: "w-3 h-3",
+      lg: "w-4 h-4",
     }
 
     const showCheck = checked && !indeterminate
