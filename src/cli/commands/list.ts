@@ -4,7 +4,7 @@
 
 import chalk from "chalk"
 import { registerCommand } from "./index"
-import { createSessionsTable, formatAgentType } from "../formatter"
+import { createSessionsTable } from "../formatter"
 import type { CLIContext } from "../context"
 
 registerCommand({

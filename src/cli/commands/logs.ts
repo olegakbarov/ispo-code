@@ -6,7 +6,7 @@ import chalk from "chalk"
 import { registerCommand } from "./index"
 import { formatOutputChunk, formatSessionId } from "../formatter"
 import type { CLIContext } from "../context"
-import type { SessionStreamEvent, AgentOutputEvent } from "../../streams/schemas"
+import type { AgentOutputEvent } from "../../streams/schemas"
 
 /** Find session by partial ID match */
 async function findSession(
