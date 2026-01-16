@@ -55,6 +55,8 @@ const MAX_REQUESTS_PER_MINUTE = 10
 
 export interface MCPorterAgentOptions {
   workingDir?: string
+  /** Worktree path for isolation (if enabled) */
+  worktreePath?: string
   /** Model to use for reasoning (default: gemini-2.0-flash, or DEFAULT_LLM env override) */
   model?: string
   /** System prompt for the agent */
@@ -149,6 +151,7 @@ When tests fail, explain what went wrong and suggest potential fixes.`
 export class MCPorterAgent extends EventEmitter {
   /** Working directory for agent operations (reserved for future MCP tool context) */
   private _workingDir: string
+  private worktreePath?: string
   private model: string
   private systemPrompt: string
   private aborted = false
@@ -168,6 +171,7 @@ export class MCPorterAgent extends EventEmitter {
   constructor(options: MCPorterAgentOptions) {
     super()
     this._workingDir = options.workingDir ?? process.cwd()
+    this.worktreePath = options.worktreePath
     const requestedModel = options.model?.trim()
     if (requestedModel && isValidMCPorterModel(requestedModel)) {
       this.model = requestedModel

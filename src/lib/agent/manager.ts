@@ -114,7 +114,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     let worktreeBranch: string | undefined
 
     if (isWorktreeIsolationEnabled()) {
-      const repoRoot = getGitRoot(workingDir)
+      const repoRoot = getGitRoot(process.cwd())
       if (repoRoot) {
         const worktreeInfo = createWorktree({ sessionId, repoRoot })
         if (worktreeInfo) {
@@ -126,9 +126,6 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
         }
       }
     }
-
-    // Use worktree path as working directory if available
-    const effectiveWorkingDir = worktreePath ?? workingDir
 
     const userId = params.userId ?? "anonymous"
     const session: AgentSession = {
@@ -157,8 +154,8 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     store.updateSession(sessionId, { status: "running" })
     this.emit("status", { sessionId, status: "running" })
 
-    // Run the appropriate agent based on type, using worktree path if available
-    this.runAgent(sessionId, params.prompt, effectiveWorkingDir, agentType, params.model, { isResume: false })
+    // Run the appropriate agent based on type, passing worktree info if available
+    this.runAgent(sessionId, params.prompt, workingDir, agentType, params.model, { isResume: false, worktreePath })
 
     return session
   }
@@ -259,11 +256,11 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
     this.emit("status", { sessionId, status: "running" })
 
-    // Run the agent with resume flag, using worktree path if available
-    const effectiveWorkingDir = session.worktreePath ?? session.workingDir
-    this.runAgent(sessionId, trimmed, effectiveWorkingDir, agentType, session.model, {
+    // Run the agent with resume flag, passing worktree info if available
+    this.runAgent(sessionId, trimmed, session.workingDir, agentType, session.model, {
       isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras" || agentType === "mcporter",
       cliSessionId: session.cliSessionId,
+      worktreePath: session.worktreePath,
     })
 
     return { success: true }
@@ -305,7 +302,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
     workingDir: string,
     agentType: AgentType,
     model?: string,
-    options?: { isResume?: boolean; cliSessionId?: string }
+    options?: { isResume?: boolean; cliSessionId?: string; worktreePath?: string }
   ): Promise<void> {
     const store = getSessionStore()
     const session = store.getSession(sessionId)
@@ -329,6 +326,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
         .with("cerebras", () => {
           const agent = new CerebrasAgent({
             workingDir,
+            worktreePath: options?.worktreePath,
             model,
             messages: session?.cerebrasMessages ?? undefined,
           })
@@ -341,6 +339,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
         .with("gemini", () => {
           const agent = new GeminiAgent({
             workingDir,
+            worktreePath: options?.worktreePath,
             model,
             messages: session?.geminiMessages ?? undefined,
           })
@@ -351,7 +350,11 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
           }
         })
         .with("opencode", () => {
-          const agent = new OpencodeAgent({ workingDir, model })
+          const agent = new OpencodeAgent({
+            workingDir,
+            worktreePath: options?.worktreePath,
+            model
+          })
           return {
             agentEmitter: agent as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> },
             sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
@@ -361,6 +364,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
         .with("mcporter", () => {
           const agent = new MCPorterAgent({
             workingDir,
+            worktreePath: options?.worktreePath,
             model,
             messages: session?.mcporterMessages ?? undefined,
           })
@@ -409,7 +413,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
               await cliRunner.run({
                 agentType: agentType as "claude" | "codex",
-                workingDir,
+                workingDir: options?.worktreePath ?? workingDir,
                 prompt: p,
                 cliSessionId: options?.cliSessionId ?? session?.cliSessionId,
                 isResume,

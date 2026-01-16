@@ -22,6 +22,8 @@ import { validatePath } from "./path-validator.js"
 
 export interface CerebrasAgentOptions {
   workingDir?: string
+  /** Worktree path for isolation (if enabled) */
+  worktreePath?: string
   /** Model to use (default: zai-glm-4.7) */
   model?: string
   /** System prompt for the agent */
@@ -158,6 +160,7 @@ type Message = CerebrasMessageData
 
 export class CerebrasAgent extends EventEmitter {
   private workingDir: string
+  private worktreePath?: string
   private model: string
   private systemPrompt: string
   private aborted = false
@@ -171,6 +174,7 @@ export class CerebrasAgent extends EventEmitter {
   constructor(options: CerebrasAgentOptions) {
     super()
     this.workingDir = options.workingDir ?? process.cwd()
+    this.worktreePath = options.worktreePath
     this.model = options.model ?? DEFAULT_MODEL
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     this.sessionId = this.generateSessionId()
@@ -302,8 +306,8 @@ export class CerebrasAgent extends EventEmitter {
     try {
       return match(name)
         .with("read_file", () => {
-          // Validate path to prevent path traversal
-          const path = validatePath(args.path as string, this.workingDir)
+          // Validate path to prevent path traversal, use worktree if available
+          const path = validatePath(args.path as string, this.workingDir, { worktreePath: this.worktreePath })
           if (!existsSync(path)) {
             return `Error: File not found: ${args.path}`
           }
@@ -313,8 +317,8 @@ export class CerebrasAgent extends EventEmitter {
             : content
         })
         .with("write_file", () => {
-          // Validate path to prevent path traversal
-          const path = validatePath(args.path as string, this.workingDir)
+          // Validate path to prevent path traversal, use worktree if available
+          const path = validatePath(args.path as string, this.workingDir, { worktreePath: this.worktreePath })
           const content = args.content as string
           writeFileSync(path, content, "utf-8")
           return `Successfully wrote ${content.length} bytes to ${args.path}`
@@ -328,7 +332,7 @@ export class CerebrasAgent extends EventEmitter {
           }
           try {
             const output = execSync(command, {
-              cwd: this.workingDir,
+              cwd: this.worktreePath ?? this.workingDir,
               timeout: 30000,
               maxBuffer: 1024 * 1024,
               encoding: "utf-8",

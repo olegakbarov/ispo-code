@@ -12,6 +12,8 @@ import type { AgentOutputChunk, OpencodeMessageData } from "./types"
 
 export interface OpencodeAgentOptions {
   workingDir?: string
+  /** Worktree path for isolation (if enabled) */
+  worktreePath?: string
   /** Model in format "provider/model" (e.g., "anthropic/claude-sonnet-4-20250514") */
   model?: string
   /** Port for the OpenCode server (default: random) */
@@ -31,6 +33,7 @@ export interface OpencodeEvents {
 
 export class OpencodeAgent extends EventEmitter {
   private workingDir: string
+  private worktreePath?: string
   private model?: string
   private port?: number
   private aborted = false
@@ -44,6 +47,7 @@ export class OpencodeAgent extends EventEmitter {
   constructor(options: OpencodeAgentOptions) {
     super()
     this.workingDir = options.workingDir ?? process.cwd()
+    this.worktreePath = options.worktreePath
     this.model = options.model
     this.port = options.port
     this.messages = options.messages ?? []
@@ -100,9 +104,9 @@ export class OpencodeAgent extends EventEmitter {
 
       this.emitOutput("system", `OpenCode server running at ${opencode.server.url}`)
 
-      // Create a new session
+      // Create a new session (use worktree path if available)
       const sessionResult = await this.client.session.create({
-        query: { directory: this.workingDir },
+        query: { directory: this.worktreePath ?? this.workingDir },
       })
 
       if (sessionResult.error || !sessionResult.data) {
@@ -127,12 +131,12 @@ export class OpencodeAgent extends EventEmitter {
       // Start processing events in background
       const eventPromise = this.processEvents(events)
 
-      // Send the prompt
+      // Send the prompt (use worktree path if available)
       this.emitOutput("system", `Sending prompt...`)
 
       const promptResult = await this.client.session.prompt({
         path: { id: session.id },
-        query: { directory: this.workingDir },
+        query: { directory: this.worktreePath ?? this.workingDir },
         body: {
           parts: [{ type: "text", text: prompt }],
           model: this.parseModel(this.model ?? ""),

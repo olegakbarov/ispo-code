@@ -25,6 +25,8 @@ const MAX_COMMAND_OUTPUT = 1024 * 1024
 
 export interface GeminiAgentOptions {
   workingDir?: string
+  /** Worktree path for isolation (if enabled) */
+  worktreePath?: string
   /** Model to use (default: gemini-2.0-flash) */
   model?: string
   /** System prompt for the agent */
@@ -94,6 +96,7 @@ Be concise but thorough. Focus on practical, working solutions.`
 
 export class GeminiAgent extends EventEmitter {
   private workingDir: string
+  private worktreePath?: string
   private model: string
   private systemPrompt: string
   private aborted = false
@@ -106,6 +109,7 @@ export class GeminiAgent extends EventEmitter {
   constructor(options: GeminiAgentOptions) {
     super()
     this.workingDir = options.workingDir ?? process.cwd()
+    this.worktreePath = options.worktreePath
     this.model = options.model ?? DEFAULT_MODEL
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
     this.sessionId = this.generateSessionId()
@@ -216,8 +220,8 @@ export class GeminiAgent extends EventEmitter {
           agent.emitOutput("tool_use", JSON.stringify({ name: "read_file", input: { path } }), { tool: "read_file", toolName: "read_file" })
 
           try {
-            // validatePath throws on invalid paths
-            const resolved = validatePath(path, agent.workingDir)
+            // validatePath throws on invalid paths, use worktree if available
+            const resolved = validatePath(path, agent.workingDir, { worktreePath: agent.worktreePath })
 
             if (!existsSync(resolved)) {
               const result = `Error: File not found: ${path}`
@@ -248,8 +252,8 @@ export class GeminiAgent extends EventEmitter {
           agent.emitOutput("tool_use", JSON.stringify({ name: "write_file", input: { path, content } }), { tool: "write_file", toolName: "write_file" })
 
           try {
-            // validatePath throws on invalid paths
-            const resolved = validatePath(path, agent.workingDir)
+            // validatePath throws on invalid paths, use worktree if available
+            const resolved = validatePath(path, agent.workingDir, { worktreePath: agent.worktreePath })
             writeFileSync(resolved, content, "utf-8")
             const result = `Successfully wrote ${content.length} characters to ${path}`
             agent.emitOutput("tool_result", result, { tool: "write_file", success: true })
@@ -280,7 +284,7 @@ export class GeminiAgent extends EventEmitter {
 
           try {
             const output = execSync(command, {
-              cwd: agent.workingDir,
+              cwd: agent.worktreePath ?? agent.workingDir,
               encoding: "utf-8",
               timeout: COMMAND_TIMEOUT_MS,
               maxBuffer: MAX_COMMAND_OUTPUT,
