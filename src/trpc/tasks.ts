@@ -10,7 +10,7 @@ import { router, procedure } from "./trpc"
 import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge, generateArchiveCommitMessage } from "@/lib/agent/task-service"
 import { buildTaskVerifyPrompt } from "@/lib/tasks/verify-prompt"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
-import { getActiveSessionIdsForTask } from "@/lib/agent/task-session"
+import { getActiveSessionIdsForTask, resolveTaskSessionIdsFromRegistry } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
@@ -919,6 +919,120 @@ export const tasksRouter = router({
     }))
     .mutation(({ ctx, input }) => {
       return restoreTask(ctx.workingDir, input.path)
+    }),
+
+  /**
+   * Unarchive a task with context gathering and spawn a new agent session.
+   * Restores the task, gathers context from task content + session outputs,
+   * and spawns a new agent with user message + context.
+   */
+  unarchiveWithContext: procedure
+    .input(z.object({
+      path: z.string().min(1),
+      message: z.string().min(1),
+      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("codex"),
+      model: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Validate CLI availability
+      validateCLIAvailability(input.agentType)
+
+      // Restore the task first
+      const { path: restoredPath } = restoreTask(ctx.workingDir, input.path)
+
+      // Get full task data
+      const task = getTask(ctx.workingDir, restoredPath)
+
+      // Gather context from task and sessions
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+      const sessionIds = resolveTaskSessionIdsFromRegistry(registryEvents, task.path, task.splitFrom)
+
+      // Build context from session outputs
+      const sessionContexts: Array<{ sessionId: string; output: string; files: string[] }> = []
+      for (const sessionId of sessionIds.slice(-3)) { // Limit to last 3 sessions
+        try {
+          const sessionEvents = await streamAPI.readSession(sessionId)
+          // Extract output text from session events
+          const output = sessionEvents
+            .filter((e): e is AgentOutputEvent => e.type === "output")
+            .map((e) => {
+              const chunk = e.chunk
+              if (chunk.type === "text") {
+                return chunk.content
+              }
+              return ""
+            })
+            .join("")
+            .slice(-5000) // Limit to last 5000 chars per session
+
+          // Extract edited files
+          const { files } = await getEditedFilesForSession(sessionId, registryEvents, streamAPI)
+          const filePaths = files.map((f) => f.repoRelativePath || f.relativePath || f.path)
+
+          sessionContexts.push({
+            sessionId,
+            output,
+            files: filePaths,
+          })
+        } catch {
+          // Skip sessions that fail to load
+          continue
+        }
+      }
+
+      // Build prompt with context
+      const contextSection = sessionContexts.length > 0
+        ? `\n## Previous Session Context\n\nThe following sessions were run on this task before archiving:\n\n${sessionContexts.map((s, i) => `### Session ${i + 1}\nFiles modified: ${s.files.length > 0 ? s.files.map(f => `\`${f}\``).join(", ") : "none"}\n\nRecent output:\n\`\`\`\n${s.output}\n\`\`\`\n`).join("\n")}\n---\n\n`
+        : ""
+
+      const prompt = `You are resuming work on an archived task. The user has provided new instructions.
+
+## Task: ${task.title}
+
+### Task Content
+\`\`\`markdown
+${task.content}
+\`\`\`
+${contextSection}
+## User Instructions
+
+${input.message}
+
+## Your Task
+
+1. Review the task content and previous session context above
+2. Follow the user's instructions to resume work on this task
+3. Update the task file ${task.path} as you make progress
+4. Execute the necessary steps to address the user's instructions
+
+Working directory: ${ctx.workingDir}
+
+Begin working on the task now.`
+
+      // Spawn agent session
+      const sessionId = randomBytes(6).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const daemonNonce = randomBytes(16).toString("hex")
+
+      const monitor = getProcessMonitor()
+      await monitor.spawnDaemon({
+        sessionId,
+        agentType: input.agentType,
+        model: input.model,
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
+        taskPath: task.path,
+        title: `Resume: ${task.title}`,
+      })
+
+      return {
+        path: task.path,
+        sessionId,
+        status: "pending" as SessionStatus,
+      }
     }),
 
   /**

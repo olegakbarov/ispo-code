@@ -18,6 +18,7 @@ interface UseTaskCRUDActionsParams {
   deleteMutation: ReturnType<typeof trpc.tasks.delete.useMutation>
   archiveMutation: ReturnType<typeof trpc.tasks.archive.useMutation>
   restoreMutation: ReturnType<typeof trpc.tasks.restore.useMutation>
+  unarchiveWithContextMutation: ReturnType<typeof trpc.tasks.unarchiveWithContext.useMutation>
   splitTaskMutation: ReturnType<typeof trpc.tasks.splitTask.useMutation>
 }
 
@@ -27,6 +28,7 @@ export function useTaskCRUDActions({
   deleteMutation,
   archiveMutation,
   restoreMutation,
+  unarchiveWithContextMutation,
   splitTaskMutation,
 }: UseTaskCRUDActionsParams) {
   // ─────────────────────────────────────────────────────────────────────────────
@@ -90,6 +92,29 @@ export function useTaskCRUDActions({
     }
   }, [selectedPath, restoreMutation])
 
+  const handleOpenUnarchiveModal = useCallback(() => {
+    dispatch({ type: 'SET_UNARCHIVE_MODAL_OPEN', payload: true })
+  }, [dispatch])
+
+  const handleCloseUnarchiveModal = useCallback(() => {
+    dispatch({ type: 'SET_UNARCHIVE_MODAL_OPEN', payload: false })
+  }, [dispatch])
+
+  const handleUnarchiveWithContext = useCallback(async (message: string, agentType: string, model: string) => {
+    if (!selectedPath) return
+    try {
+      await unarchiveWithContextMutation.mutateAsync({
+        path: selectedPath,
+        message,
+        agentType: agentType as any,
+        model,
+      })
+      dispatch({ type: 'SET_UNARCHIVE_MODAL_OPEN', payload: false })
+    } catch (err) {
+      console.error('Failed to unarchive with context:', err)
+    }
+  }, [selectedPath, unarchiveWithContextMutation, dispatch])
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Split Task Handlers
   // ─────────────────────────────────────────────────────────────────────────────
@@ -120,6 +145,9 @@ export function useTaskCRUDActions({
     handleDelete,
     handleArchive,
     handleRestore,
+    handleOpenUnarchiveModal,
+    handleCloseUnarchiveModal,
+    handleUnarchiveWithContext,
     handleOpenSplitModal,
     handleCloseSplitModal,
     handleSplitTask,

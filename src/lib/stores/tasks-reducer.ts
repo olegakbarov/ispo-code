@@ -69,6 +69,12 @@ export interface ModalsState {
   commitArchiveOpen: boolean
   implementOpen: boolean
   orchestratorOpen: boolean
+  unarchiveOpen: boolean
+}
+
+export interface UnarchiveState {
+  agentType: AgentType
+  model: string
 }
 
 export interface OrchestratorState {
@@ -104,6 +110,7 @@ export interface TasksState {
   rewrite: RewriteState
   save: SaveState
   modals: ModalsState
+  unarchive: UnarchiveState
   pendingCommit: PendingCommitState
   confirmDialog: ConfirmDialogState
   orchestrator: OrchestratorState
@@ -156,6 +163,11 @@ export type TasksAction =
   | { type: 'SET_SPLIT_MODAL_OPEN'; payload: boolean }
   | { type: 'SET_COMMIT_ARCHIVE_OPEN'; payload: boolean }
   | { type: 'SET_IMPLEMENT_MODAL_OPEN'; payload: boolean }
+  | { type: 'SET_UNARCHIVE_MODAL_OPEN'; payload: boolean }
+
+  // Unarchive agent actions
+  | { type: 'SET_UNARCHIVE_AGENT_TYPE'; payload: AgentType }
+  | { type: 'SET_UNARCHIVE_MODEL'; payload: string }
 
   // Pending commit actions
   | { type: 'SET_PENDING_COMMIT_MESSAGE'; payload: { path: string; message: string | null } }
@@ -214,6 +226,11 @@ export const initialTasksState: TasksState = {
     commitArchiveOpen: false,
     implementOpen: false,
     orchestratorOpen: false,
+    unarchiveOpen: false,
+  },
+  unarchive: {
+    agentType: 'codex',
+    model: getDefaultModelId('codex'),
   },
   pendingCommit: {},
   confirmDialog: {
@@ -403,6 +420,23 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
     .with({ type: 'SET_IMPLEMENT_MODAL_OPEN' }, ({ payload }) => ({
       ...state,
       modals: { ...state.modals, implementOpen: payload },
+    }))
+    .with({ type: 'SET_UNARCHIVE_MODAL_OPEN' }, ({ payload }) => ({
+      ...state,
+      modals: { ...state.modals, unarchiveOpen: payload },
+    }))
+
+    // Unarchive agent actions
+    .with({ type: 'SET_UNARCHIVE_AGENT_TYPE' }, ({ payload }) => ({
+      ...state,
+      unarchive: {
+        agentType: payload,
+        model: getDefaultModelId(payload),
+      },
+    }))
+    .with({ type: 'SET_UNARCHIVE_MODEL' }, ({ payload }) => ({
+      ...state,
+      unarchive: { ...state.unarchive, model: payload },
     }))
 
     // Pending commit actions

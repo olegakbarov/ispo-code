@@ -39,6 +39,7 @@ interface TaskEditorProps {
   isRestoring?: boolean
   onArchive?: () => void
   onRestore?: () => void
+  onUnarchiveWithAgent?: () => void
   onCommitAndArchive?: () => void
   // Active planning session output (when planning is in progress)
   activePlanningOutput?: OutputChunk[]
@@ -67,6 +68,7 @@ export function TaskEditor({
   isRestoring,
   onArchive,
   onRestore,
+  onUnarchiveWithAgent,
   onCommitAndArchive,
   activePlanningOutput,
   isPlanningActive,
@@ -231,6 +233,7 @@ export function TaskEditor({
                 isRestoring={isRestoring}
                 onArchive={onArchive}
                 onRestore={onRestore}
+                onUnarchiveWithAgent={onUnarchiveWithAgent}
                 onCommitAndArchive={onCommitAndArchive}
                 reviewFile={reviewFile}
                 onReviewFileChange={onReviewFileChange}

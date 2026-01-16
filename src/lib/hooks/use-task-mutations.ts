@@ -325,6 +325,41 @@ export function useTaskMutations({
   })
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Unarchive with Context Mutation
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const unarchiveWithContextMutation = trpc.tasks.unarchiveWithContext.useMutation({
+    onMutate: async ({ path }) => {
+      await utils.tasks.list.cancel()
+      const previousList = utils.tasks.list.getData()
+
+      if (previousList) {
+        utils.tasks.list.setData(undefined, previousList.map((task) =>
+          task.path === path
+            ? { ...task, archived: false, archivedAt: undefined }
+            : task
+        ))
+      }
+
+      return { previousList, path }
+    },
+    onSuccess: (data) => {
+      utils.tasks.list.invalidate()
+      utils.agent.list.invalidate()
+      navigate({
+        to: '/tasks/$',
+        params: { _splat: encodeTaskPath(data.path) },
+        search: buildSearchParams(),
+      })
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
+    },
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Assign to Agent Mutation
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -594,6 +629,7 @@ export function useTaskMutations({
     deleteMutation,
     archiveMutation,
     restoreMutation,
+    unarchiveWithContextMutation,
     assignToAgentMutation,
     cancelAgentMutation,
     verifyWithAgentMutation,

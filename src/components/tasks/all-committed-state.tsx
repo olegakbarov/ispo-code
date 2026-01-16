@@ -3,7 +3,7 @@
  * Success UI shown when all task changes have been committed
  */
 
-import { Check, Archive, RotateCcw } from "lucide-react"
+import { Check, Archive, RotateCcw, PlayCircle } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 
 interface AllCommittedStateProps {
@@ -12,6 +12,7 @@ interface AllCommittedStateProps {
   isRestoring: boolean
   onArchive?: () => void
   onRestore?: () => void
+  onUnarchiveWithAgent?: () => void
 }
 
 export function AllCommittedState({
@@ -20,6 +21,7 @@ export function AllCommittedState({
   isRestoring,
   onArchive,
   onRestore,
+  onUnarchiveWithAgent,
 }: AllCommittedStateProps) {
   return (
     <div className="flex flex-col items-center justify-center p-8 space-y-6 max-w-md mx-auto">
@@ -37,28 +39,41 @@ export function AllCommittedState({
         </div>
       </div>
 
-      {/* Archive/Restore button */}
+      {/* Archive/Restore/Unarchive buttons */}
       {isArchived ? (
-        onRestore && (
-          <button
-            onClick={onRestore}
-            disabled={isRestoring}
-            aria-label={isRestoring ? "Restoring task" : "Restore this task"}
-            className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-          >
-            {isRestoring ? (
-              <>
-                <Spinner size="sm" />
-                Restoring...
-              </>
-            ) : (
-              <>
-                <RotateCcw className="w-4 h-4" aria-hidden="true" />
-                Restore Task
-              </>
-            )}
-          </button>
-        )
+        <div className="w-full space-y-3">
+          {onUnarchiveWithAgent && (
+            <button
+              onClick={onUnarchiveWithAgent}
+              disabled={isRestoring}
+              aria-label="Unarchive with agent and resume work"
+              className="w-full px-4 py-3 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            >
+              <PlayCircle className="w-4 h-4" aria-hidden="true" />
+              Unarchive with Agent
+            </button>
+          )}
+          {onRestore && (
+            <button
+              onClick={onRestore}
+              disabled={isRestoring}
+              aria-label={isRestoring ? "Restoring task" : "Restore this task"}
+              className="w-full px-4 py-3 rounded-md text-sm font-medium border border-primary/50 text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+            >
+              {isRestoring ? (
+                <>
+                  <Spinner size="sm" />
+                  Restoring...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4" aria-hidden="true" />
+                  Restore Task
+                </>
+              )}
+            </button>
+          )}
+        </div>
       ) : (
         onArchive && (
           <button

@@ -95,6 +95,7 @@ interface UseTaskActionsParams {
   deleteMutation: ReturnType<typeof trpc.tasks.delete.useMutation>
   archiveMutation: ReturnType<typeof trpc.tasks.archive.useMutation>
   restoreMutation: ReturnType<typeof trpc.tasks.restore.useMutation>
+  unarchiveWithContextMutation: ReturnType<typeof trpc.tasks.unarchiveWithContext.useMutation>
   assignToAgentMutation: ReturnType<typeof trpc.tasks.assignToAgent.useMutation>
   cancelAgentMutation: ReturnType<typeof trpc.agent.cancel.useMutation>
   verifyWithAgentMutation: ReturnType<typeof trpc.tasks.verifyWithAgent.useMutation>
@@ -138,6 +139,7 @@ export function useTaskActions({
   deleteMutation,
   archiveMutation,
   restoreMutation,
+  unarchiveWithContextMutation,
   assignToAgentMutation,
   cancelAgentMutation,
   verifyWithAgentMutation,
@@ -200,6 +202,7 @@ export function useTaskActions({
     deleteMutation,
     archiveMutation,
     restoreMutation,
+    unarchiveWithContextMutation,
     splitTaskMutation,
   })
 
@@ -274,6 +277,9 @@ export function useTaskActions({
     handleDelete: crudActions.handleDelete,
     handleArchive: crudActions.handleArchive,
     handleRestore: crudActions.handleRestore,
+    handleOpenUnarchiveModal: crudActions.handleOpenUnarchiveModal,
+    handleCloseUnarchiveModal: crudActions.handleCloseUnarchiveModal,
+    handleUnarchiveWithContext: crudActions.handleUnarchiveWithContext,
     handleOpenSplitModal: crudActions.handleOpenSplitModal,
     handleCloseSplitModal: crudActions.handleCloseSplitModal,
     handleSplitTask: crudActions.handleSplitTask,

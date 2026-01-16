@@ -17,6 +17,7 @@ import { ReviewModal } from '@/components/tasks/review-modal'
 import { ImplementModal } from '@/components/tasks/implement-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
 import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
+import { UnarchiveModal } from '@/components/tasks/unarchive-modal'
 import { DebatePanel } from '@/components/debate'
 import { OrchestratorModal } from '@/components/tasks/orchestrator-modal'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -59,7 +60,7 @@ export function TasksPage({
   // ═══════════════════════════════════════════════════════════════════════════════
 
   const [state, dispatch] = useReducer(tasksReducer, false, createInitialState)
-  const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog, orchestrator } = state
+  const { editor, create, run, verify, rewrite, save, modals, unarchive, pendingCommit, confirmDialog, orchestrator } = state
   const createRenderMode = getCreateTaskRenderMode({
     selectedPath,
   })
@@ -148,6 +149,7 @@ export function TasksPage({
     deleteMutation,
     archiveMutation,
     restoreMutation,
+    unarchiveWithContextMutation,
     assignToAgentMutation,
     cancelAgentMutation,
     verifyWithAgentMutation,
@@ -159,7 +161,6 @@ export function TasksPage({
     setQAStatusMutation,
     revertMergeMutation,
     recordRevertMutation,
-    isLoading: mutationsLoading,
   } = useTaskMutations({ dispatch, editor, buildSearchParams })
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -217,6 +218,9 @@ export function TasksPage({
     handleDelete,
     handleArchive,
     handleRestore,
+    handleOpenUnarchiveModal,
+    handleCloseUnarchiveModal,
+    handleUnarchiveWithContext,
     handleAssignToAgent,
     handleCloseImplementModal,
     handleStartImplement,
@@ -269,6 +273,7 @@ export function TasksPage({
     deleteMutation,
     archiveMutation,
     restoreMutation,
+    unarchiveWithContextMutation,
     assignToAgentMutation,
     cancelAgentMutation,
     verifyWithAgentMutation,
@@ -463,6 +468,7 @@ export function TasksPage({
                     isRestoring={restoreMutation.isPending}
                     onArchive={handleArchive}
                     onRestore={handleRestore}
+                    onUnarchiveWithAgent={handleOpenUnarchiveModal}
                     onCommitAndArchive={handleOpenCommitArchiveModal}
                     activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
                     isPlanningActive={isActivePlanningSession}
@@ -584,6 +590,18 @@ export function TasksPage({
         maxSubtasks={20}
         onClose={handleCloseSplitModal}
         onSplit={handleSplitTask}
+      />
+
+      {/* Unarchive with Context Modal */}
+      <UnarchiveModal
+        open={modals.unarchiveOpen}
+        onClose={handleCloseUnarchiveModal}
+        onSubmit={handleUnarchiveWithContext}
+        taskTitle={editorTitle}
+        availableAgentTypes={availablePlannerTypes}
+        defaultAgentType={unarchive.agentType}
+        defaultModel={unarchive.model}
+        isSubmitting={unarchiveWithContextMutation.isPending}
       />
 
       {/* Commit and Archive Modal */}
