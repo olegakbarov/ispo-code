@@ -1,8 +1,8 @@
-#!/usr/bin/env node
 /**
  * CLI Binary Entry Point
  *
  * This is the main entry point for the `ispo` command.
+ * Note: The shebang is added by tsup during build.
  */
 
 import { main, parseArgs } from "./index"

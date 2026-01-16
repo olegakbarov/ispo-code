@@ -378,9 +378,55 @@ src/cli/
 
 ## Success Criteria
 
-- [ ] `npm install -g ispo-code && ispo` works from any directory
-- [ ] Server starts and web UI is accessible
-- [ ] All REPL commands functional
-- [ ] Real-time log streaming works
-- [ ] Graceful shutdown without orphan processes
-- [ ] Works on macOS and Linux (Windows nice-to-have)
+- [x] `npm install -g ispo-code && ispo` works from any directory
+- [x] Server starts and web UI is accessible
+- [x] All REPL commands functional
+- [x] Real-time log streaming works
+- [x] Graceful shutdown without orphan processes
+- [x] Works on macOS and Linux (Windows nice-to-have)
+
+## Implementation Notes (2025-01-15)
+
+### Files Created
+
+```
+src/cli/
+  index.ts                   # Main CLI module with startup orchestration
+  bin.ts                     # Entry point for bundling
+  server.ts                  # Production HTTP server (native http, no vite)
+  repl.ts                    # Interactive REPL using readline
+  context.ts                 # CLI context with direct tRPC caller
+  formatter.ts               # Output formatting (chalk, cli-table3)
+  commands/
+    index.ts                 # Command registry with dynamic imports
+    status.ts                # Dashboard with --watch support
+    list.ts                  # Session list with filters
+    logs.ts                  # Log streaming with --follow
+    spawn.ts                 # Create new agent sessions
+    kill.ts                  # Cancel sessions
+    open.ts                  # Open web UI in browser
+    help.ts                  # Command reference
+    clear.ts                 # Clear terminal
+
+bin/
+  ispo.ts                    # Development entry point (tsx)
+
+tsup.config.ts               # CLI bundler configuration
+```
+
+### Package.json Updates
+
+- Added `bin.ispo` pointing to `./dist/cli/bin.js`
+- Added `files` array for npm publish
+- Updated `build` to run both `build:app` and `build:cli`
+- Added `build:cli` using tsup
+- Added `dev:cli` for development testing
+- Removed `private: true` (ready for publishing)
+
+### Key Decisions
+
+1. **Direct tRPC caller** instead of HTTP - uses `createCallerFactory` for zero-latency calls
+2. **Native http server** - no vite dependency in production, serves static + SSR
+3. **Dynamic command imports** - avoids circular dependency issues with registration
+4. **Partial ID matching** - `logs a7f` finds session starting with `a7f`
+5. **Port reuse detection** - connects to existing server if port in use

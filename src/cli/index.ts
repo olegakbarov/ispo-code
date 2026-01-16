@@ -11,6 +11,7 @@ import { startProductionServer, isPortAvailable } from "./server"
 import { createCLIContext, type CLIConfig } from "./context"
 import { startREPL } from "./repl"
 import { formatBanner } from "./formatter"
+import { initializeCommands } from "./commands/index"
 
 export interface CLIOptions {
   port?: number
@@ -41,6 +42,9 @@ async function getVersion(): Promise<string> {
  * Main CLI entry point
  */
 export async function main(options: CLIOptions = {}): Promise<void> {
+  // Initialize commands first
+  await initializeCommands()
+
   const port = options.port ?? DEFAULT_PORT
   const host = options.host ?? DEFAULT_HOST
   const shouldOpen = options.open ?? true

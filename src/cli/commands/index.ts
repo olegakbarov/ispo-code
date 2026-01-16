@@ -79,12 +79,15 @@ export function parseInput(input: string): { commandName: string; args: string[]
   return { commandName: commandName || "", args }
 }
 
-// Register all commands
-import "./status"
-import "./list"
-import "./logs"
-import "./spawn"
-import "./kill"
-import "./open"
-import "./help"
-import "./clear"
+/** Initialize all commands - must be called before using commands */
+export async function initializeCommands(): Promise<void> {
+  // Dynamically import commands to avoid circular dependency issues
+  await import("./status")
+  await import("./list")
+  await import("./logs")
+  await import("./spawn")
+  await import("./kill")
+  await import("./open")
+  await import("./help")
+  await import("./clear")
+}
