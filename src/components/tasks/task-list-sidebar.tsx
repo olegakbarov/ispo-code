@@ -11,7 +11,7 @@ import { Link } from '@tanstack/react-router'
 import { match } from 'ts-pattern'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
-import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
+import { encodeTaskPath, decodeTaskPath, stripModeSuffix } from '@/lib/utils/task-routing'
 import { useSettingsStore } from '@/lib/stores/settings'
 import { useTaskListPreferences } from '@/lib/stores/task-list-preferences'
 import { getTaskListAction, getTaskListActionTitle } from '@/components/tasks/task-list-action'
@@ -175,13 +175,15 @@ export function TaskListSidebar() {
   const routerState = useRouterState()
   const [filter, setFilter] = useState('')
 
-  // Extract selected task from URL path (new format: /tasks/<encoded-path>)
+  // Extract selected task from URL path (new format: /tasks/<encoded-path>[/mode])
   const pathname = routerState.location.pathname
   const selectedPath = useMemo(() => {
     // Match /tasks/<something> but not /tasks/new
     const match = pathname.match(/^\/tasks\/(.+)$/)
     if (match && match[1] !== 'new') {
-      return decodeTaskPath(match[1])
+      // Strip mode suffix (/edit, /review, /debate) before decoding
+      const withoutMode = stripModeSuffix(match[1])
+      return decodeTaskPath(withoutMode)
     }
     return null
   }, [pathname])

@@ -39,3 +39,20 @@ export function buildTaskUrl(taskPath: string | null | undefined): string {
   if (!taskPath) return '/tasks'
   return `/tasks/${encodeTaskPath(taskPath)}`
 }
+
+/**
+ * Strip mode suffix from URL segment before decoding.
+ * Handles /edit, /review, /debate suffixes.
+ */
+export function stripModeSuffix(urlSegment: string): string {
+  if (urlSegment.endsWith('/edit')) {
+    return urlSegment.slice(0, -5)
+  }
+  if (urlSegment.endsWith('/review')) {
+    return urlSegment.slice(0, -7)
+  }
+  if (urlSegment.endsWith('/debate')) {
+    return urlSegment.slice(0, -7)
+  }
+  return urlSegment
+}
