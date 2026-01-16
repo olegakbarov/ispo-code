@@ -14,7 +14,7 @@ export function Sidebar() {
       <header className="h-12 flex items-center border-b border-border">
         <Link to="/" className="flex items-center gap-2 px-3 h-full hover:bg-secondary/50 transition-colors">
           <Cpu className="w-5 h-5 text-primary" />
-          <h1 className="font-vcr text-sm text-primary">Agentz</h1>
+          <h1 className="font-vcr text-sm text-primary">ISPO Code</h1>
         </Link>
       </header>
 
