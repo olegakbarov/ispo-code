@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod"
+import { agentTypeSchema } from "./types"
 
 /**
  * Schema for agent output chunks
@@ -198,7 +199,7 @@ export const AgentSessionSchema = z.object({
   workingDir: z.string(),
   output: z.array(AgentOutputChunkSchema),
   error: z.string().optional(),
-  agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini"]).optional(),
+  agentType: agentTypeSchema.optional(),
   model: z.string().optional(),
   metadata: AgentSessionMetadataSchema.nullable().optional(),
   tokensUsed: z.object({

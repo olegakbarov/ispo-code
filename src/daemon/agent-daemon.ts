@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Agent Daemon - Standalone Agent Process
  *
@@ -20,19 +19,20 @@ import { createRegistryEvent, createSessionEvent, type AgentStateEvent } from ".
 import { CerebrasAgent } from "../lib/agent/cerebras"
 import { GeminiAgent } from "../lib/agent/gemini"
 import { OpencodeAgent } from "../lib/agent/opencode"
+import { OpenRouterAgent } from "../lib/agent/openrouter"
 import { CLIAgentRunner } from "../lib/agent/cli-runner"
 import { MetadataAnalyzer } from "../lib/agent/metadata-analyzer"
 import { extractTaskReviewOutput } from "../lib/agent/config"
 import { saveTask } from "../lib/agent/task-service"
 import { getContextLimit } from "../lib/agent/model-registry"
 import { readServerConfig } from "../trpc/system"
-import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, OpencodeMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
+import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, OpencodeMessageData, OpenRouterMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
 
 /** Agent interface with optional getMessages for SDK agents */
 interface SDKAgentLike extends EventEmitter {
   abort: () => void
   run: (p: string) => Promise<void>
-  getMessages?: () => CerebrasMessageData[] | GeminiMessageData[] | OpencodeMessageData[]
+  getMessages?: () => CerebrasMessageData[] | GeminiMessageData[] | OpencodeMessageData[] | OpenRouterMessageData[]
   setAttachments?: (attachments?: ImageAttachment[]) => void
 }
 
@@ -131,12 +131,18 @@ export class AgentDaemon {
       this.config
     const { daemonNonce } = this.config
 
+    console.log(`[AgentDaemon] run() started for session ${sessionId}`)
+    console.log(`[AgentDaemon] Config: agentType=${agentType}, model=${model}, isResume=${isResume}`)
+    console.log(`[AgentDaemon] workingDir: ${workingDir}`)
+
     try {
       // 0. Announce daemon identity for rehydration validation.
+      console.log(`[AgentDaemon] Publishing daemonStarted event...`)
       await this.publisher.publishSession(
         sessionId,
         createSessionEvent.daemonStarted(process.pid, daemonNonce)
       )
+      console.log(`[AgentDaemon] daemonStarted event published`)
 
       // 1. Register session creation in registry (if not resume)
       if (!isResume) {
@@ -190,10 +196,13 @@ export class AgentDaemon {
       )
 
       // 4. Create and wire up the agent
+      console.log(`[AgentDaemon] Creating agent...`)
       const { reconstructedMessages, attachments } = this.config
       this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId, reconstructedMessages, attachments, claudeUseSubscription)
+      console.log(`[AgentDaemon] Agent created successfully`)
 
       // Wire up event handlers
+      console.log(`[AgentDaemon] Setting up agent handlers...`)
       this.setupAgentHandlers(this.agent, sessionId)
 
       // 5. Prepare prompt (for OpenCode, prepend conversation context on resume)
@@ -204,7 +213,9 @@ export class AgentDaemon {
       }
 
       // 6. Run the agent
+      console.log(`[AgentDaemon] Running agent with prompt (${effectivePrompt.length} chars)...`)
       await this.agent.run(effectivePrompt)
+      console.log(`[AgentDaemon] Agent.run() completed`)
 
       // 7. Publish completion
       const metadata = this.analyzer.getMetadata()
@@ -215,6 +226,7 @@ export class AgentDaemon {
         })
       )
       await this.publisher.publishSession(sessionId, createSessionEvent.statusChange("completed"))
+      this.hasPublishedFinalStatus = true
 
       // 8. Post-process review/verify sessions: extract and write updated task
       if (taskPath && title) {
@@ -265,6 +277,7 @@ export class AgentDaemon {
           })
         )
         await this.publisher.publishSession(sessionId, createSessionEvent.statusChange("failed"))
+        this.hasPublishedFinalStatus = true
         await this.publisher.close()
       } catch (publishErr) {
         console.error(`[AgentDaemon] Failed to publish error:`, publishErr)
@@ -312,6 +325,14 @@ export class AgentDaemon {
           workingDir,
           model,
           messages: reconstructedMessages as OpencodeMessageData[] | undefined,
+        }) as unknown as SDKAgentLike
+      })
+      .with("openrouter", () => {
+        return new OpenRouterAgent({
+          workingDir,
+          model,
+          messages: reconstructedMessages as OpenRouterMessageData[] | undefined,
+          attachments,
         }) as unknown as SDKAgentLike
       })
       .with(P.union("claude", "codex"), () => {
@@ -406,7 +427,7 @@ export class AgentDaemon {
       if (this.agent && typeof this.agent.getMessages === "function") {
         const messages = this.agent.getMessages()
         if (messages && messages.length > 0) {
-          const agentType = this.config.agentType as "cerebras" | "gemini" | "opencode"
+          const agentType = this.config.agentType as "cerebras" | "gemini" | "opencode" | "openrouter"
           await this.publisher.publishSession(
             sessionId,
             createSessionEvent.agentState(agentType, messages)
@@ -421,6 +442,8 @@ export class AgentDaemon {
     })
   }
 
+  private hasPublishedFinalStatus = false
+
   /**
    * Abort the running agent and publish cancellation event
    */
@@ -429,6 +452,13 @@ export class AgentDaemon {
     if (this.agent) {
       this.agent.abort()
     }
+
+    // Guard against publishing cancelled after completed
+    if (this.hasPublishedFinalStatus) {
+      console.log(`[AgentDaemon] Session ${this.config.sessionId} already has final status, skipping cancellation`)
+      return
+    }
+
     console.log(`[AgentDaemon] Aborting session ${this.config.sessionId}`)
 
     // Publish cancellation event to streams
@@ -440,6 +470,7 @@ export class AgentDaemon {
         this.config.sessionId,
         createSessionEvent.statusChange("cancelled")
       )
+      this.hasPublishedFinalStatus = true
       await this.publisher.close()
     } catch (err) {
       console.error(`[AgentDaemon] Failed to publish cancellation event:`, err)
@@ -451,34 +482,49 @@ export class AgentDaemon {
  * Main entry point for daemon process
  */
 async function main() {
+  console.log(`[AgentDaemon:main] Daemon process started, PID: ${process.pid}`)
+  console.log(`[AgentDaemon:main] argv:`, process.argv)
+
   // Parse config from command line
   const configArg = process.argv.find((arg) => arg.startsWith("--config="))
   if (!configArg) {
+    console.error("[AgentDaemon:main] No --config argument found")
     console.error("Usage: node agent-daemon.js --config='{...}'")
     process.exit(1)
   }
 
+  console.log(`[AgentDaemon:main] Found config arg, parsing...`)
   const configJson = configArg.replace("--config=", "")
   let config: DaemonConfig
 
   try {
     config = JSON.parse(configJson)
+    console.log(`[AgentDaemon:main] Config parsed successfully`)
   } catch (err) {
-    console.error("Failed to parse config JSON:", err)
+    console.error("[AgentDaemon:main] Failed to parse config JSON:", err)
     process.exit(1)
   }
 
   // Validate required fields
   if (!config.sessionId || !config.agentType || !config.prompt || !config.workingDir || !config.daemonNonce) {
     console.error(
-      "Missing required config fields: sessionId, agentType, prompt, workingDir, daemonNonce"
+      "[AgentDaemon:main] Missing required config fields: sessionId, agentType, prompt, workingDir, daemonNonce"
     )
+    console.error("[AgentDaemon:main] Got:", {
+      sessionId: !!config.sessionId,
+      agentType: !!config.agentType,
+      prompt: !!config.prompt,
+      workingDir: !!config.workingDir,
+      daemonNonce: !!config.daemonNonce,
+    })
     process.exit(1)
   }
 
-  console.log(`[AgentDaemon] Starting ${config.agentType} agent for session ${config.sessionId}`)
+  console.log(`[AgentDaemon:main] Starting ${config.agentType} agent for session ${config.sessionId}`)
+  console.log(`[AgentDaemon:main] streamServerUrl: ${config.streamServerUrl}`)
 
   const daemon = new AgentDaemon(config)
+  console.log(`[AgentDaemon:main] AgentDaemon instance created`)
 
   // Handle termination signals
   process.on("SIGTERM", async () => {

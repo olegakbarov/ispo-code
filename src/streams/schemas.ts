@@ -159,12 +159,12 @@ export interface DaemonStartedEvent {
 }
 
 /**
- * Agent state event - persists conversation state for SDK agents (Cerebras, Gemini)
+ * Agent state event - persists conversation state for SDK agents (Cerebras, Gemini, OpenCode, OpenRouter)
  * Published after each turn completion for resume support
  */
 export interface AgentStateEvent {
   type: "agent_state"
-  agentType: "cerebras" | "gemini" | "opencode"
+  agentType: "cerebras" | "gemini" | "opencode" | "openrouter"
   /** Serialized conversation messages (format depends on agentType) */
   messages: unknown[]
   timestamp: string
@@ -258,7 +258,7 @@ export const createSessionEvent = {
   }),
 
   agentState: (
-    agentType: "cerebras" | "gemini" | "opencode",
+    agentType: "cerebras" | "gemini" | "opencode" | "openrouter",
     messages: unknown[]
   ): AgentStateEvent => ({
     type: "agent_state",

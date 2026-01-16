@@ -1,0 +1,471 @@
+/**
+ * OpenRouter Agent - Uses Vercel AI SDK with OpenAI-compatible provider
+ *
+ * OpenRouter provides access to multiple LLMs through a unified API:
+ * - Claude, GPT-4, Llama, Mistral, and more
+ * - OpenAI-compatible API endpoints
+ * - Native function calling support
+ */
+
+import { EventEmitter } from "events"
+import { generateText, tool, stepCountIs, zodSchema, type ModelMessage } from "ai"
+import { createOpenAI } from "@ai-sdk/openai"
+import { execSync } from "child_process"
+import { readFileSync, writeFileSync, existsSync } from "fs"
+import { z } from "zod"
+import type { AgentOutputChunk, OpenRouterMessageData, ImageAttachment } from "./types"
+import { validatePath } from "./path-validator.js"
+
+// Limits for tool operations
+const MAX_FILE_READ_SIZE = 50000
+const COMMAND_TIMEOUT_MS = 30000
+const MAX_COMMAND_OUTPUT = 1024 * 1024
+
+// === Types ===
+
+export interface OpenRouterAgentOptions {
+  workingDir?: string
+  /** Worktree path for isolation (if enabled) */
+  worktreePath?: string
+  /** Model to use (default: anthropic/claude-sonnet-4) */
+  model?: string
+  /** System prompt for the agent */
+  systemPrompt?: string
+  /** Existing conversation state for resuming a session */
+  messages?: OpenRouterMessageData[]
+  /** Image attachments for the initial prompt */
+  attachments?: ImageAttachment[]
+}
+
+export interface OpenRouterEvents {
+  output: (chunk: AgentOutputChunk) => void
+  complete: (data: { tokensUsed: { input: number; output: number } }) => void
+  error: (error: string) => void
+  session_id: (sessionId: string) => void
+}
+
+// Available OpenRouter models (curated selection)
+export const OPENROUTER_MODELS = [
+  { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", description: "Balanced performance", contextLimit: 200000 },
+  { id: "anthropic/claude-opus-4", name: "Claude Opus 4", description: "Most capable", contextLimit: 200000 },
+  { id: "openai/gpt-4.1", name: "GPT-4.1", description: "Latest GPT-4", contextLimit: 128000 },
+  { id: "openai/o3", name: "O3", description: "Advanced reasoning", contextLimit: 200000 },
+  { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", description: "Google's latest", contextLimit: 1048576 },
+  { id: "meta-llama/llama-4-maverick", name: "Llama 4 Maverick", description: "Open source", contextLimit: 131072 },
+  { id: "deepseek/deepseek-r1", name: "DeepSeek R1", description: "Reasoning model", contextLimit: 64000 },
+  { id: "mistralai/mistral-large-2411", name: "Mistral Large", description: "Enterprise grade", contextLimit: 128000 },
+] as const
+
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+
+// Rate limit retry settings
+const MAX_RETRIES = 5
+const INITIAL_RETRY_DELAY_MS = 2000
+const MAX_RETRY_DELAY_MS = 60000
+
+// Context window management
+const CONTEXT_PRUNE_THRESHOLD = 0.90
+const MIN_MESSAGES_TO_KEEP = 4
+const MAX_MESSAGE_HISTORY = 100
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRateLimitError(err: unknown): boolean {
+  if (err && typeof err === "object") {
+    const e = err as { status?: number; statusCode?: number; message?: string }
+    if (e.status === 429 || e.statusCode === 429) return true
+    if (e.message?.includes("429") || e.message?.toLowerCase().includes("rate limit")) return true
+  }
+  return false
+}
+
+const DEFAULT_SYSTEM_PROMPT = `You are an expert software engineer assistant with access to tools for reading files, writing files, and executing shell commands.
+
+When given a task:
+1. Analyze the requirements carefully
+2. Use the available tools to explore and modify the codebase
+3. Provide clear explanations of your actions
+4. Follow best practices and coding standards
+
+Available tools:
+- read_file: Read contents of a file
+- write_file: Write content to a file
+- exec_command: Execute a shell command
+
+Be concise but thorough. Focus on practical, working solutions.`
+
+// === OpenRouter Agent ===
+
+export class OpenRouterAgent extends EventEmitter {
+  private workingDir: string
+  private worktreePath?: string
+  private model: string
+  private systemPrompt: string
+  private aborted = false
+  private totalTokens = { input: 0, output: 0 }
+  private sessionId: string
+  private messages: ModelMessage[] = []
+  /** Pending attachments for the next run() call */
+  private pendingAttachments?: ImageAttachment[]
+
+  constructor(options: OpenRouterAgentOptions) {
+    super()
+    this.workingDir = options.workingDir ?? process.cwd()
+    this.worktreePath = options.worktreePath
+    this.model = options.model ?? DEFAULT_MODEL
+    this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
+    this.sessionId = this.generateSessionId()
+    this.pendingAttachments = options.attachments
+
+    // Restore messages from session if provided
+    if (options.messages && options.messages.length > 0) {
+      this.messages = options.messages.map(m => this.deserializeMessage(m))
+    }
+  }
+
+  private generateSessionId(): string {
+    return `openrouter-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  private emitOutput(
+    type: AgentOutputChunk["type"],
+    content: string,
+    metadata?: Record<string, string | number | boolean | null>
+  ): void {
+    const chunk: AgentOutputChunk = {
+      type,
+      content,
+      timestamp: new Date().toISOString(),
+      metadata,
+    }
+    this.emit("output", chunk)
+  }
+
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4)
+  }
+
+  private getContextLimit(): number {
+    const modelInfo = OPENROUTER_MODELS.find(m => m.id === this.model)
+    return modelInfo?.contextLimit ?? 128000
+  }
+
+  private pruneMessages(): void {
+    const contextLimit = this.getContextLimit()
+    const currentTokens = this.messages.reduce((sum, msg) => {
+      const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content)
+      return sum + this.estimateTokens(content)
+    }, 0)
+
+    const needsTokenPruning = currentTokens > contextLimit * CONTEXT_PRUNE_THRESHOLD
+    const needsCountPruning = this.messages.length > MAX_MESSAGE_HISTORY
+
+    if (!needsTokenPruning && !needsCountPruning) {
+      return
+    }
+
+    const tokenBasedKeep = Math.floor(this.messages.length * 0.4)
+    const countBasedKeep = MAX_MESSAGE_HISTORY
+    const messagesToKeep = Math.max(MIN_MESSAGES_TO_KEEP, Math.min(tokenBasedKeep, countBasedKeep))
+
+    this.messages = this.messages.slice(-messagesToKeep)
+    this.emitOutput("system", `Pruned messages to ${messagesToKeep} to fit context window`)
+  }
+
+  /**
+   * Serialize ModelMessage to OpenRouterMessageData for storage
+   */
+  private serializeMessage(msg: ModelMessage): OpenRouterMessageData {
+    return {
+      role: msg.role as OpenRouterMessageData["role"],
+      content: msg.content as OpenRouterMessageData["content"],
+    }
+  }
+
+  /**
+   * Deserialize OpenRouterMessageData back to ModelMessage
+   */
+  private deserializeMessage(msg: OpenRouterMessageData): ModelMessage {
+    return {
+      role: msg.role,
+      content: msg.content,
+    } as ModelMessage
+  }
+
+  /**
+   * Get messages for session persistence
+   */
+  getMessages(): OpenRouterMessageData[] {
+    return this.messages.map(m => this.serializeMessage(m))
+  }
+
+  /**
+   * Get token usage
+   */
+  getTokenUsage(): { input: number; output: number } {
+    return { ...this.totalTokens }
+  }
+
+  /**
+   * Create tool definitions for Vercel AI SDK
+   */
+  private createTools() {
+    const agent = this
+
+    return {
+      read_file: tool({
+        description: "Read the contents of a file at the given path",
+        inputSchema: zodSchema(z.object({
+          path: z.string().describe("The file path to read (relative to working directory or absolute)"),
+        })),
+        execute: async ({ path }) => {
+          agent.emitOutput("tool_use", JSON.stringify({ name: "read_file", input: { path } }), { tool: "read_file", toolName: "read_file" })
+
+          try {
+            // validatePath throws on invalid paths, use worktree if available
+            const resolved = validatePath(path, agent.workingDir, { worktreePath: agent.worktreePath })
+
+            if (!existsSync(resolved)) {
+              const result = `Error: File not found: ${path}`
+              agent.emitOutput("tool_result", result, { tool: "read_file", success: false })
+              return result
+            }
+            const content = readFileSync(resolved, "utf-8")
+            const truncated = content.length > MAX_FILE_READ_SIZE
+              ? content.slice(0, MAX_FILE_READ_SIZE) + "\n... [truncated]"
+              : content
+            agent.emitOutput("tool_result", `File contents (${content.length} chars):\n${truncated}`, { tool: "read_file", success: true })
+            return truncated
+          } catch (err) {
+            const result = `Error: ${err instanceof Error ? err.message : String(err)}`
+            agent.emitOutput("tool_result", result, { tool: "read_file", success: false })
+            return result
+          }
+        },
+      }),
+
+      write_file: tool({
+        description: "Write content to a file at the given path",
+        inputSchema: zodSchema(z.object({
+          path: z.string().describe("The file path to write to"),
+          content: z.string().describe("The content to write to the file"),
+        })),
+        execute: async ({ path, content }) => {
+          agent.emitOutput("tool_use", JSON.stringify({ name: "write_file", input: { path, content } }), { tool: "write_file", toolName: "write_file" })
+
+          try {
+            // validatePath throws on invalid paths, use worktree if available
+            const resolved = validatePath(path, agent.workingDir, { worktreePath: agent.worktreePath })
+            writeFileSync(resolved, content, "utf-8")
+            const result = `Successfully wrote ${content.length} characters to ${path}`
+            agent.emitOutput("tool_result", result, { tool: "write_file", success: true })
+            return result
+          } catch (err) {
+            const result = `Error: ${err instanceof Error ? err.message : String(err)}`
+            agent.emitOutput("tool_result", result, { tool: "write_file", success: false })
+            return result
+          }
+        },
+      }),
+
+      exec_command: tool({
+        description: "Execute a shell command and return its output",
+        inputSchema: zodSchema(z.object({
+          command: z.string().describe("The shell command to execute"),
+        })),
+        execute: async ({ command }) => {
+          agent.emitOutput("tool_use", JSON.stringify({ name: "exec_command", input: { command } }), { tool: "exec_command", toolName: "exec_command" })
+
+          // Safety: block dangerous commands
+          const dangerous = ["rm -rf /", "rm -rf ~", "mkfs", "dd if="]
+          if (dangerous.some(d => command.includes(d))) {
+            const result = "Error: Command rejected for safety reasons"
+            agent.emitOutput("tool_result", result, { tool: "exec_command", success: false })
+            return result
+          }
+
+          try {
+            const output = execSync(command, {
+              cwd: agent.worktreePath ?? agent.workingDir,
+              encoding: "utf-8",
+              timeout: COMMAND_TIMEOUT_MS,
+              maxBuffer: MAX_COMMAND_OUTPUT,
+            })
+            const truncated = output.length > MAX_FILE_READ_SIZE
+              ? output.slice(0, MAX_FILE_READ_SIZE) + "\n... [truncated]"
+              : output
+            agent.emitOutput("tool_result", truncated || "(no output)", { tool: "exec_command", success: true })
+            return truncated || "(no output)"
+          } catch (err) {
+            const error = err as { stderr?: string; message?: string }
+            const result = `Command failed: ${error.stderr || error.message || String(err)}`
+            agent.emitOutput("tool_result", result, { tool: "exec_command", success: false })
+            return result
+          }
+        },
+      }),
+    }
+  }
+
+  /**
+   * Build multimodal content for a message with attachments
+   */
+  private buildMultimodalContent(text: string, attachments?: ImageAttachment[]): string | Array<{ type: string; text?: string; image?: string; mimeType?: string }> {
+    if (!attachments || attachments.length === 0) {
+      return text
+    }
+
+    // Build content array with text and images
+    const content: Array<{ type: string; text?: string; image?: string; mimeType?: string }> = []
+
+    // Add text part first
+    if (text) {
+      content.push({ type: "text", text })
+    }
+
+    // Add image parts - Vercel AI SDK expects base64 data URL format
+    for (const att of attachments) {
+      content.push({
+        type: "image",
+        image: `data:${att.mimeType};base64,${att.data}`,
+        mimeType: att.mimeType,
+      })
+    }
+
+    return content
+  }
+
+  /**
+   * Set attachments for the next message (used for follow-up messages)
+   */
+  setAttachments(attachments?: ImageAttachment[]): void {
+    this.pendingAttachments = attachments
+  }
+
+  /**
+   * Main execution loop
+   */
+  async run(prompt: string): Promise<void> {
+    this.emit("session_id", this.sessionId)
+
+    // Add user message with any pending attachments
+    const content = this.buildMultimodalContent(prompt, this.pendingAttachments)
+    this.messages.push({ role: "user", content } as ModelMessage)
+    this.pendingAttachments = undefined // Clear after use
+
+    await this.executeLoop()
+  }
+
+  /**
+   * Resume with a new message
+   */
+  async resume(message: string): Promise<void> {
+    this.emitOutput("system", `Resuming session with new message`)
+    this.messages.push({ role: "user", content: message })
+    await this.executeLoop()
+  }
+
+  /**
+   * Core execution loop with tool calling
+   */
+  private async executeLoop(): Promise<void> {
+    const apiKey = process.env.OPENROUTER_API_KEY
+    if (!apiKey) {
+      const error = "OPENROUTER_API_KEY environment variable is required"
+      this.emitOutput("error", error)
+      this.emit("error", error)
+      return
+    }
+
+    // Create OpenRouter client using OpenAI-compatible provider
+    const openrouter = createOpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey,
+      headers: {
+        "HTTP-Referer": "https://github.com/anthropics/ispo-code",
+        "X-Title": "Ispo Code",
+      },
+    })
+
+    const tools = this.createTools()
+    const model = openrouter(this.model)
+
+    let retryCount = 0
+    let retryDelay = INITIAL_RETRY_DELAY_MS
+
+    while (!this.aborted) {
+      this.pruneMessages()
+
+      try {
+        const result = await generateText({
+          model,
+          system: this.systemPrompt,
+          messages: this.messages,
+          tools,
+          stopWhen: stepCountIs(20), // Allow up to 20 tool call steps per turn
+          onStepFinish: ({ text, usage }) => {
+            // Stream text output
+            if (text) {
+              this.emitOutput("text", text)
+            }
+
+            // Track token usage
+            if (usage) {
+              this.totalTokens.input += usage.inputTokens ?? 0
+              this.totalTokens.output += usage.outputTokens ?? 0
+            }
+          },
+        })
+
+        // Add assistant response to messages
+        if (result.text) {
+          this.messages.push({ role: "assistant", content: result.text })
+        }
+
+        // Update final token usage
+        if (result.usage) {
+          this.totalTokens.input = result.usage.inputTokens ?? 0
+          this.totalTokens.output = result.usage.outputTokens ?? 0
+        }
+
+        // Execution complete
+        this.emit("complete", { tokensUsed: this.totalTokens })
+        return
+
+      } catch (err) {
+        if (isRateLimitError(err) && retryCount < MAX_RETRIES) {
+          retryCount++
+          this.emitOutput("system", `Rate limited. Retry ${retryCount}/${MAX_RETRIES} in ${retryDelay / 1000}s...`)
+          await sleep(retryDelay)
+          retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS)
+          continue
+        }
+
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        this.emitOutput("error", `Error: ${errorMsg}`)
+        this.emit("error", errorMsg)
+        return
+      }
+    }
+
+    // Aborted
+    this.emitOutput("system", "Session aborted")
+    this.emit("complete", { tokensUsed: this.totalTokens })
+  }
+
+  /**
+   * Abort the current execution
+   */
+  abort(): void {
+    this.aborted = true
+  }
+}
+
+/**
+ * Factory function for creating OpenRouter agents
+ */
+export function createOpenRouterAgent(options: OpenRouterAgentOptions): OpenRouterAgent {
+  return new OpenRouterAgent(options)
+}
