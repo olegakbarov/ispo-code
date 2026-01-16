@@ -332,7 +332,10 @@ export function TasksPage({
                       debugAgents={create.debugAgents}
                       autoRun={create.autoRun}
                       onCreate={handleCreate}
-                      onTitleChange={(title) => setCreateTitleDraft(title)}
+                      onTitleChange={(title) => {
+                        setCreateTitleDraft(title)
+                        dispatch({ type: 'SET_CREATE_TITLE', payload: title })
+                      }}
                       onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
                       onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
                       onAgentTypeChange={handleCreateAgentTypeChange}
