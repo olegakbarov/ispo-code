@@ -764,6 +764,13 @@ export function deleteTask(cwd: string, taskPath: string): { success: boolean } 
 }
 
 /**
+ * Generate commit message for archiving a task.
+ */
+export function generateArchiveCommitMessage(taskTitle: string, archivePath: string): string {
+  return `chore: archive task "${taskTitle}"\n\nMoved to ${archivePath}`
+}
+
+/**
  * Archive a task by moving it to tasks/archive/YYYY-MM/
  */
 export function archiveTask(cwd: string, taskPath: string): { path: string } {

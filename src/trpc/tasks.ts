@@ -7,14 +7,14 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge } from "@/lib/agent/task-service"
+import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge, generateArchiveCommitMessage } from "@/lib/agent/task-service"
 import { buildTaskVerifyPrompt } from "@/lib/tasks/verify-prompt"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
 import { getActiveSessionIdsForTask } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
-import { getGitStatus, getGitRoot } from "@/lib/agent/git-service"
+import { getGitStatus, getGitRoot, commitScopedChanges } from "@/lib/agent/git-service"
 import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
 import type { SessionStatus, AgentType, EditedFileInfo, AgentOutputChunk } from "@/lib/agent/types"
 import { checkCLIAvailable } from "@/lib/agent/cli-runner"
@@ -816,6 +816,7 @@ export const tasksRouter = router({
   /**
    * Archive a task by moving it to tasks/archive/YYYY-MM/
    * Validates that all task changes are committed before archiving.
+   * Commits the archive rename automatically.
    */
   archive: procedure
     .input(z.object({
@@ -867,6 +868,12 @@ export const tasksRouter = router({
         }
       }
 
+      // Check for unrelated staged files before archiving
+      const gitStatus = getGitStatus(ctx.workingDir)
+      if (gitStatus.staged.length > 0) {
+        throw new Error(`Cannot archive: ${gitStatus.staged.length} file(s) are staged. Commit or unstage them before archiving.`)
+      }
+
       // Cleanup worktrees for all task sessions (best-effort, don't fail archive on cleanup errors)
       if (isWorktreeIsolationEnabled() && taskSessionIds.length > 0) {
         const repoRoot = getGitRoot(ctx.workingDir)
@@ -885,7 +892,22 @@ export const tasksRouter = router({
         }
       }
 
-      return archiveTask(ctx.workingDir, input.path)
+      // Move the file
+      const result = archiveTask(ctx.workingDir, input.path)
+
+      // Commit the archive rename
+      const commitMessage = generateArchiveCommitMessage(task.title, result.path)
+      const commitResult = commitScopedChanges(
+        ctx.workingDir,
+        [input.path, result.path], // Both old and new paths (git tracks rename)
+        commitMessage
+      )
+
+      if (!commitResult.success) {
+        throw new Error(`Archive commit failed: ${commitResult.error}`)
+      }
+
+      return { ...result, commitHash: commitResult.hash }
     }),
 
   /**
