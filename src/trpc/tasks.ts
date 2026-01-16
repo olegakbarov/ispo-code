@@ -7,13 +7,14 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks } from "@/lib/agent/task-service"
+import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge } from "@/lib/agent/task-service"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
 import { resolveTaskSessionIdsFromRegistry, getActiveSessionIdsForTask } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
-import { getGitStatus } from "@/lib/agent/git-service"
+import { getGitStatus, getGitRoot } from "@/lib/agent/git-service"
+import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
 import type { SessionStatus } from "@/lib/agent/types"
 import type { RegistryEvent } from "@/streams/schemas"
 import { createRegistryEvent } from "@/streams/schemas"
@@ -823,6 +824,24 @@ export const tasksRouter = router({
 
           if (uncommittedFiles.length > 0) {
             throw new Error(`Cannot archive: ${uncommittedFiles.length} file(s) have uncommitted changes. Commit changes before archiving.`)
+          }
+        }
+      }
+
+      // Cleanup worktrees for all task sessions (best-effort, don't fail archive on cleanup errors)
+      if (isWorktreeIsolationEnabled() && taskSessionIds.length > 0) {
+        const repoRoot = getGitRoot(ctx.workingDir)
+        if (repoRoot) {
+          for (const sessionId of taskSessionIds) {
+            try {
+              const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
+              if (worktreeInfo) {
+                deleteWorktree(worktreeInfo.path, { branch: worktreeInfo.branch, force: true })
+              }
+            } catch (error) {
+              // Log but don't fail archive on worktree cleanup errors
+              console.warn(`[archive] Failed to cleanup worktree for session ${sessionId}:`, error)
+            }
           }
         }
       }
@@ -1764,5 +1783,69 @@ export const tasksRouter = router({
         sessionId,
         isNew: true,
       }
+    }),
+
+  // === Merge History & QA Status ===
+
+  /**
+   * Record a merge operation for a task.
+   * Stores merge commit hash and sets QA status to pending.
+   */
+  recordMerge: procedure
+    .input(z.object({
+      path: z.string().min(1),
+      sessionId: z.string().min(1),
+      commitHash: z.string().min(1),
+      mergedAt: z.string().optional(),
+    }))
+    .mutation(({ ctx, input }) => {
+      return recordMerge(ctx.workingDir, input.path, {
+        sessionId: input.sessionId,
+        commitHash: input.commitHash,
+        mergedAt: input.mergedAt || new Date().toISOString(),
+      })
+    }),
+
+  /**
+   * Set QA status for a task (pending, pass, fail).
+   */
+  setQAStatus: procedure
+    .input(z.object({
+      path: z.string().min(1),
+      status: z.enum(['pending', 'pass', 'fail']),
+    }))
+    .mutation(({ ctx, input }) => {
+      return setQAStatus(ctx.workingDir, input.path, input.status)
+    }),
+
+  /**
+   * Record a revert operation for a merge.
+   * Updates merge history with revert info and sets QA status to fail.
+   */
+  recordRevert: procedure
+    .input(z.object({
+      path: z.string().min(1),
+      mergeCommitHash: z.string().min(1),
+      revertCommitHash: z.string().min(1),
+    }))
+    .mutation(({ ctx, input }) => {
+      return recordRevert(
+        ctx.workingDir,
+        input.path,
+        input.mergeCommitHash,
+        input.revertCommitHash
+      )
+    }),
+
+  /**
+   * Get the most recent non-reverted merge for a task.
+   * Returns the merge that can be reverted, or null if none.
+   */
+  getLatestActiveMerge: procedure
+    .input(z.object({
+      path: z.string().min(1),
+    }))
+    .query(({ ctx, input }) => {
+      return getLatestActiveMerge(ctx.workingDir, input.path)
     }),
 })

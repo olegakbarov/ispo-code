@@ -1102,3 +1102,206 @@ export function getConflictedFiles(cwd: string): string[] {
     return []
   }
 }
+
+// === Merge/Revert Operations ===
+
+/**
+ * Merge result from mergeBranch operation
+ */
+export interface MergeResult {
+  success: boolean
+  mergeCommitHash?: string
+  error?: string
+  hasConflicts?: boolean
+}
+
+/**
+ * Merge a source branch into the target branch (typically main).
+ * Uses --no-ff to always create a merge commit for clean reverts.
+ *
+ * @param cwd - Working directory
+ * @param targetBranch - Branch to merge into (e.g., "main")
+ * @param sourceBranch - Branch to merge from (e.g., "agentz/session-abc123")
+ * @returns Merge result with commit hash or error
+ */
+export function mergeBranch(
+  cwd: string,
+  targetBranch: string,
+  sourceBranch: string
+): MergeResult {
+  if (!isGitRepo(cwd)) {
+    return { success: false, error: "Not a git repository" }
+  }
+  if (!targetBranch.trim()) {
+    return { success: false, error: "Target branch name is required" }
+  }
+  if (!sourceBranch.trim()) {
+    return { success: false, error: "Source branch name is required" }
+  }
+  if (!isValidBranchName(targetBranch)) {
+    return { success: false, error: "Invalid target branch name" }
+  }
+  if (!isValidBranchName(sourceBranch)) {
+    return { success: false, error: "Invalid source branch name" }
+  }
+
+  // Save current branch to return to later
+  const currentBranch = execGit("branch --show-current", cwd) || "HEAD"
+
+  try {
+    // Checkout target branch first
+    const checkoutResult = runGit(["checkout", targetBranch], cwd)
+    if (!checkoutResult.ok) {
+      return { success: false, error: sanitizeError(checkoutResult.stderr || checkoutResult.stdout) }
+    }
+
+    // Merge source branch with --no-ff to create merge commit
+    const mergeResult = runGit(["merge", "--no-ff", sourceBranch, "-m", `Merge branch '${sourceBranch}' into ${targetBranch}`], cwd)
+
+    if (!mergeResult.ok) {
+      // Check if merge failed due to conflicts
+      if (hasMergeConflicts(cwd)) {
+        // Abort the merge
+        runGit(["merge", "--abort"], cwd)
+        // Return to original branch
+        runGit(["checkout", currentBranch], cwd)
+        return { success: false, error: "Merge conflicts detected", hasConflicts: true }
+      }
+      // Other merge error
+      runGit(["checkout", currentBranch], cwd)
+      return { success: false, error: sanitizeError(mergeResult.stderr || mergeResult.stdout) }
+    }
+
+    // Get the merge commit hash
+    const hashResult = runGit(["rev-parse", "HEAD"], cwd)
+    const mergeCommitHash = hashResult.ok ? hashResult.stdout.trim() : undefined
+
+    // Return to original branch
+    if (currentBranch !== targetBranch) {
+      runGit(["checkout", currentBranch], cwd)
+    }
+
+    return { success: true, mergeCommitHash }
+  } catch (error) {
+    // Ensure we return to original branch on any error
+    try {
+      runGit(["checkout", currentBranch], cwd)
+    } catch {
+      // Ignore checkout failure during error handling
+    }
+    return { success: false, error: sanitizeError((error as Error).message) }
+  }
+}
+
+/**
+ * Get the last merge commit on a branch.
+ * Useful for finding the commit to revert.
+ *
+ * @param cwd - Working directory
+ * @param branch - Branch to check (defaults to current)
+ * @returns Merge commit info or null if no merge commits found
+ */
+export function getLastMergeCommit(
+  cwd: string,
+  branch?: string
+): { hash: string; message: string; date: string } | null {
+  if (!isGitRepo(cwd)) {
+    return null
+  }
+
+  try {
+    // Find the most recent merge commit (commits with more than 1 parent)
+    const branchRef = branch?.trim() || "HEAD"
+    const log = execGit(`log ${branchRef} --merges -n 1 --format="%H%x00%s%x00%ar"`, cwd)
+
+    if (!log.trim()) {
+      return null
+    }
+
+    const [hash, message, date] = log.split("\x00")
+    return {
+      hash: hash.trim(),
+      message: message.trim(),
+      date: date.trim(),
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Revert result from revertCommit/revertMerge operations
+ */
+export interface RevertResult {
+  success: boolean
+  revertCommitHash?: string
+  error?: string
+}
+
+/**
+ * Revert a regular (non-merge) commit.
+ *
+ * @param cwd - Working directory
+ * @param commitHash - Hash of commit to revert
+ * @returns Revert result with new commit hash or error
+ */
+export function revertCommit(cwd: string, commitHash: string): RevertResult {
+  if (!isGitRepo(cwd)) {
+    return { success: false, error: "Not a git repository" }
+  }
+  if (!commitHash.trim()) {
+    return { success: false, error: "Commit hash is required" }
+  }
+
+  // Validate commit hash format (short or full)
+  if (!/^[0-9a-f]{4,40}$/i.test(commitHash.trim())) {
+    return { success: false, error: "Invalid commit hash format" }
+  }
+
+  const result = runGit(["revert", "--no-edit", commitHash], cwd)
+
+  if (!result.ok) {
+    return { success: false, error: sanitizeError(result.stderr || result.stdout) }
+  }
+
+  // Get the new revert commit hash
+  const hashResult = runGit(["rev-parse", "--short", "HEAD"], cwd)
+  const revertCommitHash = hashResult.ok ? hashResult.stdout.trim() : undefined
+
+  return { success: true, revertCommitHash }
+}
+
+/**
+ * Revert a merge commit.
+ * Uses -m 1 to specify the mainline parent (first parent of merge).
+ *
+ * @param cwd - Working directory
+ * @param mergeCommitHash - Hash of merge commit to revert
+ * @returns Revert result with new commit hash or error
+ */
+export function revertMerge(cwd: string, mergeCommitHash: string): RevertResult {
+  if (!isGitRepo(cwd)) {
+    return { success: false, error: "Not a git repository" }
+  }
+  if (!mergeCommitHash.trim()) {
+    return { success: false, error: "Merge commit hash is required" }
+  }
+
+  // Validate commit hash format
+  if (!/^[0-9a-f]{4,40}$/i.test(mergeCommitHash.trim())) {
+    return { success: false, error: "Invalid commit hash format" }
+  }
+
+  // Use -m 1 to revert to first parent (mainline before merge)
+  const result = runGit(["revert", "-m", "1", "--no-edit", mergeCommitHash], cwd)
+
+  if (!result.ok) {
+    return { success: false, error: sanitizeError(result.stderr || result.stdout) }
+  }
+
+  // Get the new revert commit hash
+  const hashResult = runGit(["rev-parse", "--short", "HEAD"], cwd)
+  const revertCommitHash = hashResult.ok ? hashResult.stdout.trim() : undefined
+
+  return { success: true, revertCommitHash }
+}

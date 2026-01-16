@@ -18,6 +18,22 @@ export interface TaskProgress {
   inProgress: number
 }
 
+/**
+ * QA status for merged task changes
+ */
+export type QAStatus = 'pending' | 'pass' | 'fail'
+
+/**
+ * Record of a merge operation for a task
+ */
+export interface MergeHistoryEntry {
+  sessionId: string
+  commitHash: string
+  mergedAt: string
+  revertedAt?: string
+  revertCommitHash?: string
+}
+
 export interface TaskSummary {
   path: string
   title: string
@@ -29,6 +45,8 @@ export interface TaskSummary {
   archivedAt?: string
   subtaskCount: number // Number of subtasks (for UI indicator)
   hasSubtasks: boolean // Quick check if task has subtasks
+  qaStatus?: QAStatus // QA status after merge
+  hasMergeHistory?: boolean // Quick check if task has merged commits
 }
 
 export interface TaskFile extends TaskSummary {
@@ -36,6 +54,7 @@ export interface TaskFile extends TaskSummary {
   splitFrom?: string
   subtasks: SubTask[]
   version: number // Optimistic locking version for concurrent modification detection
+  mergeHistory: MergeHistoryEntry[] // History of merge operations
 }
 
 /**
@@ -163,6 +182,109 @@ function parseSplitFrom(content: string): string | undefined {
 function parseVersion(content: string): number {
   const match = content.match(/<!--\s*version:\s*(\d+)\s*-->/)
   return match ? parseInt(match[1], 10) : 1
+}
+
+/**
+ * Extract QA status from markdown content.
+ * Looks for: <!-- qaStatus: pending|pass|fail -->
+ * Returns undefined if not found.
+ */
+function parseQAStatus(content: string): QAStatus | undefined {
+  const match = content.match(/<!--\s*qaStatus:\s*(pending|pass|fail)\s*-->/)
+  return match ? (match[1] as QAStatus) : undefined
+}
+
+/**
+ * Extract merge history from markdown content.
+ * Looks for: <!-- mergeHistory: JSON array -->
+ * Returns empty array if not found.
+ */
+function parseMergeHistory(content: string): MergeHistoryEntry[] {
+  const match = content.match(/<!--\s*mergeHistory:\s*(\[.*?\])\s*-->/)
+  if (!match) return []
+
+  try {
+    const parsed = JSON.parse(match[1])
+    if (!Array.isArray(parsed)) return []
+    return parsed as MergeHistoryEntry[]
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Update or add QA status comment in content.
+ */
+export function updateQAStatusInContent(content: string, status: QAStatus): string {
+  const qaComment = `<!-- qaStatus: ${status} -->`
+
+  if (content.match(/<!--\s*qaStatus:\s*(pending|pass|fail)\s*-->/)) {
+    // Replace existing
+    return content.replace(/<!--\s*qaStatus:\s*(pending|pass|fail)\s*-->/, qaComment)
+  }
+
+  // Add after version comment (or after title if no version)
+  const versionMatch = content.match(/<!--\s*version:\s*\d+\s*-->/)
+  if (versionMatch) {
+    return content.replace(
+      /<!--\s*version:\s*\d+\s*-->/,
+      `${versionMatch[0]}\n${qaComment}`
+    )
+  }
+
+  // Add after title
+  const lines = content.split("\n")
+  const titleIndex = lines.findIndex((line) => line.match(/^#\s+/))
+
+  if (titleIndex >= 0) {
+    lines.splice(titleIndex + 1, 0, "", qaComment)
+    return lines.join("\n")
+  }
+
+  // Add at start
+  return qaComment + "\n\n" + content
+}
+
+/**
+ * Update or add merge history comment in content.
+ */
+export function updateMergeHistoryInContent(content: string, history: MergeHistoryEntry[]): string {
+  const historyJson = JSON.stringify(history)
+  const historyComment = `<!-- mergeHistory: ${historyJson} -->`
+
+  if (content.match(/<!--\s*mergeHistory:\s*\[.*?\]\s*-->/)) {
+    // Replace existing
+    return content.replace(/<!--\s*mergeHistory:\s*\[.*?\]\s*-->/, historyComment)
+  }
+
+  // Add after qaStatus or version comment
+  const qaMatch = content.match(/<!--\s*qaStatus:\s*(pending|pass|fail)\s*-->/)
+  if (qaMatch) {
+    return content.replace(
+      /<!--\s*qaStatus:\s*(pending|pass|fail)\s*-->/,
+      `${qaMatch[0]}\n${historyComment}`
+    )
+  }
+
+  const versionMatch = content.match(/<!--\s*version:\s*\d+\s*-->/)
+  if (versionMatch) {
+    return content.replace(
+      /<!--\s*version:\s*\d+\s*-->/,
+      `${versionMatch[0]}\n${historyComment}`
+    )
+  }
+
+  // Add after title
+  const lines = content.split("\n")
+  const titleIndex = lines.findIndex((line) => line.match(/^#\s+/))
+
+  if (titleIndex >= 0) {
+    lines.splice(titleIndex + 1, 0, "", historyComment)
+    return lines.join("\n")
+  }
+
+  // Add at start
+  return historyComment + "\n\n" + content
 }
 
 /**
@@ -459,6 +581,10 @@ export function listTasks(cwd: string): TaskSummary[] {
       // Parse subtasks (quick count for list view)
       const subtasks = parseSubtasks(content)
 
+      // Parse QA status and merge history for list view
+      const qaStatus = parseQAStatus(content)
+      const mergeHistory = parseMergeHistory(content)
+
       tasks.push({
         path: relPath,
         title,
@@ -470,6 +596,8 @@ export function listTasks(cwd: string): TaskSummary[] {
         archivedAt,
         subtaskCount: subtasks.length,
         hasSubtasks: subtasks.length > 0,
+        qaStatus,
+        hasMergeHistory: mergeHistory.length > 0,
       })
     } catch {
       // Skip unreadable tasks
@@ -501,6 +629,8 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
   const splitFrom = parseSplitFrom(content)
   const version = parseVersion(content)
   const subtasks = parseSubtasks(content)
+  const qaStatus = parseQAStatus(content)
+  const mergeHistory = parseMergeHistory(content)
 
   // Determine if task is archived based on path
   const archived = relPath.startsWith("tasks/archive/")
@@ -520,10 +650,13 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
     archivedAt,
     subtaskCount: subtasks.length,
     hasSubtasks: subtasks.length > 0,
+    qaStatus,
+    hasMergeHistory: mergeHistory.length > 0,
     content,
     splitFrom,
     subtasks,
     version,
+    mergeHistory,
   }
 }
 
@@ -1265,4 +1398,121 @@ export function migrateAllSplitFromTasks(cwd: string): MigrationResult {
   }
 
   return result
+}
+
+// === Merge History & QA Status Operations ===
+
+/**
+ * Record a merge operation for a task.
+ * Adds the merge to history and sets QA status to pending.
+ *
+ * @param cwd - Working directory
+ * @param taskPath - Path to task file
+ * @param entry - Merge history entry to add
+ * @returns Updated task file
+ */
+export function recordMerge(
+  cwd: string,
+  taskPath: string,
+  entry: Omit<MergeHistoryEntry, 'revertedAt' | 'revertCommitHash'>
+): TaskFile {
+  const task = getTask(cwd, taskPath)
+
+  // Add new merge entry to history
+  const newHistory: MergeHistoryEntry[] = [
+    ...task.mergeHistory,
+    {
+      sessionId: entry.sessionId,
+      commitHash: entry.commitHash,
+      mergedAt: entry.mergedAt,
+    },
+  ]
+
+  // Update content with new history and set QA status to pending
+  let newContent = task.content
+  newContent = updateMergeHistoryInContent(newContent, newHistory)
+  newContent = updateQAStatusInContent(newContent, 'pending')
+
+  return saveTask(cwd, taskPath, newContent)
+}
+
+/**
+ * Update QA status for a task.
+ *
+ * @param cwd - Working directory
+ * @param taskPath - Path to task file
+ * @param status - New QA status
+ * @returns Updated task file
+ */
+export function setQAStatus(
+  cwd: string,
+  taskPath: string,
+  status: QAStatus
+): TaskFile {
+  const task = getTask(cwd, taskPath)
+  const newContent = updateQAStatusInContent(task.content, status)
+  return saveTask(cwd, taskPath, newContent)
+}
+
+/**
+ * Record a revert operation for a merge.
+ * Updates the merge history entry with revert info.
+ *
+ * @param cwd - Working directory
+ * @param taskPath - Path to task file
+ * @param mergeCommitHash - Hash of the original merge commit
+ * @param revertCommitHash - Hash of the revert commit
+ * @returns Updated task file
+ */
+export function recordRevert(
+  cwd: string,
+  taskPath: string,
+  mergeCommitHash: string,
+  revertCommitHash: string
+): TaskFile {
+  const task = getTask(cwd, taskPath)
+
+  // Find and update the merge entry
+  const newHistory = task.mergeHistory.map((entry) => {
+    if (entry.commitHash === mergeCommitHash) {
+      return {
+        ...entry,
+        revertedAt: new Date().toISOString(),
+        revertCommitHash,
+      }
+    }
+    return entry
+  })
+
+  // Update content and set QA status to fail
+  let newContent = task.content
+  newContent = updateMergeHistoryInContent(newContent, newHistory)
+  newContent = updateQAStatusInContent(newContent, 'fail')
+
+  return saveTask(cwd, taskPath, newContent)
+}
+
+/**
+ * Get the most recent non-reverted merge for a task.
+ * Used to find what can be reverted.
+ *
+ * @param cwd - Working directory
+ * @param taskPath - Path to task file
+ * @returns Most recent non-reverted merge entry or null
+ */
+export function getLatestActiveMerge(
+  cwd: string,
+  taskPath: string
+): MergeHistoryEntry | null {
+  const task = getTask(cwd, taskPath)
+
+  // Find the most recent merge that hasn't been reverted
+  for (let i = task.mergeHistory.length - 1; i >= 0; i--) {
+    const entry = task.mergeHistory[i]
+    if (!entry.revertedAt) {
+      return entry
+    }
+  }
+
+  return null
 }

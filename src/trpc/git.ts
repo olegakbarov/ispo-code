@@ -11,6 +11,7 @@ import {
   getCommitsForFiles,
   getGitRemotes,
   getCwdPrefix,
+  getGitRoot,
   getFileDiff,
   getDiffForFiles,
   stageFiles,
@@ -26,7 +27,11 @@ import {
   deleteBranch,
   hasMergeConflicts,
   getConflictedFiles,
+  mergeBranch,
+  getLastMergeCommit,
+  revertMerge,
 } from "@/lib/agent/git-service"
+import { listWorktreesDetailed } from "@/lib/agent/git-worktree"
 import { generateCommitMessage } from "@/lib/agent/commit-message-generator"
 
 export const gitRouter = router({
@@ -89,6 +94,15 @@ export const gitRouter = router({
       hasConflicts: hasMergeConflicts(ctx.workingDir),
       conflictedFiles: getConflictedFiles(ctx.workingDir),
     }
+  }),
+
+  /** List all git worktrees in the repository */
+  worktrees: procedure.query(({ ctx }) => {
+    const repoRoot = getGitRoot(ctx.workingDir)
+    if (!repoRoot) {
+      return []
+    }
+    return listWorktreesDetailed(repoRoot)
   }),
 
   // === Mutations ===
@@ -225,5 +239,35 @@ export const gitRouter = router({
       })
 
       return result
+    }),
+
+  // === Merge/Revert Operations ===
+
+  /** Merge a source branch into target branch (e.g., worktree branch to main) */
+  mergeBranch: procedure
+    .input(z.object({
+      targetBranch: z.string().min(1, "Target branch is required"),
+      sourceBranch: z.string().min(1, "Source branch is required"),
+    }))
+    .mutation(({ ctx, input }) => {
+      return mergeBranch(ctx.workingDir, input.targetBranch, input.sourceBranch)
+    }),
+
+  /** Get the most recent merge commit on a branch */
+  getLastMergeCommit: procedure
+    .input(z.object({
+      branch: z.string().optional(),
+    }))
+    .query(({ ctx, input }) => {
+      return getLastMergeCommit(ctx.workingDir, input.branch)
+    }),
+
+  /** Revert a merge commit (uses -m 1 to revert to first parent) */
+  revertMerge: procedure
+    .input(z.object({
+      mergeCommitHash: z.string().min(1, "Merge commit hash is required"),
+    }))
+    .mutation(({ ctx, input }) => {
+      return revertMerge(ctx.workingDir, input.mergeCommitHash)
     }),
 })

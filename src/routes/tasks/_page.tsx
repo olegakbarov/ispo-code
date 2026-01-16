@@ -106,6 +106,14 @@ export function TasksPage({
     }
   )
 
+  // Get latest active merge for QA workflow
+  const { data: latestActiveMerge } = trpc.tasks.getLatestActiveMerge.useQuery(
+    { path: selectedPath ?? '' },
+    {
+      enabled: !!selectedPath && !!workingDir,
+    }
+  )
+
   // Get active debate for current task (if any)
   // Query always when task is selected - needed to show "Resume Review" in sidebar
   const { data: activeDebate } = trpc.debate.getForTask.useQuery(
@@ -127,6 +135,19 @@ export function TasksPage({
 
   // Destructure for convenience
   const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog, orchestrator } = state
+
+  // Draft persistence for create task title (global, persists across refreshes)
+  const [createTitleDraft, setCreateTitleDraft, clearCreateTitleDraft] = useTextareaDraft(
+    'create-task-title',
+    ''
+  )
+
+  // Sync create title draft with reducer state (bidirectional)
+  useEffect(() => {
+    if (createTitleDraft !== create.title) {
+      dispatch({ type: 'SET_CREATE_TITLE', payload: createTitleDraft })
+    }
+  }, [createTitleDraft, create.title])
 
   // Draft persistence for rewrite comment (per-task)
   const [rewriteDraft, setRewriteDraft, clearRewriteDraft] = useTextareaDraft(
@@ -890,6 +911,50 @@ export function TasksPage({
     },
   })
 
+  // === QA Workflow Mutations ===
+
+  const mergeBranchMutation = trpc.git.mergeBranch.useMutation({
+    onError: (err) => {
+      dispatch({ type: 'SET_SAVE_ERROR', payload: `Merge failed: ${err.message}` })
+    },
+  })
+
+  const recordMergeMutation = trpc.tasks.recordMerge.useMutation({
+    onSuccess: () => {
+      utils.tasks.get.invalidate()
+      utils.tasks.getLatestActiveMerge.invalidate()
+    },
+    onError: (err) => {
+      console.error('Failed to record merge:', err.message)
+    },
+  })
+
+  const setQAStatusMutation = trpc.tasks.setQAStatus.useMutation({
+    onSuccess: () => {
+      utils.tasks.get.invalidate()
+      utils.tasks.getLatestActiveMerge.invalidate()
+    },
+    onError: (err) => {
+      dispatch({ type: 'SET_SAVE_ERROR', payload: `Failed to set QA status: ${err.message}` })
+    },
+  })
+
+  const revertMergeMutation = trpc.git.revertMerge.useMutation({
+    onError: (err) => {
+      dispatch({ type: 'SET_SAVE_ERROR', payload: `Revert failed: ${err.message}` })
+    },
+  })
+
+  const recordRevertMutation = trpc.tasks.recordRevert.useMutation({
+    onSuccess: () => {
+      utils.tasks.get.invalidate()
+      utils.tasks.getLatestActiveMerge.invalidate()
+    },
+    onError: (err) => {
+      console.error('Failed to record revert:', err.message)
+    },
+  })
+
   // Load content when task changes
   useEffect(() => {
     if (!selectedPath || !workingDir) return
@@ -1166,6 +1231,7 @@ export function TasksPage({
         await createMutation.mutateAsync({ title })
       }
       dispatch({ type: 'RESET_CREATE_MODAL' })
+      clearCreateTitleDraft() // Clear persisted draft after successful creation
     } catch (err) {
       console.error('Failed to create task:', err)
     }
@@ -1351,6 +1417,97 @@ export function TasksPage({
     }
   }, [tasks, selectedPath, navigate, buildSearchParams])
 
+  const handleMergeSuccess = useCallback(() => {
+    // Invalidate caches after merge
+    utils.tasks.get.invalidate()
+    utils.tasks.getLatestActiveMerge.invalidate()
+  }, [utils])
+
+  // === QA Workflow Handlers ===
+
+  // Derive worktree branch from active session
+  const activeWorktreeBranch = activeSessionId ? `agentz/session-${activeSessionId}` : undefined
+
+  const handleMergeToMain = useCallback(async () => {
+    if (!selectedPath || !activeSessionId || !activeWorktreeBranch) return
+
+    dispatch({ type: 'SET_SAVE_ERROR', payload: null })
+    try {
+      const mergeResult = await mergeBranchMutation.mutateAsync({
+        targetBranch: 'main',
+        sourceBranch: activeWorktreeBranch,
+      })
+
+      if (mergeResult.success && mergeResult.mergeCommitHash) {
+        // Record the merge in task metadata (sets QA to pending)
+        await recordMergeMutation.mutateAsync({
+          path: selectedPath,
+          sessionId: activeSessionId,
+          commitHash: mergeResult.mergeCommitHash,
+        })
+      } else if (!mergeResult.success) {
+        dispatch({ type: 'SET_SAVE_ERROR', payload: mergeResult.error || 'Merge failed' })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Merge failed'
+      dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
+      console.error('Merge to main failed:', err)
+    }
+  }, [selectedPath, activeSessionId, activeWorktreeBranch, mergeBranchMutation, recordMergeMutation])
+
+  const handleSetQAPass = useCallback(async () => {
+    if (!selectedPath) return
+
+    try {
+      await setQAStatusMutation.mutateAsync({
+        path: selectedPath,
+        status: 'pass',
+      })
+      // After QA passes, user can archive manually if they want
+    } catch (err) {
+      console.error('Failed to set QA pass:', err)
+    }
+  }, [selectedPath, setQAStatusMutation])
+
+  const handleSetQAFail = useCallback(async () => {
+    if (!selectedPath) return
+
+    try {
+      await setQAStatusMutation.mutateAsync({
+        path: selectedPath,
+        status: 'fail',
+      })
+    } catch (err) {
+      console.error('Failed to set QA fail:', err)
+    }
+  }, [selectedPath, setQAStatusMutation])
+
+  const handleRevertMerge = useCallback(async () => {
+    if (!selectedPath || !latestActiveMerge) return
+
+    dispatch({ type: 'SET_SAVE_ERROR', payload: null })
+    try {
+      const revertResult = await revertMergeMutation.mutateAsync({
+        mergeCommitHash: latestActiveMerge.commitHash,
+      })
+
+      if (revertResult.success && revertResult.revertCommitHash) {
+        // Record the revert in task metadata
+        await recordRevertMutation.mutateAsync({
+          path: selectedPath,
+          mergeCommitHash: latestActiveMerge.commitHash,
+          revertCommitHash: revertResult.revertCommitHash,
+        })
+      } else if (!revertResult.success) {
+        dispatch({ type: 'SET_SAVE_ERROR', payload: revertResult.error || 'Revert failed' })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Revert failed'
+      dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
+      console.error('Revert merge failed:', err)
+    }
+  }, [selectedPath, latestActiveMerge, revertMergeMutation, recordRevertMutation])
+
   const handleCloseSplitModal = useCallback(() => {
     dispatch({ type: 'SET_SPLIT_MODAL_OPEN', payload: false })
   }, [])
@@ -1461,7 +1618,7 @@ export function TasksPage({
                     availablePlannerTypes={availablePlannerTypes}
                     debugAgents={create.debugAgents}
                     onCreate={handleCreate}
-                    onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
+                    onTitleChange={(title) => setCreateTitleDraft(title)}
                     onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
                     onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
                     onAgentTypeChange={handleCreateAgentTypeChange}
@@ -1569,6 +1726,18 @@ export function TasksPage({
               splitFrom={taskData?.splitFrom}
               onNavigateToSplitFrom={handleNavigateToSplitFrom}
               hasActiveDebate={!!activeDebate}
+              // QA workflow props
+              qaStatus={taskData?.qaStatus}
+              latestActiveMerge={latestActiveMerge}
+              worktreeBranch={activeWorktreeBranch}
+              isMerging={mergeBranchMutation.isPending}
+              isReverting={revertMergeMutation.isPending}
+              isSettingQA={setQAStatusMutation.isPending}
+              onMergeToMain={handleMergeToMain}
+              onSetQAPass={handleSetQAPass}
+              onSetQAFail={handleSetQAFail}
+              onRevertMerge={handleRevertMerge}
+              // Action handlers
               onDelete={handleDelete}
               onReview={handleReview}
               onVerify={handleVerify}
@@ -1594,7 +1763,7 @@ export function TasksPage({
           debugAgents={create.debugAgents}
           onClose={handleCloseCreate}
           onCreate={handleCreate}
-          onTitleChange={(title) => dispatch({ type: 'SET_CREATE_TITLE', payload: title })}
+          onTitleChange={(title) => setCreateTitleDraft(title)}
           onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
           onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
           onAgentTypeChange={handleCreateAgentTypeChange}
@@ -1648,9 +1817,12 @@ export function TasksPage({
           taskContent={editor.draft}
           initialMessage={pendingCommitMessage}
           isGeneratingInitial={pendingCommitGenerating}
+          sessionId={activeSessionId}
+          worktreeBranch={activeWorktreeBranch}
           onClose={handleCloseCommitArchiveModal}
           onCommitSuccess={handleCommitSuccess}
           onArchiveSuccess={handleArchiveSuccess}
+          onMergeSuccess={handleMergeSuccess}
         />
       )}
 

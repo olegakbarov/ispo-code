@@ -262,6 +262,11 @@ export interface AgentSession {
   worktreePath?: string
   /** Git worktree branch name (agentz/session-{sessionId}) */
   worktreeBranch?: string
+  /** GitHub repository info if working in a cloned repo */
+  githubRepo?: {
+    owner: string
+    repo: string
+  }
   output: AgentOutputChunk[]
   error?: string
   agentType?: AgentType
@@ -304,6 +309,10 @@ export interface AgentSession {
   resumeHistory?: ResumeHistoryEntry[]
   /** User identifier for rate limiting */
   userId?: string
+  /** Merge commit hash if session was merged to main */
+  mergeCommitHash?: string
+  /** Timestamp when session was merged to main */
+  mergedAt?: string
 }
 
 /**

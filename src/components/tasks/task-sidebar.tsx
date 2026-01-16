@@ -5,7 +5,8 @@
 
 import { TaskSessions, type TaskSessionsGrouped } from './task-sessions'
 import type { AgentSession } from './agent-types'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, GitMerge, CheckCircle, XCircle, Clock, RotateCcw } from 'lucide-react'
+import type { QAStatus, MergeHistoryEntry } from '@/lib/agent/task-service'
 
 interface TaskSidebarProps {
   // Mode - hide sessions/controls in review/debate mode
@@ -36,6 +37,21 @@ interface TaskSidebarProps {
   // Debate state
   hasActiveDebate?: boolean
 
+  // QA workflow state
+  qaStatus?: QAStatus
+  latestActiveMerge?: MergeHistoryEntry | null
+  mergeHistory?: MergeHistoryEntry[]
+  worktreeBranch?: string
+  isMerging?: boolean
+  isReverting?: boolean
+  isSettingQA?: boolean
+
+  // QA workflow handlers
+  onMergeToMain?: () => void
+  onSetQAPass?: () => void
+  onSetQAFail?: () => void
+  onRevertMerge?: () => void
+
   // Handlers
   onDelete: () => void
   onReview: () => void
@@ -55,6 +71,17 @@ export function TaskSidebar({
   splitFrom,
   onNavigateToSplitFrom,
   hasActiveDebate,
+  qaStatus,
+  latestActiveMerge,
+  mergeHistory,
+  worktreeBranch,
+  isMerging,
+  isReverting,
+  isSettingQA,
+  onMergeToMain,
+  onSetQAPass,
+  onSetQAFail,
+  onRevertMerge,
   onDelete,
   onReview,
   onVerify,
@@ -65,6 +92,11 @@ export function TaskSidebar({
   if (mode === 'review') {
     return null
   }
+
+  // Determine if merge button should be shown
+  const canMerge = worktreeBranch && !latestActiveMerge && onMergeToMain
+  const showQAControls = qaStatus === 'pending' && latestActiveMerge
+  const canRevert = qaStatus === 'fail' && latestActiveMerge && !latestActiveMerge.revertedAt
 
   return (
     <div className="w-full h-full bg-panel overflow-y-auto flex flex-col">
@@ -136,6 +168,89 @@ export function TaskSidebar({
           )}
         </div>
 
+        {/* QA Workflow Section */}
+        {(canMerge || qaStatus || latestActiveMerge) && (
+          <div className="space-y-3 mb-4 pt-2 border-t border-border/50">
+            <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
+              QA Workflow
+            </h3>
+
+            {/* QA Status Badge */}
+            {qaStatus && (
+              <div className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-vcr ${
+                qaStatus === 'pending' ? 'bg-warning/10 border border-warning/30 text-warning' :
+                qaStatus === 'pass' ? 'bg-success/10 border border-success/30 text-success' :
+                'bg-error/10 border border-error/30 text-error'
+              }`}>
+                {qaStatus === 'pending' && <Clock className="w-3 h-3" />}
+                {qaStatus === 'pass' && <CheckCircle className="w-3 h-3" />}
+                {qaStatus === 'fail' && <XCircle className="w-3 h-3" />}
+                <span>QA: {qaStatus.toUpperCase()}</span>
+              </div>
+            )}
+
+            {/* Merge Button - show when branch exists and no active merge */}
+            {canMerge && (
+              <button
+                onClick={onMergeToMain}
+                disabled={isMerging || !!agentSession}
+                className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                title={`Merge ${worktreeBranch} to main`}
+              >
+                <GitMerge className="w-3 h-3" />
+                {isMerging ? 'Merging...' : 'Merge to Main'}
+              </button>
+            )}
+
+            {/* QA Pass/Fail buttons - show when QA status is pending */}
+            {showQAControls && (
+              <div className="flex gap-2">
+                <button
+                  onClick={onSetQAPass}
+                  disabled={isSettingQA}
+                  className="flex-1 px-3 py-2 rounded text-xs font-vcr border border-success/50 text-success cursor-pointer hover:bg-success/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  title="Mark QA as passed - changes are good"
+                >
+                  <CheckCircle className="w-3 h-3" />
+                  Pass
+                </button>
+                <button
+                  onClick={onSetQAFail}
+                  disabled={isSettingQA}
+                  className="flex-1 px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  title="Mark QA as failed - will enable revert"
+                >
+                  <XCircle className="w-3 h-3" />
+                  Fail
+                </button>
+              </div>
+            )}
+
+            {/* Revert Button - show when QA failed and merge exists */}
+            {canRevert && onRevertMerge && (
+              <button
+                onClick={onRevertMerge}
+                disabled={isReverting}
+                className="w-full px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                title="Revert the merge commit to restore main branch"
+              >
+                <RotateCcw className="w-3 h-3" />
+                {isReverting ? 'Reverting...' : 'Revert Merge'}
+              </button>
+            )}
+
+            {/* Merge Info */}
+            {latestActiveMerge && (
+              <div className="text-[10px] text-text-muted">
+                Merged: {latestActiveMerge.commitHash.slice(0, 7)} ({new Date(latestActiveMerge.mergedAt).toLocaleDateString()})
+                {latestActiveMerge.revertedAt && (
+                  <span className="text-error"> - Reverted</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Sessions Section */}
         <div className="space-y-2 pt-2 border-t border-border/50">
           <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
@@ -149,6 +264,7 @@ export function TaskSidebar({
               execution={taskSessions.grouped.execution}
               rewrite={taskSessions.grouped.rewrite}
               comment={taskSessions.grouped.comment}
+              orchestrator={taskSessions.grouped.orchestrator}
               onCancelSession={onCancelAgent}
             />
           ) : (
