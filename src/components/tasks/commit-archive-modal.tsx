@@ -4,7 +4,7 @@
  * Supports optional merge-to-main with QA workflow
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
@@ -66,8 +66,30 @@ export function CommitArchiveModal({
     { enabled: isOpen && !!taskPath }
   )
 
-  // Git-relative paths for commit
-  const gitRelativeFiles = changedFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
+  // Query git status to check if task file is modified
+  const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
+    enabled: isOpen && !!taskPath,
+  })
+
+  // Git-relative paths for commit (include task file if modified)
+  const gitRelativeFiles = useMemo(() => {
+    const files = changedFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
+
+    // Check if task file is in git status (staged/modified/untracked)
+    if (gitStatus && taskPath) {
+      const taskFileModified =
+        gitStatus.staged.some(f => f.file === taskPath) ||
+        gitStatus.modified.some(f => f.file === taskPath) ||
+        gitStatus.untracked.includes(taskPath)
+
+      // Add task file to commit list if modified and not already included
+      if (taskFileModified && !files.includes(taskPath)) {
+        files.push(taskPath)
+      }
+    }
+
+    return files
+  }, [changedFiles, gitStatus, taskPath])
 
   // Generate commit message mutation
   const generateMutation = trpc.git.generateCommitMessage.useMutation({

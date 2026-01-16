@@ -108,6 +108,8 @@ export function TaskReviewPanel({
   const [fileViews, setFileViews] = useState<Record<string, GitDiffView>>({})
   const [diffData, setDiffData] = useState<DiffData | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
+  // Track session working directory for each open file (for worktree diff queries)
+  const [fileWorkingDirs, setFileWorkingDirs] = useState<Record<string, string | undefined>>({})
 
   // Resolve theme for diff viewer
   const resolvedTheme = theme === "system"
@@ -125,15 +127,17 @@ export function TaskReviewPanel({
   // - uncommittedStatus.hasUncommitted is false (all those files are now committed)
   const allCommitted = changedFiles.length > 0 && uncommittedStatus && !uncommittedStatus.hasUncommitted
 
-  // Filter changedFiles to only show uncommitted files in the UI
+  // Filter changedFiles to only show uncommitted files in the UI (excluding task file)
   const uncommittedFiles = useMemo(() => {
     if (!uncommittedStatus?.uncommittedFiles) return changedFiles
     const uncommittedSet = new Set(uncommittedStatus.uncommittedFiles)
     return changedFiles.filter(f => {
       const gitPath = f.repoRelativePath || f.relativePath || f.path
+      // Exclude task file from diff UI (still committed on archive)
+      if (gitPath === taskPath) return false
       return uncommittedSet.has(gitPath)
     })
-  }, [changedFiles, uncommittedStatus])
+  }, [changedFiles, uncommittedStatus, taskPath])
 
   // Group files by session (only uncommitted files)
   const filesBySession = useMemo(() => {
@@ -250,16 +254,17 @@ export function TaskReviewPanel({
   }
 
   // Diff panel handlers
-  const handleFileClick = useCallback((file: string, view: GitDiffView) => {
-    setOpenFiles((prev) => {
-      if (prev.includes(file)) return prev
-      return [...prev, file]
-    })
+  const handleFileClick = useCallback((file: string, view: GitDiffView, sessionWorkingDir?: string) => {
+    // Single file mode - replace current file
+    setOpenFiles([file])
     setActiveFile(file)
-    setFileViews((prev) => ({ ...prev, [file]: view }))
+    setFileViews({ [file]: view })
+    // Store working dir for this file (for worktree support)
+    setFileWorkingDirs({ [file]: sessionWorkingDir })
 
     setDiffLoading(true)
-    utils.client.git.diff.query({ file, view })
+    // Pass workingDir to query if available (for worktree support)
+    utils.client.git.diff.query({ file, view, workingDir: sessionWorkingDir })
       .then((data) => {
         setDiffData({
           oldContent: data.oldContent,
@@ -274,10 +279,15 @@ export function TaskReviewPanel({
   }, [utils])
 
   const handleSelectFile = useCallback((file: string) => {
-    setActiveFile(file)
+    // In single-file mode, this shouldn't be called since there's only one file open
+    // But if it is, treat it like handleFileClick
     const view = fileViews[file] ?? "working"
+    const storedWorkingDir = fileWorkingDirs[file]
+
+    setOpenFiles([file])
+    setActiveFile(file)
     setDiffLoading(true)
-    utils.client.git.diff.query({ file, view })
+    utils.client.git.diff.query({ file, view, workingDir: storedWorkingDir })
       .then((data) => {
         setDiffData({
           oldContent: data.oldContent,
@@ -288,25 +298,20 @@ export function TaskReviewPanel({
       .catch(() => {
         setDiffLoading(false)
       })
-  }, [fileViews, utils])
+  }, [fileViews, fileWorkingDirs, utils])
 
-  const handleCloseFile = useCallback((file: string) => {
-    setOpenFiles((prev) => {
-      const remaining = prev.filter((f) => f !== file)
-      if (activeFile === file) {
-        const nextFile = remaining[remaining.length - 1] ?? null
-        setActiveFile(nextFile)
-        setDiffData(null)
-      }
-      return remaining
-    })
-  }, [activeFile])
-
-  const handleCloseAll = useCallback(() => {
+  const handleCloseFile = useCallback((_file: string) => {
+    // In single-file mode, closing means clearing the view
     setOpenFiles([])
     setActiveFile(null)
     setDiffData(null)
-    setFileViews({})
+  }, [])
+
+  const handleCloseAll = useCallback(() => {
+    // In single-file mode, same as closing the file
+    setOpenFiles([])
+    setActiveFile(null)
+    setDiffData(null)
   }, [])
 
   const handleViewChange = useCallback((_view: GitDiffView) => {
@@ -363,6 +368,7 @@ export function TaskReviewPanel({
           filesBySession={filesBySession}
           selectedFiles={selectedFiles}
           expandedSessions={effectiveExpandedSessions}
+          activeFile={activeFile}
           onToggleFile={toggleFile}
           onToggleAll={toggleAll}
           onToggleSession={toggleSession}
