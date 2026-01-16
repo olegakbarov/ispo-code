@@ -16,6 +16,7 @@ import { useDebouncedCallback } from '@/lib/utils/debounce'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { generateOptimisticTaskPath } from '@/lib/utils/slugify'
+import { inferAutoRunPhase, parseAutoRunFromContent } from '@/lib/tasks/auto-run'
 import type { AgentType } from '@/lib/agent/types'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
@@ -39,12 +40,6 @@ interface TaskSummary {
 
 interface TaskSessionsData {
   all: Array<{ sessionId: string }>
-}
-
-/** Extract autoRun flag from markdown content: <!-- autoRun: true|false --> */
-function parseAutoRun(content: string): boolean | undefined {
-  const match = content.match(/<!--\s*autoRun:\s*(true|false)\s*-->/)
-  return match ? match[1] === 'true' : undefined
 }
 
 interface UseTaskActionsParams {
@@ -873,7 +868,7 @@ export function useTaskActions({
     const taskContent = taskDataForAutoRun?.content
     if (!taskContent) return
 
-    const autoRun = parseAutoRun(taskContent)
+    const autoRun = parseAutoRunFromContent(taskContent)
     if (!autoRun) return
 
     // Skip on initial mount (no previous status yet)
@@ -883,19 +878,23 @@ export function useTaskActions({
     const triggerKey = `${selectedPath}-${agentSession.id}`
     if (autoRunTriggeredRef.current[triggerKey]) return
 
-    const wasActive = prevStatus === 'running' || prevStatus === 'pending'
+    const wasActive =
+      prevStatus === 'running' ||
+      prevStatus === 'pending' ||
+      prevStatus === 'working' ||
+      prevStatus === 'waiting_approval' ||
+      prevStatus === 'waiting_input' ||
+      prevStatus === 'idle'
     const isNowCompleted = currentStatus === 'completed'
 
     if (wasActive && isNowCompleted) {
-      // Determine session type by checking prompt or title
-      const sessionTitle = agentSession.title?.toLowerCase() || agentSession.prompt.toLowerCase()
-      const isPlanningSession = sessionTitle.includes('plan:') || sessionTitle.includes('debug:')
-      const isImplementationSession = sessionTitle.includes('implement') || sessionTitle.includes('execution')
+      const phase = inferAutoRunPhase(agentSession.title, agentSession.prompt)
+      if (!phase) return
 
       // Mark as triggered
       autoRunTriggeredRef.current[triggerKey] = currentStatus
 
-      if (isPlanningSession) {
+      if (phase === 'planning') {
         // Planning completed → auto-trigger implementation
         console.log('[auto-run] Planning completed, triggering implementation...')
 
@@ -909,7 +908,7 @@ export function useTaskActions({
             console.error('[auto-run] Failed to auto-trigger implementation:', err)
           })
         }, 2000)
-      } else if (isImplementationSession) {
+      } else if (phase === 'execution') {
         // Implementation completed → auto-trigger verification
         console.log('[auto-run] Implementation completed, triggering verification...')
 
