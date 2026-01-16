@@ -34,6 +34,16 @@ interface UseAgentSessionTrackingParams {
 /** Statuses considered active (not terminal) */
 const ACTIVE_STATUSES = ['pending', 'running', 'working', 'waiting_approval', 'waiting_input', 'idle']
 
+export function isPlanningSessionActive(
+  activePlanningSessionId: string | undefined,
+  liveStatus: SessionStatus | undefined,
+  activeSessionId: string | undefined
+): boolean {
+  if (!activePlanningSessionId) return false
+  if (liveStatus) return !isTerminalStatus(liveStatus)
+  return activeSessionId === activePlanningSessionId
+}
+
 export function useAgentSessionTracking({
   activeSessionId,
   activeSessionInfo,
@@ -160,8 +170,12 @@ export function useAgentSessionTracking({
   // Is Active Planning Session
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // True when we're tracking an active planning session
-  const isActivePlanningSession = !!activePlanningSessionId
+  // True when planning is active; prefer live status and fall back to active session match
+  const isActivePlanningSession = isPlanningSessionActive(
+    activePlanningSessionId,
+    liveSession?.status,
+    activeSessionId
+  )
 
   return {
     liveSession,
