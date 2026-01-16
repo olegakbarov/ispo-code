@@ -364,7 +364,7 @@ export function TaskListSidebar() {
       {/* New task button - full row */}
       <div className="px-3 py-2 border-b border-border">
         <Link
-          to="/tasks/new"
+          to="/tasks/"
           className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-accent text-accent-foreground hover:opacity-90 transition-opacity text-xs font-vcr"
         >
           <Plus className="w-3.5 h-3.5" />

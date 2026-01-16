@@ -1,21 +1,16 @@
 /**
  * Tasks New Route - /tasks/new
  *
- * Opens the tasks page with the create modal open.
+ * Redirects to /tasks (index) where the inline create form is shown.
  */
 
-import { createFileRoute } from '@tanstack/react-router'
-import { TasksPage } from './_page'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/tasks/new')({
-  component: TasksNew,
+  beforeLoad: () => {
+    throw redirect({
+      to: '/tasks/',
+      replace: true,
+    })
+  },
 })
-
-function TasksNew() {
-  return (
-    <TasksPage
-      selectedPath={null}
-      createModalOpen={true}
-    />
-  )
-}

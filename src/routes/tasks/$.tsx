@@ -54,7 +54,6 @@ function TasksSplat() {
     <TasksPage
       selectedPath={taskPath}
       mode={mode}
-      createModalOpen={false}
       reviewFile={search.reviewFile}
     />
   )

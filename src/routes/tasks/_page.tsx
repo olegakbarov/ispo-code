@@ -12,7 +12,6 @@ import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
-import { CreateTaskModal } from '@/components/tasks/create-task-modal'
 import { CreateTaskForm, CreateTaskActions } from '@/components/tasks/create-task-form'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { ImplementModal } from '@/components/tasks/implement-modal'
@@ -43,8 +42,6 @@ interface TasksPageProps {
   selectedPath: string | null
   /** Current mode (edit or review) from URL */
   mode?: Mode
-  /** Whether the create modal should be open */
-  createModalOpen: boolean
   /** Selected file in review mode (git-relative path) */
   reviewFile?: string
 }
@@ -52,18 +49,16 @@ interface TasksPageProps {
 export function TasksPage({
   selectedPath,
   mode = 'edit',
-  createModalOpen: initialCreateOpen,
   reviewFile,
 }: TasksPageProps) {
   // ═══════════════════════════════════════════════════════════════════════════════
   // State Management
   // ═══════════════════════════════════════════════════════════════════════════════
 
-  const [state, dispatch] = useReducer(tasksReducer, initialCreateOpen, createInitialState)
+  const [state, dispatch] = useReducer(tasksReducer, false, createInitialState)
   const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog, orchestrator } = state
   const createRenderMode = getCreateTaskRenderMode({
     selectedPath,
-    isCreateModalOpen: create.open,
   })
   const showInlineCreateForm = createRenderMode === 'inline'
 
@@ -214,8 +209,6 @@ export function TasksPage({
   const {
     debouncedSave,
     debugRunStatus,
-    openCreate,
-    handleCloseCreate,
     handleCreate,
     handleDelete,
     handleArchive,
@@ -287,12 +280,6 @@ export function TasksPage({
     clearCreateTitleDraft,
   })
 
-  // Sync create modal state with props
-  useEffect(() => {
-    if (initialCreateOpen && !create.open) {
-      openCreate()
-    }
-  }, [initialCreateOpen, create.open, openCreate])
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // UI Rendering
@@ -510,30 +497,6 @@ export function TasksPage({
           </div>
         )}
       </div>
-
-      <CreateTaskModal
-        isOpen={create.open}
-        isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
-        newTitle={create.title}
-        taskType={create.taskType}
-        useAgent={create.useAgent}
-        createAgentType={create.agentType}
-        createModel={create.model}
-        availableTypes={availableTypes}
-        availablePlannerTypes={availablePlannerTypes}
-        debugAgents={create.debugAgents}
-        autoRun={create.autoRun}
-        onClose={handleCloseCreate}
-        onCreate={handleCreate}
-        onTitleChange={(title) => setCreateTitleDraft(title)}
-        onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
-        onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
-        onAgentTypeChange={handleCreateAgentTypeChange}
-        onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
-        onAutoRunChange={(autoRun) => dispatch({ type: 'SET_CREATE_AUTO_RUN', payload: autoRun })}
-        onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
-        onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
-      />
 
       {/* Verify uses ReviewModal (single agent) - defaults to codex */}
       <ReviewModal

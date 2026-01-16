@@ -862,9 +862,7 @@ export function useTaskActions({
   ])
 
   return {
-    // Create modal
-    openCreate,
-    handleCloseCreate,
+    // Create
     handleCreate,
 
     // CRUD

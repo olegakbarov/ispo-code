@@ -42,7 +42,6 @@ function TasksIndex() {
   return (
     <TasksPage
       selectedPath={null}
-      createModalOpen={false}
     />
   )
 }
