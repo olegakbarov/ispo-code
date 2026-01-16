@@ -662,6 +662,169 @@ What & why (2-3 sentences max)
 Begin now. Explore codebase if needed, then write the rewritten plan to ${params.taskPath}.`
 }
 
+/**
+ * System prompt for multi-agent planning - Implementation Focus Agent.
+ * Focuses on code structure, file organization, and dependencies.
+ */
+function buildPlanAgentPrompt(params: {
+  agentIndex: 1 | 2
+  title: string
+  planPath: string
+  workingDir: string
+}): string {
+  const focus = params.agentIndex === 1
+    ? `IMPLEMENTATION DETAILS:
+- Code structure and architecture
+- File organization and module boundaries
+- Dependencies and imports
+- API design and interfaces
+- Data flow and state management`
+    : `EDGE CASES & RISKS:
+- Error handling strategies
+- Testing approach and coverage
+- Rollback plans and recovery
+- Performance pitfalls
+- Security considerations
+- Migration concerns`
+
+  return `You are Planning Agent ${params.agentIndex}. Your role is to analyze a task and create a focused plan.
+
+## Task
+"${params.title}"
+
+## Your Focus
+${focus}
+
+## Instructions
+1. Explore the codebase to understand existing patterns
+2. Analyze the task requirements through your specific lens
+3. Write your plan to: ${params.planPath}
+
+## Output Format
+
+Write your plan using this structure:
+
+\`\`\`markdown
+# Plan: ${params.title} (Agent ${params.agentIndex})
+
+## Analysis
+[Your analysis through your specific lens - ${params.agentIndex === 1 ? 'implementation' : 'edge cases'}]
+
+## Proposed Approach
+[Key decisions and trade-offs from your perspective]
+
+## Key Files
+- \`path/file.ts\` - reason for involvement
+
+## ${params.agentIndex === 1 ? 'Implementation Steps' : 'Risk Mitigation'}
+- [ ] Step 1
+- [ ] Step 2
+...
+
+## Questions & Concerns
+- Any unresolved questions
+\`\`\`
+
+## Rules
+- Be CONCISE - sacrifice grammar for clarity
+- Focus ONLY on your assigned perspective
+- Specific file paths, not vague descriptions
+- Working dir: ${params.workingDir}
+
+Begin exploring the codebase and write your focused plan.`
+}
+
+/**
+ * System prompt for synthesizing two agent plans into one final plan.
+ * Cross-examines both plans and produces a unified approach.
+ */
+function buildPlanSynthesisPrompt(params: {
+  title: string
+  parentTaskPath: string
+  plan1Path: string
+  plan1Content: string
+  plan2Path: string
+  plan2Content: string
+  plan1Failed: boolean
+  plan2Failed: boolean
+  workingDir: string
+}): string {
+  const failureNote = (params.plan1Failed || params.plan2Failed)
+    ? `\n## Note on Failures
+${params.plan1Failed ? `- Agent 1 (Implementation) FAILED - synthesize from available content or note gaps` : ''}
+${params.plan2Failed ? `- Agent 2 (Edge Cases) FAILED - synthesize from available content or note gaps` : ''}\n`
+    : ''
+
+  return `You are a Planning Synthesizer. Two agents have independently analyzed a task. Your job is to cross-examine their plans and create one unified plan.
+
+## Task
+"${params.title}"
+${failureNote}
+## Agent 1 Plan (Implementation Focus)
+Path: ${params.plan1Path}
+
+${params.plan1Content || '_No content available_'}
+
+---
+
+## Agent 2 Plan (Edge Cases Focus)
+Path: ${params.plan2Path}
+
+${params.plan2Content || '_No content available_'}
+
+---
+
+## Your Mission
+
+1. **Identify Agreements**: What do both agents agree on?
+2. **Resolve Conflicts**: Where do they disagree? Choose the best approach.
+3. **Fill Gaps**: What did one agent catch that the other missed?
+4. **Combine Strengths**: Merge implementation details with risk mitigation.
+
+## Output
+
+Write the unified plan to: ${params.parentTaskPath}
+
+Use this format:
+
+\`\`\`markdown
+# ${params.title}
+
+## Problem Statement
+[Synthesized understanding from both agents]
+
+## Scope
+**In:** bullet list
+**Out:** bullet list
+
+## Implementation Plan
+
+### Phase: [Name]
+- [ ] Step (with risk mitigation noted inline where needed)
+- [ ] Step
+
+## Key Files
+- \`path/file.ts\` - combined rationale
+
+## Risk Mitigation
+[Key risks from Agent 2 and how they're addressed]
+
+## Success Criteria
+- [ ] Measurable outcome
+
+## Unresolved Questions
+- Questions from either agent that need answers
+\`\`\`
+
+## Rules
+- Be CONCISE - this is the final plan humans will use
+- Prefer specificity over generality
+- If agents conflict, explain your choice briefly
+- Working dir: ${params.workingDir}
+
+Begin synthesis now.`
+}
+
 export const tasksRouter = router({
   list: procedure.query(({ ctx }) => {
     return listTasks(ctx.workingDir)
@@ -2264,6 +2427,363 @@ Begin working on the task now.`
         taskPath: input.taskPath,
         title: `Orchestrator: ${task.title}`,
         debugRunId: input.debugRunId,
+      })
+
+      return {
+        sessionId,
+        isNew: true,
+      }
+    }),
+
+  // === Multi-Agent Planning ===
+
+  /**
+   * Plan a task with 2 independent agents that write separate plan files.
+   * Agent 1 focuses on implementation, Agent 2 focuses on edge cases.
+   * After both complete, orchestratePlanRun synthesizes the final plan.
+   */
+  planWithAgents: procedure
+    .input(z.object({
+      title: z.string().min(1),
+      agents: z.array(z.object({
+        agentType: agentTypeSchema,
+        model: z.string().optional(),
+      })).length(2), // Exactly 2 agents
+      autoRun: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Validate CLI availability for all agents before creating task
+      for (const agent of input.agents) {
+        validateCLIAvailability(agent.agentType)
+      }
+
+      const { slugifyTitle } = await import("@/lib/utils/slugify")
+      const { existsSync, mkdirSync } = await import("fs")
+      const path = await import("path")
+
+      // Create task directory structure: tasks/{slug}/
+      const taskSlug = slugifyTitle(input.title)
+      const taskDir = `tasks/${taskSlug}`
+      const taskDirAbs = path.join(ctx.workingDir, taskDir)
+      mkdirSync(taskDirAbs, { recursive: true })
+
+      // Create plan file paths
+      const plan1Path = `${taskDir}/plan-agent-1.md`
+      const plan2Path = `${taskDir}/plan-agent-2.md`
+      const parentTaskPath = `tasks/${taskSlug}.md`
+
+      // Create placeholder plan files
+      const plan1Placeholder = `# Plan: ${input.title} (Agent 1 - Implementation)\n\n_Generating plan..._\n`
+      const plan2Placeholder = `# Plan: ${input.title} (Agent 2 - Edge Cases)\n\n_Generating plan..._\n`
+      saveTask(ctx.workingDir, plan1Path, plan1Placeholder)
+      saveTask(ctx.workingDir, plan2Path, plan2Placeholder)
+
+      // Create parent task file with links to child plans
+      const { updateAutoRunInContent } = await import("@/lib/agent/task-service")
+      let parentContent = `# ${input.title}
+
+_Generating plans with 2 agents..._
+
+## Plan Files
+- [Agent 1 (Implementation)](${taskSlug}/plan-agent-1.md)
+- [Agent 2 (Edge Cases)](${taskSlug}/plan-agent-2.md)
+`
+      parentContent = updateAutoRunInContent(parentContent, input.autoRun)
+      saveTask(ctx.workingDir, parentTaskPath, parentContent)
+
+      // Generate plan run ID to group both sessions
+      const planRunId = randomBytes(8).toString("hex")
+
+      const monitor = getProcessMonitor()
+      const streamServerUrl = getStreamServerUrl()
+      const sessionIds: string[] = []
+
+      // Spawn both agents
+      for (let i = 0; i < 2; i++) {
+        const agent = input.agents[i]
+        const agentIndex = (i + 1) as 1 | 2
+        const planPath = agentIndex === 1 ? plan1Path : plan2Path
+
+        const prompt = buildPlanAgentPrompt({
+          agentIndex,
+          title: input.title,
+          planPath,
+          workingDir: ctx.workingDir,
+        })
+
+        const sessionId = randomBytes(6).toString("hex")
+        const daemonNonce = randomBytes(16).toString("hex")
+
+        await monitor.spawnDaemon({
+          sessionId,
+          agentType: agent.agentType,
+          model: agent.model,
+          prompt,
+          workingDir: ctx.workingDir,
+          streamServerUrl,
+          daemonNonce,
+          taskPath: planPath, // Each agent writes to its own plan file
+          title: `Plan (${agentIndex}): ${input.title}`,
+          planRunId,
+        })
+
+        sessionIds.push(sessionId)
+      }
+
+      return {
+        path: parentTaskPath,
+        taskDir,
+        planPaths: [plan1Path, plan2Path],
+        sessionIds,
+        planRunId,
+        status: "pending" as SessionStatus,
+      }
+    }),
+
+  /**
+   * Get the status of a plan run (group of planning sessions).
+   * Returns whether all sessions are terminal and their individual statuses.
+   */
+  getPlanRunStatus: procedure
+    .input(z.object({
+      planRunId: z.string().min(1),
+    }))
+    .query(async ({ input }) => {
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+
+      // Find all sessions in this plan run
+      const planSessions: Array<{
+        sessionId: string
+        status: SessionStatus
+        agentType: string
+        title?: string
+        taskPath?: string
+      }> = []
+
+      // Track deleted sessions
+      const deletedSessionIds = new Set<string>()
+      for (const event of registryEvents) {
+        if (event.type === "session_deleted") {
+          deletedSessionIds.add(event.sessionId)
+        }
+      }
+
+      for (const event of registryEvents) {
+        if (
+          event.type === "session_created" &&
+          event.planRunId === input.planRunId &&
+          !deletedSessionIds.has(event.sessionId)
+        ) {
+          // Find the latest status for this session
+          const sessionEvents = registryEvents.filter((e) => e.sessionId === event.sessionId)
+          const latestStatusEvent = [...sessionEvents]
+            .reverse()
+            .find((e) =>
+              e.type === "session_updated" ||
+              e.type === "session_completed" ||
+              e.type === "session_failed" ||
+              e.type === "session_cancelled"
+            )
+
+          let status: SessionStatus = "pending"
+          if (latestStatusEvent) {
+            if (latestStatusEvent.type === "session_updated") {
+              status = latestStatusEvent.status
+            } else if (latestStatusEvent.type === "session_completed") {
+              status = "completed"
+            } else if (latestStatusEvent.type === "session_failed") {
+              status = "failed"
+            } else if (latestStatusEvent.type === "session_cancelled") {
+              status = "cancelled"
+            }
+          }
+
+          planSessions.push({
+            sessionId: event.sessionId,
+            status,
+            agentType: event.agentType,
+            title: event.title,
+            taskPath: event.taskPath,
+          })
+        }
+      }
+
+      // Check if all sessions are terminal (including failed/cancelled)
+      const terminalStatuses: SessionStatus[] = ["completed", "failed", "cancelled"]
+      const allTerminal = planSessions.length > 0 &&
+        planSessions.every((s) => terminalStatuses.includes(s.status))
+
+      return {
+        planRunId: input.planRunId,
+        sessions: planSessions,
+        allTerminal,
+        totalCount: planSessions.length,
+        completedCount: planSessions.filter((s) => s.status === "completed").length,
+        failedCount: planSessions.filter((s) => s.status === "failed").length,
+        cancelledCount: planSessions.filter((s) => s.status === "cancelled").length,
+      }
+    }),
+
+  /**
+   * Spawn an orchestrator session to synthesize findings from a plan run.
+   * Reads plan files from disk and synthesizes them into the parent task.
+   * Runs even if one agent failed (notes failure in synthesis).
+   */
+  orchestratePlanRun: procedure
+    .input(z.object({
+      planRunId: z.string().min(1),
+      parentTaskPath: z.string().min(1),
+      plan1Path: z.string().min(1),
+      plan2Path: z.string().min(1),
+      /** Force spawn even if orchestrator already exists */
+      force: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+      const { existsSync, readFileSync } = await import("fs")
+      const path = await import("path")
+
+      // Check for existing orchestrator session for this plan run (idempotency)
+      if (!input.force) {
+        const existingOrchestrator = registryEvents.find(
+          (e) =>
+            e.type === "session_created" &&
+            e.title?.startsWith("Synthesize:") &&
+            e.planRunId === input.planRunId
+        )
+
+        if (existingOrchestrator && existingOrchestrator.type === "session_created") {
+          return {
+            sessionId: existingOrchestrator.sessionId,
+            isNew: false,
+          }
+        }
+      }
+
+      // Track deleted sessions
+      const deletedSessionIds = new Set<string>()
+      for (const event of registryEvents) {
+        if (event.type === "session_deleted") {
+          deletedSessionIds.add(event.sessionId)
+        }
+      }
+
+      // Find plan sessions to check their status
+      const planSessions: Array<{
+        sessionId: string
+        status: SessionStatus
+        taskPath?: string
+      }> = []
+
+      for (const event of registryEvents) {
+        if (
+          event.type === "session_created" &&
+          event.planRunId === input.planRunId &&
+          !event.title?.startsWith("Synthesize:") &&
+          !deletedSessionIds.has(event.sessionId)
+        ) {
+          const sessionEvents = registryEvents.filter((e) => e.sessionId === event.sessionId)
+          const latestStatusEvent = [...sessionEvents]
+            .reverse()
+            .find((e) =>
+              e.type === "session_updated" ||
+              e.type === "session_completed" ||
+              e.type === "session_failed" ||
+              e.type === "session_cancelled"
+            )
+
+          let status: SessionStatus = "pending"
+          if (latestStatusEvent) {
+            if (latestStatusEvent.type === "session_updated") {
+              status = latestStatusEvent.status
+            } else if (latestStatusEvent.type === "session_completed") {
+              status = "completed"
+            } else if (latestStatusEvent.type === "session_failed") {
+              status = "failed"
+            } else if (latestStatusEvent.type === "session_cancelled") {
+              status = "cancelled"
+            }
+          }
+
+          planSessions.push({
+            sessionId: event.sessionId,
+            status,
+            taskPath: event.taskPath,
+          })
+        }
+      }
+
+      // Check if all sessions are terminal
+      const terminalStatuses: SessionStatus[] = ["completed", "failed", "cancelled"]
+      const allTerminal = planSessions.every((s) => terminalStatuses.includes(s.status))
+
+      if (!allTerminal) {
+        throw new Error("Cannot orchestrate: not all plan sessions are terminal")
+      }
+
+      // Determine which agents failed (by task path)
+      const plan1Session = planSessions.find((s) => s.taskPath === input.plan1Path)
+      const plan2Session = planSessions.find((s) => s.taskPath === input.plan2Path)
+      const plan1Failed = !plan1Session || plan1Session.status !== "completed"
+      const plan2Failed = !plan2Session || plan2Session.status !== "completed"
+
+      // Read plan files from disk
+      const plan1AbsPath = path.join(ctx.workingDir, input.plan1Path)
+      const plan2AbsPath = path.join(ctx.workingDir, input.plan2Path)
+
+      let plan1Content = ""
+      let plan2Content = ""
+
+      try {
+        if (existsSync(plan1AbsPath)) {
+          plan1Content = readFileSync(plan1AbsPath, "utf-8")
+        }
+      } catch {
+        // Plan file doesn't exist or can't be read
+      }
+
+      try {
+        if (existsSync(plan2AbsPath)) {
+          plan2Content = readFileSync(plan2AbsPath, "utf-8")
+        }
+      } catch {
+        // Plan file doesn't exist or can't be read
+      }
+
+      // Get parent task info for the title
+      const parentTask = getTask(ctx.workingDir, input.parentTaskPath)
+
+      // Build synthesis prompt
+      const prompt = buildPlanSynthesisPrompt({
+        title: parentTask.title,
+        parentTaskPath: input.parentTaskPath,
+        plan1Path: input.plan1Path,
+        plan1Content,
+        plan2Path: input.plan2Path,
+        plan2Content,
+        plan1Failed,
+        plan2Failed,
+        workingDir: ctx.workingDir,
+      })
+
+      // Spawn codex orchestrator session
+      const sessionId = randomBytes(6).toString("hex")
+      const daemonNonce = randomBytes(16).toString("hex")
+      const streamServerUrl = getStreamServerUrl()
+      const monitor = getProcessMonitor()
+
+      await monitor.spawnDaemon({
+        sessionId,
+        agentType: "codex",
+        prompt,
+        workingDir: ctx.workingDir,
+        streamServerUrl,
+        daemonNonce,
+        taskPath: input.parentTaskPath,
+        title: `Synthesize: ${parentTask.title}`,
+        planRunId: input.planRunId,
       })
 
       return {

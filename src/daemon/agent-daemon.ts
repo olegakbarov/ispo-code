@@ -58,6 +58,8 @@ export interface DaemonConfig {
   sourceLine?: number
   /** Debug run ID for grouping multi-agent debug sessions */
   debugRunId?: string
+  /** Plan run ID for grouping multi-agent planning sessions */
+  planRunId?: string
   streamServerUrl?: string
   isResume?: boolean
   cliSessionId?: string
@@ -133,7 +135,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId, githubRepo, claudeUseSubscription, worktreePath, worktreeBranch } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, planRunId, isResume, cliSessionId, githubRepo, claudeUseSubscription, worktreePath, worktreeBranch } =
       this.config
     const runWorkingDir = this.effectiveWorkingDir
     const { daemonNonce } = this.config
@@ -171,6 +173,7 @@ export class AgentDaemon {
             sourceFile,
             sourceLine,
             debugRunId,
+            planRunId,
             githubRepo,
           })
         )

@@ -637,7 +637,8 @@ export class CLIAgentRunner extends EventEmitter {
       })
       .with("codex", () => {
         if (isResume && cliSessionId) {
-          const args = ["resume", cliSessionId, "--json", "--dangerously-bypass-approvals-and-sandbox"]
+          // codex resume supports --dangerously-bypass-approvals-and-sandbox but not --json
+          const args = ["resume", "--dangerously-bypass-approvals-and-sandbox", cliSessionId]
           if (promptTransport === "args") {
             args.push(prompt)
           }
