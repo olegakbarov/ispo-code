@@ -7,7 +7,8 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
-import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, generateShortSlug, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge } from "@/lib/agent/task-service"
+import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge } from "@/lib/agent/task-service"
+import { buildTaskVerifyPrompt } from "@/lib/tasks/verify-prompt"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
 import { getActiveSessionIdsForTask } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
@@ -414,93 +415,6 @@ Provide a brief review with:
 3. Suggested improvements (bulleted list)
 
 Keep feedback constructive and actionable. Focus on the top 3-5 most impactful issues.`
-}
-
-/**
- * System prompt for task verification agent.
- * The agent can use tools to verify that completed items are actually done.
- */
-function buildTaskVerifyPrompt(params: {
-  taskPath: string
-  taskContent: string
-  workingDir: string
-  instructions?: string
-}): string {
-  const userInstructions = params.instructions?.trim()
-    ? `\n## Additional Verification Instructions\n${params.instructions.trim()}\n`
-    : ""
-
-  return `You are a senior engineering lead performing a VERIFICATION REVIEW. Your job is to verify that completed items (\`- [x]\`) are truly finished and identify any issues.
-
-## Context
-
-- Working directory: ${params.workingDir}
-- Task file path: ${params.taskPath}
-
-## Your Mission
-
-**VERIFY** each completed checkbox item by actually checking the codebase:
-
-1. **For code changes**: Read the referenced files and verify the code exists and looks correct
-2. **For tests**: Run the test suite to verify tests pass (use \`npm test\`, \`bun test\`, etc.)
-3. **For file creation**: Verify the files exist using glob/read
-4. **For bug fixes**: Check that the fix is in place and makes sense
-5. **For refactors**: Verify the new structure is correct
-
-## Verification Process
-
-For EACH completed item (\`- [x]\`):
-1. Determine what evidence would prove it's done
-2. Use tools to check for that evidence:
-   - \`read\` - Read files to verify code changes
-   - \`glob\` - Find files by pattern
-   - \`grep\` - Search for code patterns
-   - \`bash\` - Run tests or other verification commands
-3. Mark your finding in the output
-
-## What to Check
-
-- **Completed items are ACTUALLY done** - not just checked off
-- **Code quality** - no obvious bugs, edge cases handled
-- **Tests pass** - if tests are mentioned, run them
-- **Files exist** - if files are referenced, verify they exist
-- **Missing steps** - anything that should have been done but wasn't
-
-## Constraints
-
-- Do NOT modify any source files directly (only propose changes to the task doc)
-- Keep the intent of the task the same
-- Be thorough but efficient
-${userInstructions}
-
-## Current Task Content
-
---- TASK_START ---
-${params.taskContent}
---- TASK_END ---
-
-## Output Format (CRITICAL)
-
-After verifying, return the UPDATED task document with:
-1. Verification notes added as sub-items under completed items
-2. Uncheck (\`- [ ]\`) any items that aren't actually done
-3. Add a "## Verification Results" section at the end
-
-Return the updated markdown between these exact markers:
-
-===TASK_REVIEW_OUTPUT_START===
-[full markdown content with verification notes]
-===TASK_REVIEW_OUTPUT_END===
-
-Example of verification annotation:
-\`\`\`
-- [x] Add error handling to API endpoint
-  - ✓ Verified: Error handling added in \`src/api/handler.ts:45\`
-- [ ] Fix login bug  ← unchecked because not actually fixed
-  - ✗ Not found: Expected fix in \`src/auth/login.ts\` but code unchanged
-\`\`\`
-
-Now begin verification. Read files, run tests, and verify each completed item.`
 }
 
 /**
