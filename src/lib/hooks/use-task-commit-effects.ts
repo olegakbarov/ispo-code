@@ -107,9 +107,11 @@ export function useTaskCommitEffects({
       payload: { path: selectedPath, isGenerating: true },
     })
 
-    utils.client.tasks.getChangedFilesForTask
+    // OPTIMIZED: Use getReviewData (same endpoint as review panel)
+    utils.client.tasks.getReviewData
       .query({ path: selectedPath })
-      .then((files) => {
+      .then((reviewData) => {
+        const files = reviewData.changedFiles
         if (files.length === 0) {
           dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
           return
@@ -148,7 +150,7 @@ export function useTaskCommitEffects({
     pendingCommitMessage,
     selectedSummary?.title,
     editor.draft,
-    utils.client.tasks.getChangedFilesForTask,
+    utils.client.tasks.getReviewData,
     utils.client.git.generateCommitMessage,
     dispatch,
   ])

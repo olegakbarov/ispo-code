@@ -60,11 +60,12 @@ export function CommitArchiveModal({
   // Determine if merge is available (worktree isolation enabled)
   const canMerge = !!worktreeBranch && !!sessionId
 
-  // Fetch changed files for this task
-  const { data: changedFiles = [], isLoading: filesLoading } = trpc.tasks.getChangedFilesForTask.useQuery(
+  // OPTIMIZED: Use combined review data endpoint (same as review panel)
+  const { data: reviewData, isLoading: filesLoading } = trpc.tasks.getReviewData.useQuery(
     { path: taskPath },
     { enabled: isOpen && !!taskPath }
   )
+  const changedFiles = reviewData?.changedFiles ?? []
 
   // Query git status to check if task file is modified
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
@@ -130,8 +131,7 @@ export function CommitArchiveModal({
     },
     onSuccess: () => {
       utils.tasks.list.invalidate()
-      utils.tasks.getChangedFilesForTask.invalidate()
-      utils.tasks.hasUncommittedChanges.invalidate()
+      utils.tasks.getReviewData.invalidate()
       onArchiveSuccess()
     },
     onError: (err, _variables, context) => {

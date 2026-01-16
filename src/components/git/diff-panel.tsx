@@ -71,6 +71,8 @@ interface DiffPanelProps {
   availableAgentTypes?: AgentType[]
   /** Theme for diff viewer */
   theme?: ThemeType
+  /** Hide comment/send controls (for task review mode) */
+  reviewMode?: boolean
   onSelectFile: (file: string) => void
   onCloseFile: (file: string) => void
   onCloseAll: () => void
@@ -176,6 +178,7 @@ export function DiffPanel({
   diffError,
   availableAgentTypes = [],
   theme = 'dark',
+  reviewMode = false,
   onSelectFile,
   onCloseFile,
   onCloseAll,
@@ -607,7 +610,8 @@ export function DiffPanel({
         </div>
       ) : (
         <div className="flex-1 min-h-0 min-w-0 overflow-auto">
-          {(toAgentCommentCount > 0 || (activeFile && (commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0) > 0)) && (
+          {/* Comment header with send controls - hidden in review mode */}
+          {!reviewMode && (toAgentCommentCount > 0 || (activeFile && (commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0) > 0)) && (
             <div className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur px-3 py-2">
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
@@ -661,8 +665,8 @@ export function DiffPanel({
             className="block w-full min-w-0"
             oldFile={{ name: activeFile, contents: diffData.oldContent }}
             newFile={{ name: activeFile, contents: diffData.newContent }}
-            lineAnnotations={lineAnnotations}
-            renderAnnotation={(annotation) => {
+            lineAnnotations={reviewMode ? [] : lineAnnotations}
+            renderAnnotation={reviewMode ? () => null : (annotation) => {
               const key = `${annotation.side}:${annotation.lineNumber}`
               const list = commentsByLineKey.get(key) ?? []
               const view = activeView
@@ -796,7 +800,7 @@ export function DiffPanel({
         </div>
       )}
 
-      {sendOpen && (
+      {!reviewMode && sendOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-2xl rounded border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
