@@ -4,7 +4,7 @@
 
 import { createFileRoute } from "@tanstack/react-router"
 import { useState, useRef, useMemo } from "react"
-import { Settings, Palette, Check, Volume2, Play, Loader2, Bot, Moon, Sun } from "lucide-react"
+import { Settings, Palette, Check, Volume2, Play, Loader2, Bot, Moon, Sun, User, LogOut } from "lucide-react"
 import { useSettingsStore, applyBrandHue } from "@/lib/stores/settings"
 import { trpc } from "@/lib/trpc-client"
 import { agentTypeLabel, getModelsForAgentType, getDefaultModelId } from "@/lib/agent/config"
@@ -429,6 +429,9 @@ function SettingsPage() {
           defaultVerifyModelId={defaultVerifyModelId}
           setDefaultVerifyModelId={setDefaultVerifyModelId}
         />
+
+        {/* Account Section */}
+        <AccountSection />
       </div>
     </div>
   )
@@ -578,6 +581,57 @@ function AgentDefaultsSection({
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+/**
+ * Account Section - shows user info and sign out option
+ */
+function AccountSection() {
+  const { data: session } = trpc.github.getSession.useQuery()
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" })
+    window.location.reload()
+  }
+
+  // Only show if authenticated
+  if (!session?.authenticated || !session.username) {
+    return null
+  }
+
+  return (
+    <section className="mb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <User className="w-4 h-4 text-primary" />
+        <h2 className="text-sm font-semibold">Account</h2>
+      </div>
+
+      <p className="text-xs text-muted-foreground mb-4">
+        Manage your GitHub account connection.
+      </p>
+
+      <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-medium">
+            {session.username[0].toUpperCase()}
+          </div>
+          <div>
+            <div className="text-sm font-medium">{session.username}</div>
+            <div className="text-xs text-muted-foreground">Connected via GitHub</div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <LogOut className="w-3 h-3" />
+          Sign out
+        </button>
+      </div>
     </section>
   )
 }
