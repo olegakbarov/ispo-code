@@ -7,9 +7,9 @@
  * - /tasks/new (create modal open)
  */
 
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useState, useMemo, useCallback } from 'react'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
-import { TaskEditor } from '@/components/tasks/task-editor'
+import { TaskEditor, type EditTab } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskForm, CreateTaskActions } from '@/components/tasks/create-task-form'
@@ -17,7 +17,6 @@ import { Plus as PlusIcon } from 'lucide-react'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { ImplementModal } from '@/components/tasks/implement-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
-import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
 import { UnarchiveModal } from '@/components/tasks/unarchive-modal'
 import { DebatePanel } from '@/components/debate'
 import { OrchestratorModal } from '@/components/tasks/orchestrator-modal'
@@ -62,6 +61,10 @@ export function TasksPage({
 
   const [state, dispatch] = useReducer(tasksReducer, false, createInitialState)
   const { editor, create, run, verify, rewrite, save, modals, unarchive, pendingCommit, confirmDialog, orchestrator } = state
+
+  // Edit tab state (draft vs subtasks) - lifted from TaskEditor for sidebar control
+  const [editTab, setEditTab] = useState<EditTab>('draft')
+
   const createRenderMode = getCreateTaskRenderMode({
     selectedPath,
   })
@@ -85,6 +88,50 @@ export function TasksPage({
     activeSessionId,
     activeSessionInfo,
   } = useTaskData({ selectedPath, mode })
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // Review Mode Data (for sidebar file list)
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  const { data: reviewData, isLoading: reviewFilesLoading } = trpc.tasks.getReviewData.useQuery(
+    { path: selectedPath! },
+    { enabled: !!selectedPath && mode === 'review' }
+  )
+
+  const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
+    enabled: !!workingDir && mode === 'review',
+  })
+
+  // Compute uncommitted files for review sidebar
+  const reviewFiles = useMemo(() => {
+    if (!reviewData?.changedFiles) return []
+    const uncommittedSet = reviewData.uncommittedFiles
+      ? new Set(reviewData.uncommittedFiles)
+      : null
+    return reviewData.changedFiles.filter(f => {
+      const gitPath = f.repoRelativePath || f.relativePath || f.path
+      if (gitPath === selectedPath) return false
+      return uncommittedSet ? uncommittedSet.has(gitPath) : true
+    })
+  }, [reviewData, selectedPath])
+
+  // Git-relative paths for commit
+  const gitRelativeFiles = useMemo(() => {
+    const files = reviewFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
+    if (gitStatus && selectedPath) {
+      const taskFileModified =
+        gitStatus.staged.some((f: { file: string }) => f.file === selectedPath) ||
+        gitStatus.modified.some((f: { file: string }) => f.file === selectedPath) ||
+        gitStatus.untracked.includes(selectedPath)
+      if (taskFileModified && !files.includes(selectedPath)) {
+        files.push(selectedPath)
+      }
+    }
+    return files
+  }, [reviewFiles, gitStatus, selectedPath])
+
+  // Active file state for review sidebar (URL-synced via reviewFile)
+  const [reviewActiveFile, setReviewActiveFile] = useState<string | null>(null)
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // Draft Persistence
@@ -137,6 +184,19 @@ export function TasksPage({
     reviewFile,
     splitFrom: taskData?.splitFrom,
   })
+
+  // Sync reviewFile from URL to local state
+  useEffect(() => {
+    if (reviewFile && reviewActiveFile !== reviewFile) {
+      setReviewActiveFile(reviewFile)
+    }
+  }, [reviewFile, reviewActiveFile])
+
+  // Handle file click from sidebar - updates both local state and URL
+  const handleSidebarFileClick = useCallback((file: string, _view: unknown, _sessionWorkingDir?: string) => {
+    setReviewActiveFile(file)
+    handleReviewFileChange(file)
+  }, [handleReviewFileChange])
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // Mutations (Phase 1: use-task-mutations)
@@ -232,9 +292,6 @@ export function TasksPage({
     handleStartVerify,
     handleCloseVerifyModal,
     handleOpenSplitModal,
-    handleOpenCommitArchiveModal,
-    handleCloseCommitArchiveModal,
-    handleCommitSuccess,
     handleArchiveSuccess,
     handleMergeSuccess,
     activeWorktreeBranch,
@@ -444,7 +501,7 @@ export function TasksPage({
               />
             </ErrorBoundary>
           ) : (
-            <>
+            <div className="flex-1 min-h-0 flex flex-col relative">
               <ErrorBoundary
                 name="TaskEditor"
                 fallback={
@@ -459,6 +516,7 @@ export function TasksPage({
                   title={editorTitle}
                   path={selectedPath}
                   mode={mode}
+                  editTab={editTab}
                   draft={editor.draft}
                   taskDescription={editor.draft}
                   createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
@@ -472,12 +530,16 @@ export function TasksPage({
                   onArchive={handleArchive}
                   onRestore={handleRestore}
                   onUnarchiveWithAgent={handleOpenUnarchiveModal}
-                  onCommitAndArchive={handleOpenCommitArchiveModal}
+                  initialCommitMessage={pendingCommitMessage}
+                  isGeneratingCommitMessage={pendingCommitGenerating}
+                  sessionId={activeSessionId}
+                  worktreeBranch={activeWorktreeBranch}
+                  onArchiveSuccess={handleArchiveSuccess}
+                  onMergeSuccess={handleMergeSuccess}
                   activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
                   isPlanningActive={isActivePlanningSession}
                   reviewFile={reviewFile}
                   onReviewFileChange={handleReviewFileChange}
-                  onModeChange={handleModeChange}
                   onDraftChange={(newDraft) => {
                     dispatch({ type: 'SET_DRAFT', payload: newDraft })
                     dispatch({ type: 'SET_DIRTY', payload: true })
@@ -489,32 +551,34 @@ export function TasksPage({
                 />
               </ErrorBoundary>
 
-              {/* Footer with rewrite controls - only show in edit mode */}
+              {/* Floating footer with rewrite controls - only show in edit mode */}
               {mode === 'edit' && (
-                <TaskFooter
-                  rewriteComment={rewrite.comment}
-                  rewriteAgentType={rewrite.agentType}
-                  rewriteModel={rewrite.model}
-                  isRewriting={rewriteWithAgentMutation.isPending}
-                  availableTypes={availableTypes}
-                  canSplit={sectionsData?.canSplit}
-                  onSplit={handleOpenSplitModal}
-                  onRewriteCommentChange={(comment) => {
-                    setRewriteDraft(comment)
-                    dispatch({ type: 'SET_REWRITE_COMMENT', payload: comment })
-                  }}
-                  onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
-                  onRewriteModelChange={(model) => dispatch({ type: 'SET_REWRITE_MODEL', payload: model })}
-                  onRewritePlan={handleRewritePlan}
-                />
+                <div className="absolute bottom-0 left-0 right-0 z-10">
+                  <TaskFooter
+                    rewriteComment={rewrite.comment}
+                    rewriteAgentType={rewrite.agentType}
+                    rewriteModel={rewrite.model}
+                    isRewriting={rewriteWithAgentMutation.isPending}
+                    availableTypes={availableTypes}
+                    canSplit={sectionsData?.canSplit}
+                    onSplit={handleOpenSplitModal}
+                    onRewriteCommentChange={(comment) => {
+                      setRewriteDraft(comment)
+                      dispatch({ type: 'SET_REWRITE_COMMENT', payload: comment })
+                    }}
+                    onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
+                    onRewriteModelChange={(model) => dispatch({ type: 'SET_REWRITE_MODEL', payload: model })}
+                    onRewritePlan={handleRewritePlan}
+                  />
+                </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
-        {/* Right: Task Controls Panel - hidden in review/debate mode */}
-        {selectedPath && mode === 'edit' && (
-          <div className="w-80 shrink-0 border-l border-border overflow-hidden">
+        {/* Right: Task Controls Panel - shown in edit and review modes, hidden in debate */}
+        {selectedPath && mode !== 'debate' && (
+          <div className="w-[400px] shrink-0 border-l border-border overflow-hidden">
             <ErrorBoundary
               name="TaskSidebar"
               fallback={
@@ -525,6 +589,10 @@ export function TasksPage({
             >
               <TaskSidebar
                 mode={mode}
+                editTab={editTab}
+                onModeChange={handleModeChange}
+                onEditTabChange={setEditTab}
+                subtasksCount={taskData?.subtasks?.length ?? 0}
                 isSaving={save.saving}
                 isDeleting={deleteMutation.isPending}
                 isAssigning={assignToAgentMutation.isPending}
@@ -552,6 +620,20 @@ export function TasksPage({
                 onVerify={handleVerify}
                 onAssignToAgent={handleAssignToAgent}
                 onCancelAgent={handleCancelAgent}
+                // Review mode props
+                reviewFiles={reviewFiles}
+                reviewActiveFile={reviewActiveFile}
+                reviewFilesLoading={reviewFilesLoading}
+                onReviewFileClick={handleSidebarFileClick}
+                taskPath={selectedPath ?? undefined}
+                taskTitle={editorTitle}
+                taskContent={editor.draft}
+                gitRelativeFiles={gitRelativeFiles}
+                initialCommitMessage={pendingCommitMessage}
+                isGeneratingCommitMessage={pendingCommitGenerating}
+                sessionId={activeSessionId}
+                onArchiveSuccess={handleArchiveSuccess}
+                onMergeSuccess={handleMergeSuccess}
               />
             </ErrorBoundary>
           </div>
@@ -604,29 +686,6 @@ export function TasksPage({
         defaultModel={unarchive.model}
         isSubmitting={unarchiveWithContextMutation.isPending}
       />
-
-      {/* Commit and Archive Modal */}
-      {selectedPath && (
-        <ErrorBoundary
-          name="CommitArchiveModal"
-          fallback={null}
-        >
-          <CommitArchiveModal
-            isOpen={modals.commitArchiveOpen}
-            taskPath={selectedPath}
-            taskTitle={editorTitle}
-            taskContent={editor.draft}
-            initialMessage={pendingCommitMessage}
-            isGeneratingInitial={pendingCommitGenerating}
-            sessionId={activeSessionId}
-            worktreeBranch={activeWorktreeBranch}
-            onClose={handleCloseCommitArchiveModal}
-            onCommitSuccess={handleCommitSuccess}
-            onArchiveSuccess={handleArchiveSuccess}
-            onMergeSuccess={handleMergeSuccess}
-          />
-        </ErrorBoundary>
-      )}
 
       <ConfirmDialog
         open={confirmDialog.open}

@@ -292,6 +292,112 @@ export function useTaskMutations({
   })
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Plan with Agents Mutation (multi-agent planning)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const planWithAgentsMutation = trpc.tasks.planWithAgents.useMutation({
+    onMutate: async ({ title }) => {
+      // Cancel in-flight queries to avoid race conditions
+      await utils.tasks.list.cancel()
+      await utils.tasks.get.cancel()
+      await utils.tasks.getActiveAgentSessions.cancel()
+
+      // Store previous list for potential rollback
+      const previousList = utils.tasks.list.getData()
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+      const existingPaths = new Set(previousList?.map(t => t.path) ?? [])
+
+      // Generate optimistic path using shared slugify logic
+      const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
+
+      // Set optimistic active session
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [optimisticPath]: {
+          sessionId: `pending-plan-multi-${Date.now()}`,
+          status: 'pending',
+        },
+      }))
+
+      return { previousList, previousSessions, optimisticPath }
+    },
+    onSuccess: (data, _variables, context) => {
+      const serverPath = data.path
+      const optimisticPath = context?.optimisticPath
+
+      // Clean up optimistic cache entry if path differs
+      if (optimisticPath && serverPath !== optimisticPath) {
+        utils.tasks.get.setData({ path: optimisticPath }, undefined)
+        utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => {
+          if (!prev) return prev
+          const updated = { ...prev }
+          delete updated[optimisticPath]
+          return updated
+        })
+      }
+
+      // Update active session with first planning session ID
+      if (data.sessionIds && data.sessionIds.length > 0) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+          ...(prev ?? {}),
+          [serverPath]: {
+            sessionId: data.sessionIds[0],
+            status: 'pending',
+          },
+        }))
+      }
+
+      // Invalidate to refresh with server data
+      startTransition(() => {
+        utils.tasks.list.invalidate()
+        utils.tasks.get.invalidate({ path: serverPath })
+      })
+
+      // Set plan orchestrator triggered for plan runs
+      if (data.planRunId && data.planPaths) {
+        dispatch({
+          type: 'SET_PLAN_ORCHESTRATOR_TRIGGERED',
+          payload: {
+            planRunId: data.planRunId,
+            planPaths: data.planPaths as [string, string],
+            parentTaskPath: data.path,
+          },
+        })
+      }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousList) {
+        utils.tasks.list.setData(undefined, context.previousList)
+      }
+      if (context?.optimisticPath) {
+        utils.tasks.get.setData({ path: context.optimisticPath }, undefined)
+      }
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      }
+    },
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Orchestrate Plan Run Mutation
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const orchestratePlanMutation = trpc.tasks.orchestratePlanRun.useMutation({
+    onSuccess: (data, variables) => {
+      dispatch({
+        type: 'SET_PLAN_ORCHESTRATOR',
+        payload: {
+          planRunId: variables.planRunId,
+          sessionId: data.sessionId,
+        },
+      })
+    },
+    onError: (err) => {
+      console.error('Failed to start plan orchestrator:', err)
+    },
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Delete Mutation
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -772,7 +878,8 @@ export function useTaskMutations({
   const isCreating =
     createMutation.isPending ||
     createWithAgentMutation.isPending ||
-    debugWithAgentsMutation.isPending
+    debugWithAgentsMutation.isPending ||
+    planWithAgentsMutation.isPending
 
   return {
     // Mutations
@@ -780,6 +887,7 @@ export function useTaskMutations({
     createMutation,
     createWithAgentMutation,
     debugWithAgentsMutation,
+    planWithAgentsMutation,
     deleteMutation,
     archiveMutation,
     restoreMutation,
@@ -790,6 +898,7 @@ export function useTaskMutations({
     rewriteWithAgentMutation,
     splitTaskMutation,
     orchestrateMutation,
+    orchestratePlanMutation,
 
     // QA Workflow Mutations
     mergeBranchMutation,
