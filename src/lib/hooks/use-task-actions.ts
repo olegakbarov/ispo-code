@@ -868,20 +868,28 @@ export function useTaskActions({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const prevModeRef = useRef<string | undefined>(undefined)
+  const prevReviewPathRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!selectedPath) return
 
     const prevMode = prevModeRef.current
+    const prevPath = prevReviewPathRef.current
     prevModeRef.current = mode
 
-    // Skip on initial mount
-    if (prevMode === undefined) return
+    // Update path ref only when in review mode
+    if (mode === 'review') {
+      prevReviewPathRef.current = selectedPath
+    }
 
-    // Only trigger when transitioning TO review mode
-    const isEnteringReview = prevMode !== 'review' && mode === 'review'
+    // Trigger when:
+    // 1. Initial mount in review mode (prevMode === undefined && mode === 'review')
+    // 2. Transitioning TO review mode (prevMode !== 'review' && mode === 'review')
+    // 3. Path change while in review mode (prevPath !== selectedPath && mode === 'review')
+    const isEnteringReview = (prevMode === undefined || prevMode !== 'review') && mode === 'review'
+    const isPathChangeInReview = prevPath !== null && prevPath !== selectedPath && mode === 'review'
 
-    if (isEnteringReview) {
+    if (isEnteringReview || isPathChangeInReview) {
       triggerCommitMessageGeneration()
     }
   }, [selectedPath, mode, triggerCommitMessageGeneration])
