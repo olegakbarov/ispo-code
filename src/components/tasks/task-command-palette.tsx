@@ -12,9 +12,10 @@ import { cn } from '@/lib/utils'
 interface TaskCommandPaletteProps {
   trigger?: React.ReactNode
   className?: string
+  variant?: 'button' | 'inline'
 }
 
-export function TaskCommandPalette({ trigger, className }: TaskCommandPaletteProps) {
+export function TaskCommandPalette({ trigger, className, variant = 'button' }: TaskCommandPaletteProps) {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
 
@@ -36,25 +37,52 @@ export function TaskCommandPalette({ trigger, className }: TaskCommandPalettePro
     setOpen(false)
   }
 
-  return (
-    <>
-      {/* Trigger button */}
-      {trigger ? (
+  const renderTrigger = () => {
+    if (trigger) {
+      return (
         <div onClick={() => setOpen(true)} className={className}>
           {trigger}
         </div>
-      ) : (
+      )
+    }
+
+    if (variant === 'inline') {
+      return (
         <button
           onClick={() => setOpen(true)}
           className={cn(
-            'flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-accent text-accent-foreground hover:opacity-90 transition-opacity text-xs font-vcr',
+            'flex items-center gap-2 w-full px-3 py-2 rounded bg-background border border-border/60 text-left text-xs font-vcr text-muted-foreground hover:border-border hover:text-foreground transition-colors',
             className
           )}
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Task</span>
+          <Plus className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1">Type a command...</span>
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] bg-border/30 rounded">
+            <span>⌘</span>
+            <span>K</span>
+          </kbd>
         </button>
-      )}
+      )
+    }
+
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className={cn(
+          'flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-accent text-accent-foreground hover:opacity-90 transition-opacity text-xs font-vcr',
+          className
+        )}
+      >
+        <Plus className="w-3.5 h-3.5" />
+        <span>New Task</span>
+      </button>
+    )
+  }
+
+  return (
+    <>
+      {/* Trigger */}
+      {renderTrigger()}
 
       {/* Command palette dialog */}
       <Command.Dialog
