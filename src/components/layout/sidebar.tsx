@@ -1,9 +1,6 @@
-import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Cpu, FolderOpen, ChevronRight, Settings, BarChart3, Wrench, GitBranch } from 'lucide-react'
+import { Cpu, BarChart3, Wrench, GitBranch } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
-import { FolderPicker } from '@/components/ui/folder-picker'
-import { useWorkingDirStore } from '@/lib/stores/working-dir'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { UserMenu } from '@/components/auth/user-menu'
 import { GitHubLoginButton } from '@/components/auth/github-login-button'
@@ -26,9 +23,6 @@ export function Sidebar() {
       </div>
 
       <footer className="border-t border-border shrink-0">
-        {/* Project Selector */}
-        <ProjectIndicator />
-
         {/* Worktrees Link */}
         <NavLink to="/worktrees" icon={<GitBranch className="w-4 h-4" />}>Worktrees</NavLink>
 
@@ -37,9 +31,6 @@ export function Sidebar() {
 
         {/* Tool Calls Gallery Link */}
         <NavLink to="/tool-calls" icon={<Wrench className="w-4 h-4" />}>Tool Calls</NavLink>
-
-        {/* Settings Link */}
-        <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
 
         {/* GitHub Auth */}
         <div className="px-3 py-2 border-t border-border">
@@ -69,43 +60,3 @@ function NavLink({ to, icon, children }: { to: string; icon?: React.ReactNode; c
   )
 }
 
-/**
- * Project indicator - shows current working directory
- * Click to open folder picker and change working directory
- */
-function ProjectIndicator() {
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const { workingDir: selectedDir } = useWorkingDirStore()
-  const { data: serverDir, isLoading } = trpc.system.workingDir.useQuery()
-
-  // Use selected dir from store, or fall back to server default
-  const effectiveDir = selectedDir ?? serverDir
-
-  // Get display name (last part of path)
-  const displayName = effectiveDir
-    ? effectiveDir.split('/').filter(Boolean).pop() || effectiveDir
-    : isLoading ? 'Loading...' : 'No project'
-
-  return (
-    <>
-      <button
-        onClick={() => setPickerOpen(true)}
-        className="w-full px-3 py-2 text-left hover:bg-secondary/50 transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-2">
-          <FolderOpen className="w-4 h-4 text-muted-foreground shrink-0" />
-          <span className="flex-1 min-w-0 text-xs font-vcr truncate text-foreground">
-            {displayName}
-          </span>
-          <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
-        </div>
-        {effectiveDir && (
-          <div className="mt-1 text-[10px] text-muted-foreground truncate" title={effectiveDir}>
-            {effectiveDir}
-          </div>
-        )}
-      </button>
-      <FolderPicker open={pickerOpen} onOpenChange={setPickerOpen} />
-    </>
-  )
-}
