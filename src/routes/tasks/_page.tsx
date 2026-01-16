@@ -384,6 +384,7 @@ export function TasksPage({
                       availablePlannerTypes={availablePlannerTypes}
                       debugAgents={create.debugAgents}
                       autoRun={create.autoRun}
+                      includeQuestions={create.includeQuestions}
                       runAgentType={run.agentType}
                       runModel={run.model}
                       onCreate={handleCreate}
@@ -396,6 +397,7 @@ export function TasksPage({
                       onAgentTypeChange={handleCreateAgentTypeChange}
                       onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
                       onAutoRunChange={(autoRun) => dispatch({ type: 'SET_CREATE_AUTO_RUN', payload: autoRun })}
+                      onIncludeQuestionsChange={(includeQuestions) => dispatch({ type: 'SET_CREATE_INCLUDE_QUESTIONS', payload: includeQuestions })}
                       onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
                       onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
                       onRunAgentTypeChange={handleRunAgentTypeChange}

@@ -84,8 +84,8 @@ export function TaskEditor({
   // Edit mode sub-tabs (Draft/Subtasks)
   const [editTab, setEditTab] = useState<EditTab>('draft')
   return (
-    <>
-      <div className="sticky top-0 z-10 h-12 border-b border-border bg-panel/80 backdrop-blur">
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="shrink-0 h-12 border-b border-border bg-panel/80 backdrop-blur">
         <div className="flex items-center gap-3 w-full h-full px-3">
           {/* Header tabs */}
           <div className="flex items-center shrink-0">
@@ -160,50 +160,46 @@ export function TaskEditor({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {mode === 'edit' ? (
-          // Show session output when planning is active (regardless of placeholder text)
           isPlanningActive ? (
-            <div className="w-full h-full overflow-y-auto p-3 pb-64">
-              {/* Session output */}
+            <div className="p-3">
               {activePlanningOutput && activePlanningOutput.length > 0 ? (
                 <OutputRenderer chunks={activePlanningOutput as AgentOutputChunk[]} />
               ) : (
-                <div className="text-sm text-muted-foreground">
-                  Waiting for output...
-                </div>
+                <div className="text-sm text-muted-foreground">Waiting for output...</div>
               )}
             </div>
-          ) : (
-            <div className="h-full flex flex-col">
-              {/* Tab content */}
-              {editTab === 'draft' ? (
+          ) : editTab === 'draft' ? (
+            <div className="flex justify-center p-3">
+              <div className="grow-wrap w-full max-w-[900px]" data-replicated-value={draft}>
                 <Textarea
                   value={draft}
                   onChange={(e) => onDraftChange(e.target.value)}
                   variant="sm"
-                  className="flex-1 min-h-0 p-3 pb-64 bg-background font-mono border-0"
+                  className="w-full bg-transparent font-mono border-0"
                   spellCheck={false}
+                  rows={3}
                 />
-              ) : (
-                <div className="flex-1 min-h-0 overflow-y-auto p-3 pb-64">
-                  <ErrorBoundary
-                    name="SubtaskSection"
-                    fallback={
-                      <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
-                        Failed to load subtasks
-                      </div>
-                    }
-                  >
-                    <SubtaskSection
-                      taskPath={path}
-                      subtasks={subtasks}
-                      version={taskVersion}
-                      onRefresh={onSubtasksChange ?? (() => {})}
-                    />
-                  </ErrorBoundary>
-                </div>
-              )}
+              </div>
+            </div>
+          ) : (
+            <div className="p-3">
+              <ErrorBoundary
+                name="SubtaskSection"
+                fallback={
+                  <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                    Failed to load subtasks
+                  </div>
+                }
+              >
+                <SubtaskSection
+                  taskPath={path}
+                  subtasks={subtasks}
+                  version={taskVersion}
+                  onRefresh={onSubtasksChange ?? (() => {})}
+                />
+              </ErrorBoundary>
             </div>
           )
         ) : (
@@ -236,6 +232,6 @@ export function TaskEditor({
           </div>
         )}
       </div>
-    </>
+    </div>
   )
 }
