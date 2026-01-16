@@ -28,6 +28,7 @@ interface UseAgentSessionTrackingParams {
   activeSessionId: string | undefined
   activeSessionInfo: ActiveSessionInfo | undefined
   taskSessions: TaskSessionsData | undefined
+  taskTitle?: string
 }
 
 /** Statuses considered active (not terminal) */
@@ -37,6 +38,7 @@ export function useAgentSessionTracking({
   activeSessionId,
   activeSessionInfo,
   taskSessions,
+  taskTitle,
 }: UseAgentSessionTrackingParams) {
   const utils = trpc.useUtils()
 
@@ -148,6 +150,7 @@ export function useAgentSessionTracking({
   useAudioNotification({
     status: audioSessionSnapshot?.status,
     sessionId: audioSessionSnapshot?.id,
+    taskTitle,
   })
 
   // ─────────────────────────────────────────────────────────────────────────────

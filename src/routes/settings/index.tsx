@@ -102,6 +102,7 @@ function SettingsPage() {
       const result = await generateNotification.mutateAsync({
         voiceId: selectedVoiceId,
         type,
+        taskTitle: "audio notification should specify which",
       })
 
       // Create a new Audio element for each play to avoid ref issues

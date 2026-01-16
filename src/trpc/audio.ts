@@ -14,6 +14,7 @@ import {
   generateSpeech,
   isConfigured,
 } from "@/lib/audio/elevenlabs-client"
+import { getTaskSnippet } from "@/lib/utils/task-title"
 
 /** In-memory cache for generated audio (voiceId + text -> base64 data URL) */
 const audioCache = new Map<string, string>()
@@ -28,6 +29,18 @@ const NOTIFICATION_MESSAGES = {
   completed: "Task completed successfully",
   failed: "Task failed",
 } as const
+
+function notificationText(type: "completed" | "failed", count?: number): string {
+  if (!count || count <= 1) {
+    return NOTIFICATION_MESSAGES[type]
+  }
+
+  if (type === "completed") {
+    return `${count} tasks completed successfully`
+  }
+
+  return `${count} tasks failed`
+}
 
 export const audioRouter = router({
   /**
@@ -86,17 +99,28 @@ export const audioRouter = router({
 
   /**
    * Generate notification audio for completion events.
-   * Uses predefined messages based on notification type.
+   * Uses predefined messages based on notification type, optionally including task title snippet.
    */
   generateNotification: procedure
     .input(
       z.object({
         voiceId: z.string(),
         type: z.enum(["completed", "failed"]),
+        taskTitle: z.string().optional(),
+        count: z.number().int().positive().optional(),
       })
     )
     .mutation(async ({ input }) => {
-      const text = NOTIFICATION_MESSAGES[input.type]
+      // Build notification text with task context if available
+      let text = notificationText(input.type, input.count)
+      if (input.taskTitle && (!input.count || input.count <= 1)) {
+        const snippet = getTaskSnippet(input.taskTitle)
+        if (snippet) {
+          // Format: "Task completed successfully: first five words"
+          text = `${text}: ${snippet}`
+        }
+      }
+
       const key = cacheKey(input.voiceId, text)
 
       // Check cache first

@@ -23,6 +23,8 @@ interface UseAudioNotificationOptions {
   status: SessionStatus | undefined
   /** Session ID for logging/debugging */
   sessionId?: string
+  /** Task title for context in notification */
+  taskTitle?: string
 }
 
 /**
@@ -36,6 +38,7 @@ interface UseAudioNotificationOptions {
 export function useAudioNotification({
   status,
   sessionId,
+  taskTitle,
 }: UseAudioNotificationOptions) {
   const { audioEnabled, selectedVoiceId } = useSettingsStore()
 
@@ -72,6 +75,7 @@ export function useAudioNotification({
         const result = await generateNotification.mutateAsync({
           voiceId: selectedVoiceId,
           type,
+          taskTitle,
         })
 
         // Create audio element if needed
@@ -81,7 +85,7 @@ export function useAudioNotification({
 
         audioRef.current.src = result.audioDataUrl
         await audioRef.current.play()
-        console.debug("[AudioNotification] Successfully played", type, "notification")
+        console.debug("[AudioNotification] Successfully played", type, "notification", taskTitle ? `for: ${taskTitle}` : "")
         return true
       } catch (error) {
         // Check if this is an autoplay policy error
@@ -93,7 +97,7 @@ export function useAudioNotification({
         return false
       }
     },
-    [selectedVoiceId, generateNotification]
+    [selectedVoiceId, generateNotification, taskTitle]
   )
 
   // Watch for status transitions
