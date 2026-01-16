@@ -27,6 +27,7 @@ import { ImageAttachmentInput } from '@/components/agents/image-attachment-input
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import type { ImageAttachment } from '@/lib/agent/types'
+import { encodeTaskPath } from '@/lib/utils/task-routing'
 
 export const Route = createFileRoute('/agents/$sessionId')({
   parseParams: (params) => ({
@@ -176,16 +177,27 @@ function AgentSessionPage() {
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
           <Link
-            to="/"
+            to={session.taskPath ? "/tasks/$" : "/"}
+            params={session.taskPath ? { _splat: encodeTaskPath(session.taskPath) } : undefined}
             className="text-muted-foreground hover:text-foreground transition-colors"
-            title="Back to dashboard"
+            title={session.taskPath ? "Back to task" : "Back to dashboard"}
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div className="flex-1 min-w-0">
-            <h1 className="font-vcr text-sm truncate">
-              {session.title || session.prompt.slice(0, 60)}
-            </h1>
+            {session.taskPath ? (
+              <Link
+                to="/tasks/$"
+                params={{ _splat: encodeTaskPath(session.taskPath) }}
+                className="font-vcr text-sm truncate block hover:text-accent transition-colors"
+              >
+                {session.title || session.prompt.slice(0, 60)}
+              </Link>
+            ) : (
+              <h1 className="font-vcr text-sm truncate">
+                {session.title || session.prompt.slice(0, 60)}
+              </h1>
+            )}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="font-mono">{session.agentType}</span>
               {session.model && (
@@ -203,8 +215,6 @@ function AgentSessionPage() {
         {/* Prompt */}
         <PromptDisplay
           prompt={session.prompt}
-          taskPath={session.taskPath}
-          isResumable={canResume}
           instructions={session.instructions}
           githubRepo={session.githubRepo}
         />
