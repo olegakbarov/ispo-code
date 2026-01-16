@@ -188,26 +188,76 @@ export function useTaskActions({
     const title = create.title.trim()
     if (!title) return
 
+    // Performance mark: create click
+    performance.mark('task-create-start')
+
     // Generate optimistic path for immediate navigation
     const existingPaths = new Set(tasks.map(t => t.path))
     const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
+    const now = new Date().toISOString()
 
-    // Optimistic update: reset state and clear draft immediately for instant feedback
+    // Seed optimistic cache BEFORE navigation (0ms latency requirement)
+    // This ensures the editor has content immediately when it renders
+    // For agent creates, show the title with "planning" placeholder
+    const optimisticContent = create.useAgent
+      ? `# ${title}\n\n_${create.taskType === 'bug' ? 'Investigating bug...' : 'Generating detailed task plan...'}_\n`
+      : `# ${title}\n\n## Plan\n\n- [ ] Define scope\n- [ ] Implement\n- [ ] Validate\n`
+    const optimisticTask = {
+      path: optimisticPath,
+      title,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      source: 'tasks-dir' as const,
+      progress: { total: create.useAgent ? 0 : 3, done: 0, inProgress: 0 },
+      subtaskCount: 0,
+      hasSubtasks: false,
+      content: optimisticContent,
+      subtasks: [],
+      version: 1,
+      mergeHistory: [],
+    }
+
+    // Seed tasks.get cache synchronously BEFORE navigation
+    utils.tasks.get.setData({ path: optimisticPath }, optimisticTask)
+
+    // Also seed tasks.list for sidebar visibility
+    const previousList = utils.tasks.list.getData()
+    if (previousList) {
+      utils.tasks.list.setData(undefined, [
+        {
+          path: optimisticPath,
+          title,
+          archived: false,
+          createdAt: now,
+          updatedAt: now,
+          source: 'tasks-dir' as const,
+          progress: { total: 3, done: 0, inProgress: 0 },
+          subtaskCount: 0,
+          hasSubtasks: false,
+        },
+        ...previousList,
+      ])
+    }
+
+    // Reset UI state and clear draft
     dispatch({ type: 'RESET_CREATE_MODAL' })
     clearCreateTitleDraft()
 
     // Navigate immediately to optimistic path (0ms latency)
-    if (!create.useAgent) {
-      // For basic create, navigate to task editor immediately
-      navigate({
-        to: '/tasks/$',
-        params: { _splat: encodeTaskPath(optimisticPath) },
-        search: buildSearchParams(),
-      })
-    }
+    // Cache is already seeded, so editor will have content immediately
+    // For agent creates, navigate to task editor first, then mutation onSuccess redirects to agent session
+    navigate({
+      to: '/tasks/$',
+      params: { _splat: encodeTaskPath(optimisticPath) },
+      search: buildSearchParams(),
+    })
+
+    // Performance mark: navigation complete
+    performance.mark('task-create-navigated')
 
     // Fire mutation without await (fire-and-forget pattern)
-    // The mutation will handle reconciliation and redirect if needed
+    // The mutation will handle reconciliation and redirect if server path differs
     if (create.useAgent) {
       if (create.taskType === 'bug') {
         const selectedAgents = create.debugAgents
@@ -233,11 +283,27 @@ export function useTaskActions({
         )
       }
     } else {
+      // For basic create, mutation handles reconciliation
+      // Pass optimisticPath so mutation can clean up if path differs
       createMutation.mutate(
         { title },
-        { onError: (err) => console.error('Failed to create task:', err) }
+        {
+          onError: (err) => {
+            console.error('Failed to create task:', err)
+            // Rollback: remove optimistic data
+            utils.tasks.get.setData({ path: optimisticPath }, undefined)
+            if (previousList) {
+              utils.tasks.list.setData(undefined, previousList)
+            }
+          },
+        }
       )
     }
+
+    // Log performance timing
+    performance.mark('task-create-end')
+    performance.measure('task-create-total', 'task-create-start', 'task-create-end')
+    performance.measure('task-create-to-navigate', 'task-create-start', 'task-create-navigated')
   }, [
     create.title,
     create.useAgent,
@@ -245,6 +311,7 @@ export function useTaskActions({
     create.debugAgents,
     create.agentType,
     create.model,
+    create.autoRun,
     tasks,
     debugWithAgentsMutation,
     createWithAgentMutation,
@@ -253,6 +320,8 @@ export function useTaskActions({
     clearCreateTitleDraft,
     navigate,
     buildSearchParams,
+    utils.tasks.get,
+    utils.tasks.list,
   ])
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -780,6 +849,10 @@ export function useTaskActions({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const autoRunTriggeredRef = useRef<Record<string, string | undefined>>({})
+  // Dedicated ref for auto-run status tracking - must be separate from prevAgentStatusRef
+  // to avoid the "consumed transition" bug where the commit message effect updates the
+  // shared ref before this effect can read the previous status
+  const prevAutoRunStatusRef = useRef<Record<string, string | undefined>>({})
 
   // Query task data to get autoRun flag
   const { data: taskDataForAutoRun } = trpc.tasks.get.useQuery(
@@ -790,8 +863,11 @@ export function useTaskActions({
   useEffect(() => {
     if (!selectedPath || !agentSession) return
 
-    const prevStatus = prevAgentStatusRef.current[selectedPath]
+    const prevStatus = prevAutoRunStatusRef.current[selectedPath]
     const currentStatus = agentSession.status
+
+    // Update our own ref for next comparison
+    prevAutoRunStatusRef.current[selectedPath] = currentStatus
 
     // Check if autoRun is enabled for this task
     const taskContent = taskDataForAutoRun?.content
@@ -799,6 +875,9 @@ export function useTaskActions({
 
     const autoRun = parseAutoRun(taskContent)
     if (!autoRun) return
+
+    // Skip on initial mount (no previous status yet)
+    if (prevStatus === undefined) return
 
     // Only trigger once per session
     const triggerKey = `${selectedPath}-${agentSession.id}`

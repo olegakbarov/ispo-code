@@ -5,6 +5,7 @@
  * Handles optimistic updates, cache invalidation, and navigation on success.
  */
 
+import { startTransition } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
@@ -67,52 +68,18 @@ export function useTaskMutations({
 
   const createMutation = trpc.tasks.create.useMutation({
     onMutate: async ({ title }) => {
+      // Cancel in-flight queries to avoid race conditions
       await utils.tasks.list.cancel()
       await utils.tasks.get.cancel()
 
+      // Store previous list for potential rollback
       const previousList = utils.tasks.list.getData()
       const existingPaths = new Set(previousList?.map(t => t.path) ?? [])
 
       // Generate optimistic path using shared slugify logic
+      // NOTE: handleCreate already seeded the cache before navigation,
+      // but onMutate may run asynchronously, so we recalculate for context
       const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
-      const now = new Date().toISOString()
-
-      const optimisticContent = `# ${title}\n\n## Plan\n\n- [ ] Define scope\n- [ ] Implement\n- [ ] Validate\n`
-
-      // Seed tasks.list cache
-      if (previousList) {
-        utils.tasks.list.setData(undefined, [
-          {
-            path: optimisticPath,
-            title,
-            archived: false,
-            createdAt: now,
-            updatedAt: now,
-            source: 'tasks-dir' as const,
-            progress: { total: 3, done: 0, inProgress: 0 },
-            subtaskCount: 0,
-            hasSubtasks: false,
-          },
-          ...previousList,
-        ])
-      }
-
-      // Seed tasks.get cache with optimistic content
-      utils.tasks.get.setData({ path: optimisticPath }, {
-        path: optimisticPath,
-        title,
-        archived: false,
-        createdAt: now,
-        updatedAt: now,
-        source: 'tasks-dir' as const,
-        progress: { total: 3, done: 0, inProgress: 0 },
-        subtaskCount: 0,
-        hasSubtasks: false,
-        content: optimisticContent,
-        subtasks: [],
-        version: 1,
-        mergeHistory: [],
-      })
 
       return { previousList, optimisticPath }
     },
@@ -120,32 +87,29 @@ export function useTaskMutations({
       const serverPath = data.path
       const optimisticPath = context?.optimisticPath
 
-      // If server path differs from optimistic, redirect
+      // If server path differs from optimistic, need to reconcile
       if (optimisticPath && serverPath !== optimisticPath) {
-        // Remove optimistic cache entries
+        // Remove optimistic cache entries (old path)
         utils.tasks.get.setData({ path: optimisticPath }, undefined)
 
-        // Navigate to actual server path
+        // Redirect to actual server path (path mismatch scenario)
         navigate({
           to: '/tasks/$',
           params: { _splat: encodeTaskPath(serverPath) },
           search: buildSearchParams(),
-        })
-      } else {
-        // Path matched, just navigate
-        navigate({
-          to: '/tasks/$',
-          params: { _splat: encodeTaskPath(serverPath) },
-          search: buildSearchParams(),
+          replace: true, // Replace history entry to avoid back button going to invalid path
         })
       }
+      // If path matched, no navigation needed (we already navigated in handleCreate)
 
-      // Invalidate to get fresh data from server
-      utils.tasks.list.invalidate()
-      utils.tasks.get.invalidate({ path: serverPath })
+      // Invalidate to get fresh data from server (non-urgent background refresh)
+      startTransition(() => {
+        utils.tasks.list.invalidate()
+        utils.tasks.get.invalidate({ path: serverPath })
+      })
     },
     onError: (_err, _variables, context) => {
-      // Roll back optimistic updates
+      // Roll back optimistic updates (handleCreate also does rollback via onError)
       if (context?.previousList) {
         utils.tasks.list.setData(undefined, context.previousList)
       }
@@ -161,44 +125,49 @@ export function useTaskMutations({
 
   const createWithAgentMutation = trpc.tasks.createWithAgent.useMutation({
     onMutate: async ({ title }) => {
+      // Cancel in-flight queries to avoid race conditions
       await utils.tasks.list.cancel()
+      await utils.tasks.get.cancel()
+
+      // Store previous list for potential rollback
       const previousList = utils.tasks.list.getData()
-      const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
-      const now = new Date().toISOString()
+      const existingPaths = new Set(previousList?.map(t => t.path) ?? [])
 
-      if (previousList) {
-        utils.tasks.list.setData(undefined, [
-          {
-            path: tempPath,
-            title,
-            archived: false,
-            createdAt: now,
-            updatedAt: now,
-            source: 'tasks-dir' as const,
-            progress: { total: 0, done: 0, inProgress: 0 },
-            subtaskCount: 0,
-            hasSubtasks: false,
-          },
-          ...previousList,
-        ])
-      }
+      // Generate optimistic path using shared slugify logic
+      // NOTE: handleCreate already seeded the cache and navigated
+      const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
 
-      return { previousList, tempPath }
+      return { previousList, optimisticPath }
     },
     onSuccess: (data, _variables, context) => {
-      if (context?.tempPath && context.previousList) {
-        utils.tasks.list.setData(undefined, context.previousList)
+      const serverPath = data.path
+      const optimisticPath = context?.optimisticPath
+
+      // Clean up optimistic cache entry if path differs
+      if (optimisticPath && serverPath !== optimisticPath) {
+        utils.tasks.get.setData({ path: optimisticPath }, undefined)
       }
-      utils.tasks.list.invalidate()
+
+      // Invalidate to refresh with server data (non-urgent)
+      startTransition(() => {
+        utils.tasks.list.invalidate()
+        utils.tasks.get.invalidate({ path: serverPath })
+      })
+
+      // Navigate to agent session view (user will see agent working on their task)
       navigate({
         to: '/agents/$sessionId',
         params: { sessionId: data.sessionId },
-        search: { taskPath: data.path },
+        search: { taskPath: serverPath },
       })
     },
     onError: (_err, _variables, context) => {
+      // Rollback: restore previous list and remove optimistic task.get entry
       if (context?.previousList) {
         utils.tasks.list.setData(undefined, context.previousList)
+      }
+      if (context?.optimisticPath) {
+        utils.tasks.get.setData({ path: context.optimisticPath }, undefined)
       }
     },
   })
@@ -209,49 +178,54 @@ export function useTaskMutations({
 
   const debugWithAgentsMutation = trpc.tasks.debugWithAgents.useMutation({
     onMutate: async ({ title }) => {
+      // Cancel in-flight queries to avoid race conditions
       await utils.tasks.list.cancel()
+      await utils.tasks.get.cancel()
+
+      // Store previous list for potential rollback
       const previousList = utils.tasks.list.getData()
-      const tempPath = `tasks/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-temp.md`
-      const now = new Date().toISOString()
+      const existingPaths = new Set(previousList?.map(t => t.path) ?? [])
 
-      if (previousList) {
-        utils.tasks.list.setData(undefined, [
-          {
-            path: tempPath,
-            title,
-            archived: false,
-            createdAt: now,
-            updatedAt: now,
-            source: 'tasks-dir' as const,
-            progress: { total: 0, done: 0, inProgress: 0 },
-            subtaskCount: 0,
-            hasSubtasks: false,
-          },
-          ...previousList,
-        ])
-      }
+      // Generate optimistic path using shared slugify logic
+      // NOTE: handleCreate already seeded the cache and navigated
+      const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
 
-      return { previousList, tempPath }
+      return { previousList, optimisticPath }
     },
     onSuccess: (data, _variables, context) => {
-      if (context?.tempPath && context.previousList) {
-        utils.tasks.list.setData(undefined, context.previousList)
-      }
-      utils.tasks.list.invalidate()
+      const serverPath = data.path
+      const optimisticPath = context?.optimisticPath
 
+      // Clean up optimistic cache entry if path differs
+      if (optimisticPath && serverPath !== optimisticPath) {
+        utils.tasks.get.setData({ path: optimisticPath }, undefined)
+      }
+
+      // Invalidate to refresh with server data (non-urgent)
+      startTransition(() => {
+        utils.tasks.list.invalidate()
+        utils.tasks.get.invalidate({ path: serverPath })
+      })
+
+      // Set orchestrator triggered for debug runs
       if (data.debugRunId) {
         dispatch({ type: 'SET_ORCHESTRATOR_TRIGGERED', payload: data.debugRunId })
       }
 
+      // Navigate to first agent session (user will see agent debugging)
       navigate({
         to: '/agents/$sessionId',
         params: { sessionId: data.sessionIds[0] },
-        search: { taskPath: data.path },
+        search: { taskPath: serverPath },
       })
     },
     onError: (_err, _variables, context) => {
+      // Rollback: restore previous list and remove optimistic task.get entry
       if (context?.previousList) {
         utils.tasks.list.setData(undefined, context.previousList)
+      }
+      if (context?.optimisticPath) {
+        utils.tasks.get.setData({ path: context.optimisticPath }, undefined)
       }
     },
   })
