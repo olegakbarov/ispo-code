@@ -11,6 +11,7 @@ import { fileURLToPath } from "url"
 import { randomBytes } from "crypto"
 import type { DaemonConfig } from "./agent-daemon"
 import { getDaemonRegistry, type DaemonRecord } from "./daemon-registry"
+import { resolveDaemonWorktree } from "./worktree"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -110,7 +111,16 @@ export class ProcessMonitor {
     console.log(`[ProcessMonitor] Agent type: ${config.agentType}, Model: ${config.model || 'default'}`)
 
     const daemonNonce = config.daemonNonce || randomBytes(16).toString("hex")
-    const spawnConfig: DaemonConfig = { ...config, daemonNonce }
+    let spawnConfig: DaemonConfig = { ...config, daemonNonce }
+    const worktreeResult = resolveDaemonWorktree(spawnConfig)
+    if (worktreeResult.worktreePath) {
+      spawnConfig = {
+        ...spawnConfig,
+        worktreePath: worktreeResult.worktreePath,
+        worktreeBranch: worktreeResult.worktreeBranch,
+      }
+    }
+    const spawnWorkingDir = worktreeResult.spawnWorkingDir
     const configJson = JSON.stringify(spawnConfig)
 
     // Use tsx in development mode to run TypeScript directly
@@ -124,6 +134,9 @@ export class ProcessMonitor {
     console.log(`[ProcessMonitor] isDev: ${isDev}, command: ${command}`)
     console.log(`[ProcessMonitor] daemonScript: ${daemonScript}`)
     console.log(`[ProcessMonitor] workingDir: ${spawnConfig.workingDir}`)
+    if (spawnWorkingDir !== spawnConfig.workingDir) {
+      console.log(`[ProcessMonitor] worktreeDir: ${spawnWorkingDir}`)
+    }
     console.log(`[ProcessMonitor] streamServerUrl: ${spawnConfig.streamServerUrl}`)
 
     // Spawn detached process
@@ -133,7 +146,7 @@ export class ProcessMonitor {
       child = await spawnWithRetry(command, [daemonScript, `--config=${configJson}`], {
         detached: true,
         stdio: "ignore", // Don't pipe stdio - daemon writes to streams
-        cwd: spawnConfig.workingDir,
+        cwd: spawnWorkingDir,
         env: {
           ...process.env,
           STREAM_SERVER_URL: spawnConfig.streamServerUrl || process.env.STREAM_SERVER_URL,

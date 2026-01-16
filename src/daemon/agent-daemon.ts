@@ -41,6 +41,10 @@ export interface DaemonConfig {
   agentType: AgentType
   prompt: string
   workingDir: string
+  /** Git worktree path for isolated session changes */
+  worktreePath?: string
+  /** Git worktree branch name (ispo-code/session-{sessionId}) */
+  worktreeBranch?: string
   daemonNonce: string
   model?: string
   taskPath?: string
@@ -110,6 +114,7 @@ export class AgentDaemon {
   private abortController: AbortController
   private agent?: SDKAgentLike
   private outputBuffer: AgentOutputChunk[] = []
+  private effectiveWorkingDir: string
 
   constructor(config: DaemonConfig) {
     this.config = config
@@ -119,7 +124,8 @@ export class AgentDaemon {
       debug: process.env.DEBUG === "true",
     })
     const modelLimit = getContextLimit(config.model ?? "", config.agentType)
-    this.analyzer = new MetadataAnalyzer(config.agentType, config.workingDir, modelLimit)
+    this.effectiveWorkingDir = config.worktreePath ?? config.workingDir
+    this.analyzer = new MetadataAnalyzer(config.agentType, this.effectiveWorkingDir, modelLimit)
     this.abortController = new AbortController()
   }
 
@@ -127,13 +133,17 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId, githubRepo, claudeUseSubscription } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId, githubRepo, claudeUseSubscription, worktreePath, worktreeBranch } =
       this.config
+    const runWorkingDir = this.effectiveWorkingDir
     const { daemonNonce } = this.config
 
     console.log(`[AgentDaemon] run() started for session ${sessionId}`)
     console.log(`[AgentDaemon] Config: agentType=${agentType}, model=${model}, isResume=${isResume}`)
     console.log(`[AgentDaemon] workingDir: ${workingDir}`)
+    if (runWorkingDir !== workingDir) {
+      console.log(`[AgentDaemon] worktreeDir: ${runWorkingDir}`)
+    }
 
     try {
       // 0. Announce daemon identity for rehydration validation.
@@ -152,6 +162,8 @@ export class AgentDaemon {
             agentType,
             prompt,
             workingDir,
+            worktreePath,
+            worktreeBranch,
             model,
             taskPath,
             title,
@@ -198,7 +210,17 @@ export class AgentDaemon {
       // 4. Create and wire up the agent
       console.log(`[AgentDaemon] Creating agent...`)
       const { reconstructedMessages, attachments } = this.config
-      this.agent = await this.createAgent(agentType, workingDir, model, cliSessionId, reconstructedMessages, attachments, claudeUseSubscription)
+      this.agent = await this.createAgent(
+        agentType,
+        workingDir,
+        runWorkingDir,
+        model,
+        cliSessionId,
+        reconstructedMessages,
+        attachments,
+        claudeUseSubscription,
+        worktreePath
+      )
       console.log(`[AgentDaemon] Agent created successfully`)
 
       // Wire up event handlers
@@ -243,7 +265,7 @@ export class AgentDaemon {
             const extractedContent = extractTaskReviewOutput(allOutput)
             if (extractedContent) {
               // Write the extracted content to the task file
-              saveTask(workingDir, taskPath, extractedContent)
+              saveTask(runWorkingDir, taskPath, extractedContent)
               console.log(`[AgentDaemon] Updated task file: ${taskPath}`)
             } else {
               console.warn(
@@ -292,47 +314,53 @@ export class AgentDaemon {
    */
   private async createAgent(
     agentType: AgentType,
-    workingDir: string,
+    configWorkingDir: string,
+    runWorkingDir: string,
     model?: string,
     cliSessionId?: string,
     reconstructedMessages?: unknown[],
     attachments?: ImageAttachment[],
-    claudeUseSubscription?: boolean
+    claudeUseSubscription?: boolean,
+    worktreePath?: string
   ): Promise<SDKAgentLike> {
     // Read server config for Claude subscription setting if not explicitly provided
-    const effectiveClaudeUseSubscription = claudeUseSubscription ?? readServerConfig(workingDir).claudeUseSubscription ?? false
+    const effectiveClaudeUseSubscription = claudeUseSubscription ?? readServerConfig(configWorkingDir).claudeUseSubscription ?? false
 
     return match(agentType)
       .with("cerebras", () => {
         return new CerebrasAgent({
-          workingDir,
+          workingDir: runWorkingDir,
           model,
           messages: reconstructedMessages as CerebrasMessageData[] | undefined,
           attachments,
+          worktreePath,
         }) as unknown as SDKAgentLike
       })
       .with("gemini", () => {
         return new GeminiAgent({
-          workingDir,
+          workingDir: runWorkingDir,
           model,
           messages: reconstructedMessages as GeminiMessageData[] | undefined,
           attachments,
+          worktreePath,
         }) as unknown as SDKAgentLike
       })
       .with("opencode", () => {
         // OpenCode now tracks conversation state locally for resume support
         return new OpencodeAgent({
-          workingDir,
+          workingDir: runWorkingDir,
           model,
           messages: reconstructedMessages as OpencodeMessageData[] | undefined,
+          worktreePath,
         }) as unknown as SDKAgentLike
       })
       .with("openrouter", () => {
         return new OpenRouterAgent({
-          workingDir,
+          workingDir: runWorkingDir,
           model,
           messages: reconstructedMessages as OpenRouterMessageData[] | undefined,
           attachments,
+          worktreePath,
         }) as unknown as SDKAgentLike
       })
       .with(P.union("claude", "codex", "research", "qa"), () => {
@@ -370,7 +398,7 @@ export class AgentDaemon {
 
             await cliRunner.run({
               agentType: agentType as "claude" | "codex" | "research" | "qa",
-              workingDir,
+              workingDir: runWorkingDir,
               prompt: p,
               cliSessionId,
               isResume: Boolean(cliSessionId),

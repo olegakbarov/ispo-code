@@ -27,6 +27,7 @@ import { getContextLimit } from "./model-registry"
 import { getRateLimiter, initRateLimiter } from "./rate-limiter"
 import { SecurityConfig } from "./security-config"
 import { getAbuseDetector } from "./abuse-detector"
+import { getKnownSessionIds } from "./session-index"
 
 type AgentManagerEvents = {
   output: [{ sessionId: string; chunk: AgentOutputChunk }]
@@ -672,12 +673,16 @@ export function getAgentManager(): AgentManager {
     if (isWorktreeIsolationEnabled()) {
       const repoRoot = getGitRoot(process.cwd())
       if (repoRoot) {
-        const store = getSessionStore()
-        const activeSessionIds = new Set(store.getAllSessions().map((s) => s.id))
-        const cleanedCount = cleanupOrphanedWorktrees(repoRoot, activeSessionIds)
-        if (cleanedCount > 0) {
-          console.log(`[AgentManager] Cleaned up ${cleanedCount} orphaned worktrees on startup`)
-        }
+        void (async () => {
+          const activeSessionIds = await getKnownSessionIds()
+          const cleanedCount = cleanupOrphanedWorktrees(repoRoot, activeSessionIds)
+          if (cleanedCount > 0) {
+            console.log(`[AgentManager] Cleaned up ${cleanedCount} orphaned worktrees on startup`)
+          }
+        })().catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+          console.warn(`[AgentManager] Failed to cleanup orphaned worktrees on startup: ${message}`)
+        })
       }
     }
   }

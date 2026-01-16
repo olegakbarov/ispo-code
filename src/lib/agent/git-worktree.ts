@@ -4,7 +4,7 @@
 
 import { spawnSync } from "child_process"
 import { join } from "path"
-import { existsSync, mkdirSync, rmSync } from "fs"
+import { existsSync, mkdirSync, rmSync, readdirSync } from "fs"
 import { isGitRepo, getGitRoot } from "./git-service"
 
 export interface WorktreeOptions {
@@ -154,7 +154,7 @@ export function createWorktree(options: WorktreeOptions): WorktreeInfo | null {
  *
  * @param worktreePath - Path to the worktree to delete
  * @param options - Additional options
- * @returns true if deletion succeeded
+ * @returns true if deletion succeeded (or worktree didn't exist)
  */
 export function deleteWorktree(
   worktreePath: string,
@@ -162,39 +162,42 @@ export function deleteWorktree(
 ): boolean {
   const { branch, force = true } = options ?? {}
 
-  if (!existsSync(worktreePath)) {
-    console.warn(`[git-worktree] Worktree path ${worktreePath} does not exist`)
-    return false
-  }
+  // Find the repository root - try parent directory if worktree doesn't exist
+  let repoRoot = existsSync(worktreePath)
+    ? getGitRoot(worktreePath)
+    : getGitRoot(process.cwd())
 
-  // Find the repository root for this worktree
-  const repoRoot = getGitRoot(worktreePath)
   if (!repoRoot) {
     console.error("[git-worktree] Cannot find repository root for worktree")
     return false
   }
 
-  // Remove worktree
-  const removeArgs = ["worktree", "remove"]
-  if (force) {
-    removeArgs.push("--force")
-  }
-  removeArgs.push(worktreePath)
-
-  const removeResult = runGit(removeArgs, repoRoot)
-  if (!removeResult.ok) {
-    console.error(`[git-worktree] Failed to remove worktree: ${removeResult.stderr}`)
-    // Try to manually remove the directory if git failed
-    try {
-      rmSync(worktreePath, { recursive: true, force: true })
-      console.log(`[git-worktree] Manually removed worktree directory`)
-    } catch (error) {
-      console.error(`[git-worktree] Failed to manually remove worktree:`, error)
-      return false
+  // Remove worktree directory if it exists
+  if (existsSync(worktreePath)) {
+    const removeArgs = ["worktree", "remove"]
+    if (force) {
+      removeArgs.push("--force")
     }
+    removeArgs.push(worktreePath)
+
+    const removeResult = runGit(removeArgs, repoRoot)
+    if (!removeResult.ok) {
+      console.error(`[git-worktree] Failed to remove worktree: ${removeResult.stderr}`)
+      // Try to manually remove the directory if git failed
+      try {
+        rmSync(worktreePath, { recursive: true, force: true })
+        console.log(`[git-worktree] Manually removed worktree directory`)
+      } catch (error) {
+        console.error(`[git-worktree] Failed to manually remove worktree:`, error)
+        return false
+      }
+    }
+    console.log(`[git-worktree] Deleted worktree at ${worktreePath}`)
+  } else {
+    console.warn(`[git-worktree] Worktree path ${worktreePath} does not exist, skipping directory removal`)
   }
 
-  // Delete the branch if provided
+  // Delete the branch if provided (regardless of whether worktree existed)
   if (branch && isValidWorktreeBranch(branch)) {
     const deleteBranchResult = runGit(["branch", "-D", branch], repoRoot)
     if (!deleteBranchResult.ok) {
@@ -205,7 +208,6 @@ export function deleteWorktree(
     }
   }
 
-  console.log(`[git-worktree] Deleted worktree at ${worktreePath}`)
   return true
 }
 
@@ -357,14 +359,15 @@ export function isWorktreeIsolationEnabled(): boolean {
 }
 
 /**
- * Cleanup orphaned worktrees
+ * Cleanup orphaned worktrees and branches
  *
- * Removes worktrees that no longer have active sessions.
+ * Removes worktrees that no longer have active sessions, and also cleans up
+ * orphaned branches that exist without a corresponding worktree directory.
  * This should be called on server startup to clean up from crashes.
  *
  * @param repoRoot - Repository root directory
  * @param activeSessions - Set of active session IDs
- * @returns Number of worktrees cleaned up
+ * @returns Number of worktrees/branches cleaned up
  */
 export function cleanupOrphanedWorktrees(
   repoRoot: string,
@@ -374,35 +377,73 @@ export function cleanupOrphanedWorktrees(
     return 0
   }
 
+  let cleanedCount = 0
   const worktreesDir = join(repoRoot, ".ispo-code", "worktrees")
-  if (!existsSync(worktreesDir)) {
-    return 0
+
+  // Phase 1: Clean up orphaned worktree directories
+  if (existsSync(worktreesDir)) {
+    try {
+      const entries = readdirSync(worktreesDir, { withFileTypes: true })
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+
+        const sessionId = entry.name
+        if (activeSessions.has(sessionId)) {
+          continue // Session is still active
+        }
+
+        const worktreePath = join(worktreesDir, sessionId)
+        const branch = `ispo-code/session-${sessionId}`
+
+        console.log(`[git-worktree] Cleaning up orphaned worktree for session ${sessionId}`)
+        if (deleteWorktree(worktreePath, { branch, force: true })) {
+          cleanedCount++
+        }
+      }
+    } catch (error) {
+      console.error("[git-worktree] Failed to cleanup orphaned worktrees:", error)
+    }
   }
 
-  let cleanedCount = 0
-
+  // Phase 2: Clean up orphaned branches (branches without worktree directories)
   try {
-    const { readdirSync } = require("fs")
-    const entries = readdirSync(worktreesDir, { withFileTypes: true })
+    const branchResult = runGit(["branch", "--list", "ispo-code/session-*"], repoRoot)
+    if (branchResult.ok) {
+      const branches = branchResult.stdout
+        .split("\n")
+        .map((line) => line.trim().replace(/^\*\s*/, "").replace(/^\+\s*/, ""))
+        .filter((b) => b.startsWith("ispo-code/session-"))
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
+      for (const branch of branches) {
+        // Extract session ID from branch name
+        const sessionId = branch.replace("ispo-code/session-", "")
+        if (!sessionId) continue
 
-      const sessionId = entry.name
-      if (activeSessions.has(sessionId)) {
-        continue // Session is still active
-      }
+        // Skip if session is active
+        if (activeSessions.has(sessionId)) {
+          continue
+        }
 
-      const worktreePath = join(worktreesDir, sessionId)
-      const branch = `ispo-code/session-${sessionId}`
+        // Skip if worktree directory exists (already handled in Phase 1)
+        const worktreePath = join(worktreesDir, sessionId)
+        if (existsSync(worktreePath)) {
+          continue
+        }
 
-      console.log(`[git-worktree] Cleaning up orphaned worktree for session ${sessionId}`)
-      if (deleteWorktree(worktreePath, { branch, force: true })) {
-        cleanedCount++
+        // This is an orphaned branch - delete it
+        console.log(`[git-worktree] Cleaning up orphaned branch ${branch} (no worktree directory)`)
+        const deleteResult = runGit(["branch", "-D", branch], repoRoot)
+        if (deleteResult.ok) {
+          cleanedCount++
+          console.log(`[git-worktree] Deleted orphaned branch ${branch}`)
+        } else {
+          console.warn(`[git-worktree] Failed to delete orphaned branch ${branch}: ${deleteResult.stderr}`)
+        }
       }
     }
   } catch (error) {
-    console.error("[git-worktree] Failed to cleanup orphaned worktrees:", error)
+    console.error("[git-worktree] Failed to cleanup orphaned branches:", error)
   }
 
   return cleanedCount

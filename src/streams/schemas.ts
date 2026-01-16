@@ -25,6 +25,10 @@ export interface SessionCreatedEvent {
   agentType: AgentType
   prompt: string
   workingDir: string
+  /** Git worktree path for isolated session changes */
+  worktreePath?: string
+  /** Git worktree branch name (ispo-code/session-{sessionId}) */
+  worktreeBranch?: string
   model?: string
   taskPath?: string
   /** Display title for sidebar (e.g., "Review: Task Name") */
