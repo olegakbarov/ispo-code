@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSyn
 import path from "path"
 import { globSync } from "glob"
 import { nanoid } from "nanoid"
+import { slugifyTitle, generateShortSlug as generateShortSlugUtil } from "@/lib/utils/slugify"
 
 export type TaskSource = "kiro-spec" | "codemap-plan" | "tasks-dir"
 
@@ -669,45 +670,8 @@ export function saveTask(cwd: string, taskPath: string, content: string): TaskFi
   return getTask(cwd, relPath)
 }
 
-function slugifyTitle(title: string): string {
-  const slug = title
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-
-  return slug || "task"
-}
-
-/**
- * Generate a short slug from a task title for use as filename prefix.
- * Extracts first 3 meaningful words (skipping common stop words).
- * Example: "implement auth system with oauth" -> "implement-auth-system"
- */
-export function generateShortSlug(title: string, maxWords = 3): string {
-  const stopWords = new Set([
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "must", "shall", "can", "need", "to", "of",
-    "in", "for", "on", "with", "at", "by", "from", "as", "into", "through",
-    "during", "before", "after", "above", "below", "between", "under",
-    "again", "further", "then", "once", "here", "there", "when", "where",
-    "why", "how", "all", "each", "few", "more", "most", "other", "some",
-    "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
-    "very", "just", "and", "but", "if", "or", "because", "until", "while",
-    "this", "that", "these", "those", "it", "we", "you", "they",
-  ])
-
-  const words = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 1 && !stopWords.has(word))
-    .slice(0, maxWords)
-
-  const slug = words.join("-")
-  return slug || "task"
-}
+// Re-export for backward compatibility
+export { generateShortSlug } from "@/lib/utils/slugify"
 
 export function createTask(
   cwd: string,

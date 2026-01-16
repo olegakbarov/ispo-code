@@ -15,6 +15,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useDebouncedCallback } from '@/lib/utils/debounce'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
+import { generateOptimisticTaskPath } from '@/lib/utils/slugify'
 import type { AgentType } from '@/lib/agent/types'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
@@ -173,12 +174,26 @@ export function useTaskActions({
     const title = create.title.trim()
     if (!title) return
 
+    // Generate optimistic path for immediate navigation
+    const existingPaths = new Set(tasks.map(t => t.path))
+    const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
+
     // Optimistic update: reset state and clear draft immediately for instant feedback
     dispatch({ type: 'RESET_CREATE_MODAL' })
     clearCreateTitleDraft()
 
+    // Navigate immediately to optimistic path (0ms latency)
+    if (!create.useAgent) {
+      // For basic create, navigate to task editor immediately
+      navigate({
+        to: '/tasks/$',
+        params: { _splat: encodeTaskPath(optimisticPath) },
+        search: buildSearchParams(),
+      })
+    }
+
     // Fire mutation without await (fire-and-forget pattern)
-    // Errors logged to console; optimistic update already applied
+    // The mutation will handle reconciliation and redirect if needed
     if (create.useAgent) {
       if (create.taskType === 'bug') {
         const selectedAgents = create.debugAgents
@@ -215,11 +230,14 @@ export function useTaskActions({
     create.debugAgents,
     create.agentType,
     create.model,
+    tasks,
     debugWithAgentsMutation,
     createWithAgentMutation,
     createMutation,
     dispatch,
     clearCreateTitleDraft,
+    navigate,
+    buildSearchParams,
   ])
 
   // ─────────────────────────────────────────────────────────────────────────────

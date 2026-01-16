@@ -37,6 +37,17 @@ export function useTaskRefresh({
     if (!selectedPath || !workingDir) return
     if (lastLoadedPathRef.current === selectedPath) return
 
+    // Check if we have optimistic data cached
+    const cachedTask = utils.tasks.get.getData({ path: selectedPath })
+    if (cachedTask) {
+      // Use cached optimistic content immediately
+      dispatch({ type: 'SET_DRAFT', payload: cachedTask.content })
+      dispatch({ type: 'SET_DIRTY', payload: false })
+      lastLoadedPathRef.current = selectedPath
+      return
+    }
+
+    // Otherwise fetch from server
     utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
       dispatch({ type: 'SET_DRAFT', payload: task.content })
       dispatch({ type: 'SET_DIRTY', payload: false })
@@ -46,7 +57,7 @@ export function useTaskRefresh({
       dispatch({ type: 'SET_DRAFT', payload: `# Error\n\nFailed to load task content.` })
       lastLoadedPathRef.current = selectedPath
     })
-  }, [selectedPath, workingDir, utils.client.tasks.get, dispatch])
+  }, [selectedPath, workingDir, utils.client.tasks.get, utils.tasks.get, dispatch])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Live-refresh While Agent Active
