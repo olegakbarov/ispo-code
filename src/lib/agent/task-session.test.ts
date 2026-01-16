@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { createRegistryEvent } from "../../streams/schemas"
-import { resolveTaskSessionIdsFromRegistry, getActiveSessionIdsForTask } from "./task-session"
+import { resolveTaskSessionIdsFromRegistry, getActiveSessionIdsForTask, taskHasFailedSession, getTaskFailedSessionsMap } from "./task-session"
 
 const createdEvent = (sessionId: string, taskPath?: string) =>
   createRegistryEvent.created({
@@ -13,6 +13,9 @@ const createdEvent = (sessionId: string, taskPath?: string) =>
 
 const deletedEvent = (sessionId: string) =>
   createRegistryEvent.deleted({ sessionId })
+
+const failedEvent = (sessionId: string) =>
+  createRegistryEvent.failed({ sessionId, error: "test error" })
 
 describe("resolveTaskSessionIdsFromRegistry", () => {
   it("prefers direct task sessions over splitFrom", () => {
@@ -130,5 +133,121 @@ describe("getActiveSessionIdsForTask", () => {
     ]
 
     expect(getActiveSessionIdsForTask(events, "tasks/my-task.md")).toEqual([])
+  })
+})
+
+describe("taskHasFailedSession", () => {
+  it("returns true when task has a failed session", () => {
+    const events = [
+      createdEvent("session1", "tasks/my-task.md"),
+      failedEvent("session1"),
+    ]
+
+    expect(taskHasFailedSession(events, "tasks/my-task.md")).toBe(true)
+  })
+
+  it("returns false when task has no failed sessions", () => {
+    const events = [
+      createdEvent("session1", "tasks/my-task.md"),
+    ]
+
+    expect(taskHasFailedSession(events, "tasks/my-task.md")).toBe(false)
+  })
+
+  it("returns false when failed session is deleted", () => {
+    const events = [
+      createdEvent("session1", "tasks/my-task.md"),
+      failedEvent("session1"),
+      deletedEvent("session1"),
+    ]
+
+    expect(taskHasFailedSession(events, "tasks/my-task.md")).toBe(false)
+  })
+
+  it("returns true when one session failed and another succeeded", () => {
+    const events = [
+      createdEvent("session1", "tasks/my-task.md"),
+      createdEvent("session2", "tasks/my-task.md"),
+      failedEvent("session1"),
+    ]
+
+    expect(taskHasFailedSession(events, "tasks/my-task.md")).toBe(true)
+  })
+
+  it("returns true for failed subtask sessions", () => {
+    const events = [
+      createdEvent("parent", "tasks/my-task.md"),
+      createdEvent("subtask", "tasks/my-task.md#abc123"),
+      failedEvent("subtask"),
+    ]
+
+    expect(taskHasFailedSession(events, "tasks/my-task.md")).toBe(true)
+  })
+})
+
+describe("getTaskFailedSessionsMap", () => {
+  it("returns empty map when no sessions exist", () => {
+    const events: ReturnType<typeof createdEvent>[] = []
+
+    const result = getTaskFailedSessionsMap(events)
+
+    expect(result.size).toBe(0)
+  })
+
+  it("returns map with failed tasks only", () => {
+    const events = [
+      createdEvent("session1", "tasks/task-a.md"),
+      createdEvent("session2", "tasks/task-b.md"),
+      failedEvent("session1"),
+    ]
+
+    const result = getTaskFailedSessionsMap(events)
+
+    expect(result.get("tasks/task-a.md")).toBe(true)
+    expect(result.has("tasks/task-b.md")).toBe(false)
+  })
+
+  it("excludes deleted sessions from failed check", () => {
+    const events = [
+      createdEvent("session1", "tasks/my-task.md"),
+      failedEvent("session1"),
+      deletedEvent("session1"),
+    ]
+
+    const result = getTaskFailedSessionsMap(events)
+
+    expect(result.has("tasks/my-task.md")).toBe(false)
+  })
+
+  it("aggregates subtask failures to base task path", () => {
+    const events = [
+      createdEvent("parent", "tasks/my-task.md"),
+      createdEvent("subtask", "tasks/my-task.md#abc"),
+      failedEvent("subtask"),
+    ]
+
+    const result = getTaskFailedSessionsMap(events)
+
+    expect(result.get("tasks/my-task.md")).toBe(true)
+    // Subtask path should not appear separately
+    expect(result.has("tasks/my-task.md#abc")).toBe(false)
+  })
+
+  it("handles multiple tasks with mixed statuses", () => {
+    const events = [
+      createdEvent("a1", "tasks/task-a.md"),
+      createdEvent("a2", "tasks/task-a.md"),
+      createdEvent("b1", "tasks/task-b.md"),
+      createdEvent("c1", "tasks/task-c.md"),
+      failedEvent("a1"), // task-a has failed session
+      failedEvent("c1"),
+      deletedEvent("c1"), // task-c failed session is deleted
+    ]
+
+    const result = getTaskFailedSessionsMap(events)
+
+    expect(result.get("tasks/task-a.md")).toBe(true)
+    expect(result.has("tasks/task-b.md")).toBe(false)
+    expect(result.has("tasks/task-c.md")).toBe(false)
   })
 })

@@ -5,7 +5,7 @@
 
 import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { Play, ChevronRight, ChevronDown, Layers, ArchiveRestore } from 'lucide-react'
+import { Play, ChevronRight, ChevronDown, Layers, ArchiveRestore, AlertCircle } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { match } from 'ts-pattern'
 import { Input } from '@/components/ui/input'
@@ -40,6 +40,7 @@ interface TaskItemProps {
   task: TaskSummary
   isActive: boolean
   agentSession?: ActiveAgentSession
+  hasFailedSession?: boolean
   onSelect: (path: string) => void
   onRunImpl: (path: string) => void
   onRunVerify: (path: string) => void
@@ -54,6 +55,7 @@ const TaskItem = memo(function TaskItem({
   task,
   isActive,
   agentSession,
+  hasFailedSession,
   onSelect,
   onRunImpl,
   onRunVerify: _onRunVerify, // Keep in interface for potential context menu use
@@ -149,6 +151,12 @@ const TaskItem = memo(function TaskItem({
       {/* Title and progress bar */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
+          {/* Error indicator for failed sessions */}
+          {hasFailedSession && (
+            <span title="Session failed">
+              <AlertCircle className="shrink-0 w-3.5 h-3.5 text-destructive" />
+            </span>
+          )}
           <div className="text-xs font-vcr truncate">{task.title}</div>
           {/* Subtask count badge */}
           {task.hasSubtasks && (
@@ -230,6 +238,10 @@ export function TaskListSidebar() {
   const { data: activeAgentSessions = {} } = trpc.tasks.getActiveAgentSessions.useQuery(undefined, {
     enabled: !!workingDir,
     refetchInterval: 2000,
+  })
+  const { data: tasksWithFailedSessions = {} } = trpc.tasks.getTasksWithFailedSessions.useQuery(undefined, {
+    enabled: !!workingDir,
+    refetchInterval: 5000, // Same interval as task list
   })
 
   // Filter and sort tasks
@@ -447,7 +459,7 @@ export function TaskListSidebar() {
       </div>
 
       {/* Filters row */}
-      <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+      <div className="px-3 py-2 flex items-center gap-2 border-b border-muted-foreground/20">
         {/* Archive filter tabs */}
         <div className="flex items-center gap-1 shrink-0" role="tablist" aria-label="Task filter">
           <button
@@ -504,6 +516,7 @@ export function TaskListSidebar() {
                 task={t}
                 isActive={t.path === selectedPath}
                 agentSession={(activeAgentSessions as Record<string, ActiveAgentSession>)?.[t.path]}
+                hasFailedSession={tasksWithFailedSessions[t.path] ?? false}
                 onSelect={handleTaskSelect}
                 onRunImpl={handleRunImpl}
                 onRunVerify={handleRunVerify}

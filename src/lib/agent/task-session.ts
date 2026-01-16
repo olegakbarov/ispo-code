@@ -116,3 +116,79 @@ export function getActiveSessionIdsForTask(
   // Filter out deleted sessions
   return allSessionIds.filter((id) => !deletedIds.has(id))
 }
+
+/**
+ * Build a set of failed session IDs from registry events.
+ */
+function getFailedSessionIds(registryEvents: RegistryEvent[]): Set<string> {
+  const failed = new Set<string>()
+  for (const event of registryEvents) {
+    if (event.type === "session_failed") {
+      failed.add(event.sessionId)
+    }
+  }
+  return failed
+}
+
+/**
+ * Check if a task has any failed (non-deleted) sessions.
+ * Returns true if at least one session for this task has failed.
+ */
+export function taskHasFailedSession(
+  registryEvents: RegistryEvent[],
+  taskPath: string,
+  splitFrom?: string
+): boolean {
+  const deletedIds = getDeletedSessionIds(registryEvents)
+  const failedIds = getFailedSessionIds(registryEvents)
+
+  // Get all session IDs for this task
+  const taskSessionIds = resolveTaskSessionIdsFromRegistry(registryEvents, taskPath, splitFrom)
+
+  // Check if any non-deleted session has failed
+  for (const sessionId of taskSessionIds) {
+    if (!deletedIds.has(sessionId) && failedIds.has(sessionId)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Build a map of taskPath -> hasFailed for all tasks with sessions.
+ * Used by sidebar to show error indicators for tasks with failed sessions.
+ * Excludes deleted sessions from the check.
+ */
+export function getTaskFailedSessionsMap(
+  registryEvents: RegistryEvent[]
+): Map<string, boolean> {
+  const deletedIds = getDeletedSessionIds(registryEvents)
+  const failedIds = getFailedSessionIds(registryEvents)
+
+  // Build map of taskPath -> session IDs (excluding deleted)
+  const taskSessions = new Map<string, string[]>()
+  for (const event of registryEvents) {
+    if (event.type === "session_created" && event.taskPath) {
+      // Extract base task path (strip #subtaskId if present)
+      const baseTaskPath = event.taskPath.split("#")[0]
+
+      if (!deletedIds.has(event.sessionId)) {
+        const sessions = taskSessions.get(baseTaskPath) || []
+        sessions.push(event.sessionId)
+        taskSessions.set(baseTaskPath, sessions)
+      }
+    }
+  }
+
+  // Build result map: taskPath -> hasFailed
+  const result = new Map<string, boolean>()
+  for (const [taskPath, sessionIds] of taskSessions) {
+    const hasFailed = sessionIds.some((id) => failedIds.has(id))
+    if (hasFailed) {
+      result.set(taskPath, true)
+    }
+  }
+
+  return result
+}
