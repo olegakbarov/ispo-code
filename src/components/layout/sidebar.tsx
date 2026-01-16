@@ -9,9 +9,11 @@ import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 export function Sidebar() {
   return (
     <aside className="w-80 bg-card flex flex-col border-r border-border">
-      <header className="h-12 flex items-center gap-2 px-3 border-b border-border">
-        <Cpu className="w-5 h-5 text-primary" />
-        <h1 className="font-vcr text-sm text-primary">Agentz</h1>
+      <header className="h-12 flex items-center border-b border-border">
+        <Link to="/" className="flex items-center gap-2 px-3 h-full hover:bg-secondary/50 transition-colors">
+          <Cpu className="w-5 h-5 text-primary" />
+          <h1 className="font-vcr text-sm text-primary">Agentz</h1>
+        </Link>
       </header>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
