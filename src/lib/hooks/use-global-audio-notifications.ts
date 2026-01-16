@@ -11,7 +11,7 @@
  * plays a single summary notification instead of overlapping audio.
  */
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSettingsStore } from '@/lib/stores/settings'
 import { trpc } from '@/lib/trpc-client'
 import { audioUnlockedPromise, isAudioUnlocked } from '@/lib/audio/audio-unlock'
@@ -33,6 +33,7 @@ type SessionSnapshot = Record<string, TrackedSession>
 interface QueuedNotification {
   type: 'completed' | 'failed'
   sessionId: string
+  taskTitle?: string
 }
 
 /**
@@ -58,9 +59,27 @@ export function useGlobalAudioNotifications() {
   // Generate notification mutation
   const generateNotification = trpc.audio.generateNotification.useMutation()
 
+  // Fetch task list to build taskPath -> title map
+  const { data: tasks } = trpc.tasks.list.useQuery(undefined, {
+    refetchInterval: false, // Only fetch once, titles don't change frequently
+  })
+
+  // Build taskPath -> title map for resolving session task titles
+  const taskTitleMap = useMemo(() => {
+    if (!tasks) return new Map<string, string>()
+    const map = new Map<string, string>()
+    for (const task of tasks) {
+      map.set(task.path, task.title)
+    }
+    return map
+  }, [tasks])
+
   // Play audio notification (internal - called after debounce)
   const playNotification = useCallback(
-    async (type: 'completed' | 'failed'): Promise<boolean> => {
+    async (
+      type: 'completed' | 'failed',
+      options?: { taskTitle?: string; count?: number }
+    ): Promise<boolean> => {
       if (!selectedVoiceId) return false
 
       // Check if audio has been unlocked by user interaction
@@ -75,15 +94,36 @@ export function useGlobalAudioNotifications() {
       }
 
       try {
-        const result = await generateNotification.mutateAsync({
+        const payload: {
+          voiceId: string
+          type: 'completed' | 'failed'
+          taskTitle?: string
+          count?: number
+        } = {
           voiceId: selectedVoiceId,
           type,
+        }
+
+        if (options?.taskTitle) {
+          payload.taskTitle = options.taskTitle
+        }
+
+        if (options?.count && options.count > 1) {
+          payload.count = options.count
+        }
+
+        const result = await generateNotification.mutateAsync({
+          ...payload,
         })
 
         const audio = new Audio()
         audio.src = result.audioDataUrl
         await audio.play()
-        console.debug('[GlobalAudio] Successfully played', type, 'notification')
+        console.debug('[GlobalAudio] Successfully played notification', {
+          type,
+          taskTitle: options?.taskTitle,
+          count: options?.count,
+        })
         return true
       } catch (error) {
         if (error instanceof DOMException && error.name === 'NotAllowedError') {
@@ -103,28 +143,31 @@ export function useGlobalAudioNotifications() {
     if (pending.length === 0) return
 
     // Count by type
-    const completed = pending.filter((n) => n.type === 'completed').length
-    const failed = pending.filter((n) => n.type === 'failed').length
+    const completedNotifs = pending.filter((n) => n.type === 'completed')
+    const failedNotifs = pending.filter((n) => n.type === 'failed')
 
     // Clear the queue
     pendingNotificationsRef.current = []
     debounceTimerRef.current = null
 
-    console.debug('[GlobalAudio] Flushing notifications:', { completed, failed })
+    console.debug('[GlobalAudio] Flushing notifications:', { completed: completedNotifs.length, failed: failedNotifs.length })
 
     // Play notification for the dominant type (or completed if tied)
     // If there are failures, prioritize reporting failures
-    if (failed > 0) {
-      playNotification('failed')
-    } else if (completed > 0) {
-      playNotification('completed')
+    // Use the first available taskTitle from the relevant type
+    if (failedNotifs.length > 0) {
+      const taskTitle = failedNotifs.length === 1 ? failedNotifs[0]?.taskTitle : undefined
+      playNotification('failed', { taskTitle, count: failedNotifs.length })
+    } else if (completedNotifs.length > 0) {
+      const taskTitle = completedNotifs.length === 1 ? completedNotifs[0]?.taskTitle : undefined
+      playNotification('completed', { taskTitle, count: completedNotifs.length })
     }
   }, [playNotification])
 
   // Queue a notification with debounce
   const queueNotification = useCallback(
-    (type: 'completed' | 'failed', sessionId: string) => {
-      pendingNotificationsRef.current.push({ type, sessionId })
+    (type: 'completed' | 'failed', sessionId: string, taskTitle?: string) => {
+      pendingNotificationsRef.current.push({ type, sessionId, taskTitle })
 
       // Reset the debounce timer
       if (debounceTimerRef.current) {
@@ -132,7 +175,7 @@ export function useGlobalAudioNotifications() {
       }
 
       debounceTimerRef.current = setTimeout(flushPendingNotifications, DEBOUNCE_DELAY_MS)
-      console.debug('[GlobalAudio] Queued notification:', { type, sessionId, queueSize: pendingNotificationsRef.current.length })
+      console.debug('[GlobalAudio] Queued notification:', { type, sessionId, taskTitle, queueSize: pendingNotificationsRef.current.length })
     },
     [flushPendingNotifications]
   )
@@ -175,7 +218,11 @@ export function useGlobalAudioNotifications() {
             if (session.status === 'completed' || session.status === 'failed') {
               notifiedSessionsRef.current.add(sessionId)
               const notificationType = session.status === 'completed' ? 'completed' : 'failed'
-              queueNotification(notificationType, sessionId)
+
+              // Resolve task title from taskPath
+              const taskTitle = session.taskPath ? taskTitleMap.get(session.taskPath) : undefined
+
+              queueNotification(notificationType, sessionId, taskTitle)
             }
           })
           .catch((error) => {
@@ -186,7 +233,7 @@ export function useGlobalAudioNotifications() {
 
     // Update snapshot for next comparison
     prevSessionsRef.current = currentSessions
-  }, [activeAgentSessions, audioEnabled, selectedVoiceId, queueNotification, utils.client.agent.get])
+  }, [activeAgentSessions, audioEnabled, selectedVoiceId, queueNotification, utils.client.agent.get, taskTitleMap])
 
   // Cleanup debounce timer on unmount
   useEffect(() => {
