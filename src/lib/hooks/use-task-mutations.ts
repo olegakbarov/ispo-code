@@ -433,21 +433,64 @@ export function useTaskMutations({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const assignToAgentMutation = trpc.tasks.assignToAgent.useMutation({
-    onMutate: async ({ path }) => {
+    onMutate: async ({ path, agentType, model }) => {
       await utils.tasks.getActiveAgentSessions.cancel()
-      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+      await utils.tasks.getSessionsForTask.cancel({ path })
 
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+      const previousTaskSessions = utils.tasks.getSessionsForTask.getData({ path })
+
+      const optimisticSessionId = `pending-impl-${Date.now()}`
+      const optimisticTimestamp = new Date().toISOString()
+
+      // Update active sessions cache (for progress indicator)
       utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
         ...(prev ?? {}),
         [path]: {
-          sessionId: `pending-${Date.now()}`,
+          sessionId: optimisticSessionId,
           status: 'pending',
         },
       }))
 
-      return { previousSessions, path }
+      // Update task sessions cache (for sidebar display)
+      const optimisticSession = {
+        sessionId: optimisticSessionId,
+        agentType: agentType ?? 'claude',
+        title: 'Implementing...',
+        status: 'pending' as const,
+        timestamp: optimisticTimestamp,
+        sessionType: 'execution' as const,
+        model,
+      }
+
+      utils.tasks.getSessionsForTask.setData({ path }, (prev) => {
+        if (!prev) {
+          return {
+            all: [optimisticSession],
+            grouped: {
+              planning: [],
+              review: [],
+              verify: [],
+              execution: [optimisticSession],
+              rewrite: [],
+              comment: [],
+              orchestrator: [],
+            },
+          }
+        }
+        return {
+          all: [optimisticSession, ...prev.all],
+          grouped: {
+            ...prev.grouped,
+            execution: [optimisticSession, ...prev.grouped.execution],
+          },
+        }
+      })
+
+      return { previousSessions, previousTaskSessions, path, optimisticSessionId }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, _variables, context) => {
+      // Replace optimistic active session with real session
       utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
         ...(prev ?? {}),
         [data.path]: {
@@ -455,12 +498,40 @@ export function useTaskMutations({
           status: data.status,
         },
       }))
+
+      // Replace optimistic task session with real session data
+      utils.tasks.getSessionsForTask.setData({ path: data.path }, (prev) => {
+        if (!prev) return prev
+        const optimisticId = context?.optimisticSessionId
+        const realSession = {
+          sessionId: data.sessionId,
+          agentType: _variables.agentType ?? 'claude',
+          title: `Run: ${data.path.split('/').pop()?.replace('.md', '') ?? 'Task'}`,
+          status: data.status,
+          timestamp: new Date().toISOString(),
+          sessionType: 'execution' as const,
+          model: _variables.model,
+        }
+
+        return {
+          all: prev.all.map((s) => s.sessionId === optimisticId ? realSession : s),
+          grouped: {
+            ...prev.grouped,
+            execution: prev.grouped.execution.map((s) => s.sessionId === optimisticId ? realSession : s),
+          },
+        }
+      })
     },
     onError: (_err, _variables, context) => {
+      // Rollback active sessions
       if (context?.previousSessions !== undefined) {
         utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
       } else {
         utils.tasks.getActiveAgentSessions.setData(undefined, {})
+      }
+      // Rollback task sessions
+      if (context?.previousTaskSessions !== undefined) {
+        utils.tasks.getSessionsForTask.setData({ path: context.path }, context.previousTaskSessions)
       }
     },
   })
