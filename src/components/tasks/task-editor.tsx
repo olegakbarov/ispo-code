@@ -2,18 +2,17 @@
  * Task editor component with edit/review modes
  */
 
-import { useState } from 'react'
 import { TaskReviewPanel } from './task-review-panel'
 import { SubtaskSection } from './subtask-section'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { Spinner } from '@/components/ui/spinner'
-import { Textarea } from '@/components/ui/textarea'
+import { MarkdownEditor } from '@/components/ui/markdown-editor'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { formatDateTime, formatTimeAgo } from '@/lib/utils/time'
 import type { AgentOutputChunk } from '@/lib/agent/types'
 import type { SubTask } from '@/lib/agent/task-service'
 
-type EditTab = 'draft' | 'subtasks'
+export type EditTab = 'draft' | 'subtasks'
 
 // Looser output type from agent-types.ts for compatibility
 type OutputChunk = { type: string; content: string; timestamp?: string }
@@ -24,6 +23,7 @@ interface TaskEditorProps {
   title: string
   path: string
   mode: Mode
+  editTab: EditTab
   draft: string
   taskDescription?: string
   // Timestamps
@@ -40,7 +40,18 @@ interface TaskEditorProps {
   onArchive?: () => void
   onRestore?: () => void
   onUnarchiveWithAgent?: () => void
-  onCommitAndArchive?: () => void
+  /** Pre-generated commit message */
+  initialCommitMessage?: string | null
+  /** Whether the initial message is still being generated */
+  isGeneratingCommitMessage?: boolean
+  /** Session ID for tracking merge history */
+  sessionId?: string
+  /** Worktree branch name if using worktree isolation */
+  worktreeBranch?: string
+  /** Called after successful archive */
+  onArchiveSuccess?: () => void
+  /** Called after successful merge */
+  onMergeSuccess?: () => void
   // Active planning session output (when planning is in progress)
   activePlanningOutput?: OutputChunk[]
   isPlanningActive?: boolean
@@ -48,7 +59,6 @@ interface TaskEditorProps {
   reviewFile?: string
   onReviewFileChange?: (file: string | null) => void
   // Callbacks
-  onModeChange: (mode: Mode) => void
   onDraftChange: (draft: string) => void
 }
 
@@ -56,6 +66,7 @@ export function TaskEditor({
   title,
   path,
   mode,
+  editTab,
   draft,
   taskDescription,
   createdAt,
@@ -69,73 +80,26 @@ export function TaskEditor({
   onArchive,
   onRestore,
   onUnarchiveWithAgent,
-  onCommitAndArchive,
+  initialCommitMessage,
+  isGeneratingCommitMessage,
+  sessionId,
+  worktreeBranch,
+  onArchiveSuccess,
+  onMergeSuccess,
   activePlanningOutput,
   isPlanningActive,
   reviewFile,
   onReviewFileChange,
-  onModeChange,
   onDraftChange,
 }: TaskEditorProps) {
   // Check if task content has debug placeholder (for header text display)
   // Matches both single-agent "_Investigating bug..._" and multi-agent "_Investigating bug with N agent(s)..._"
   const isDebugTask = draft.includes('_Investigating bug')
 
-  // Edit mode sub-tabs (Draft/Subtasks)
-  const [editTab, setEditTab] = useState<EditTab>('draft')
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="shrink-0 h-12 border-b border-border bg-panel/80 backdrop-blur">
         <div className="flex items-center gap-3 w-full h-full px-3">
-          {/* Header tabs */}
-          <div className="flex items-center shrink-0">
-            <div className="flex items-center border border-border rounded overflow-hidden">
-              <button
-                onClick={() => {
-                  onModeChange('edit')
-                  setEditTab('draft')
-                }}
-                className={`px-2 py-1 text-xs font-vcr transition-colors ${
-                  mode === 'edit' && editTab === 'draft'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                }`}
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => {
-                  onModeChange('edit')
-                  setEditTab('subtasks')
-                }}
-                className={`px-2 py-1 text-xs font-vcr transition-colors border-l border-border flex items-center gap-1.5 ${
-                  mode === 'edit' && editTab === 'subtasks'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                }`}
-              >
-                Subtasks
-                {subtasks.length > 0 && (
-                  <span className={`px-1 min-w-[16px] text-center rounded text-[10px] ${
-                    mode === 'edit' && editTab === 'subtasks' ? 'bg-accent-foreground/20' : 'bg-border/50'
-                  }`}>
-                    {subtasks.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => onModeChange('review')}
-                className={`px-2 py-1 text-xs font-vcr transition-colors border-l border-border ${
-                  mode === 'review'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                }`}
-              >
-                Review
-              </button>
-            </div>
-          </div>
-
           <div className="min-w-0 flex-1 font-vcr text-xs text-text-secondary truncate">
             {title}
           </div>
@@ -160,7 +124,7 @@ export function TaskEditor({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className={`flex-1 min-h-0 overflow-y-auto ${mode === 'edit' ? 'pb-64' : ''}`}>
         {mode === 'edit' ? (
           isPlanningActive ? (
             <div className="p-3">
@@ -172,16 +136,15 @@ export function TaskEditor({
             </div>
           ) : editTab === 'draft' ? (
             <div className="flex justify-center p-3">
-              <div className="grow-wrap w-full max-w-[900px]" data-replicated-value={draft}>
-                <Textarea
-                  value={draft}
-                  onChange={(e) => onDraftChange(e.target.value)}
-                  variant="sm"
-                  className="w-full bg-transparent font-mono border-0"
-                  spellCheck={false}
-                  rows={3}
-                />
-              </div>
+              <MarkdownEditor
+                value={draft}
+                onChange={onDraftChange}
+                variant="sm"
+                containerClassName="max-w-[900px] w-full"
+                placeholder="Click to edit task description..."
+                spellCheck={false}
+                rows={3}
+              />
             </div>
           ) : (
             <div className="p-3">
@@ -224,7 +187,12 @@ export function TaskEditor({
                 onArchive={onArchive}
                 onRestore={onRestore}
                 onUnarchiveWithAgent={onUnarchiveWithAgent}
-                onCommitAndArchive={onCommitAndArchive}
+                initialCommitMessage={initialCommitMessage}
+                isGeneratingCommitMessage={isGeneratingCommitMessage}
+                sessionId={sessionId}
+                worktreeBranch={worktreeBranch}
+                onArchiveSuccess={onArchiveSuccess}
+                onMergeSuccess={onMergeSuccess}
                 reviewFile={reviewFile}
                 onReviewFileChange={onReviewFileChange}
               />
