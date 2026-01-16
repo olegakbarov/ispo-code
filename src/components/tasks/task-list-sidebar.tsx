@@ -5,7 +5,7 @@
 
 import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { Play, ChevronRight, ChevronDown, Layers } from 'lucide-react'
+import { Play, ChevronRight, ChevronDown, Layers, ArchiveRestore } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { match } from 'ts-pattern'
 import { Input } from '@/components/ui/input'
@@ -44,6 +44,8 @@ interface TaskItemProps {
   onRunImpl: (path: string) => void
   onRunVerify: (path: string) => void
   onNavigateReview: (path: string) => void
+  onRestore?: (path: string) => void
+  isRestoring?: boolean
   isExpanded?: boolean
   onToggleExpand?: () => void
 }
@@ -56,19 +58,43 @@ const TaskItem = memo(function TaskItem({
   onRunImpl,
   onRunVerify: _onRunVerify, // Keep in interface for potential context menu use
   onNavigateReview,
+  onRestore,
+  isRestoring,
   isExpanded,
   onToggleExpand,
 }: TaskItemProps) {
-  // Simplified rendering for archived tasks - just title with muted styling
+  // Simplified rendering for archived tasks - title with unarchive button
   if (task.archived) {
+    const handleRestore = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      onRestore?.(task.path)
+    }
+
     return (
       <div
         onClick={() => onSelect(task.path)}
-        className={`w-full text-left px-2 py-3 cursor-pointer transition-colors border-t border-border ${
+        className={`w-full text-left px-2 py-3 cursor-pointer transition-colors border-t border-border flex items-center gap-2 ${
           isActive ? 'bg-accent/10 text-accent' : 'hover:bg-secondary text-muted-foreground/60'
         }`}
       >
-        <div className="text-xs font-vcr truncate">{task.title}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-vcr truncate">{task.title}</div>
+        </div>
+        <div className="shrink-0">
+          {isRestoring ? (
+            <div className="p-1">
+              <Spinner size="sm" className="text-accent" />
+            </div>
+          ) : (
+            <button
+              onClick={handleRestore}
+              className="p-1 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors"
+              title="Unarchive task"
+            >
+              <ArchiveRestore className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -472,6 +498,8 @@ export function TaskListSidebar() {
                 onRunImpl={handleRunImpl}
                 onRunVerify={handleRunVerify}
                 onNavigateReview={handleNavigateReview}
+                onRestore={handleRestore}
+                isRestoring={restoreMutation.isPending && restoreMutation.variables?.path === t.path}
                 isExpanded={expandedTasks.has(t.path)}
                 onToggleExpand={() => handleToggleExpand(t.path)}
               />
