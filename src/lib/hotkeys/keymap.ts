@@ -38,6 +38,14 @@ export const KEYMAP = {
     category: 'navigation',
   } as HotkeyDefinition,
 
+  /** Open command palette */
+  OPEN_COMMAND_PALETTE: {
+    keys: 'cmd+k,ctrl+k',
+    description: 'Open command palette',
+    category: 'navigation',
+    routePattern: /^\/tasks/,
+  } as HotkeyDefinition,
+
   // ═══════════════════════════════════════════════════════════════════════════════
   // Task Actions (only active on /tasks routes)
   // ═══════════════════════════════════════════════════════════════════════════════

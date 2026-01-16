@@ -365,6 +365,27 @@ export function TaskListSidebar() {
     })
   }, [])
 
+  // Archive and restore mutations
+  const archiveMutation = trpc.tasks.archive.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate()
+    },
+  })
+
+  const restoreMutation = trpc.tasks.restore.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate()
+    },
+  })
+
+  const handleArchive = useCallback((path: string) => {
+    archiveMutation.mutate({ path })
+  }, [archiveMutation])
+
+  const handleRestore = useCallback((path: string) => {
+    restoreMutation.mutate({ path })
+  }, [restoreMutation])
+
   if (!workingDir) {
     return (
       <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground p-3">
@@ -377,7 +398,16 @@ export function TaskListSidebar() {
     <div className="flex-1 min-h-0 flex flex-col">
       {/* Command palette trigger - full row */}
       <div className="px-3 py-2 border-b border-border">
-        <TaskCommandPalette variant="inline" />
+        <TaskCommandPalette
+          variant="inline"
+          tasks={tasks}
+          selectedPath={selectedPath}
+          onRunImpl={handleRunImpl}
+          onRunVerify={handleRunVerify}
+          onNavigateReview={handleNavigateReview}
+          onArchive={handleArchive}
+          onRestore={handleRestore}
+        />
       </div>
 
       {/* Filters row */}
