@@ -25,13 +25,13 @@ import { MetadataAnalyzer } from "../lib/agent/metadata-analyzer"
 import { extractTaskReviewOutput } from "../lib/agent/config"
 import { saveTask } from "../lib/agent/task-service"
 import { getContextLimit } from "../lib/agent/model-registry"
-import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
+import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, OpencodeMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
 
 /** Agent interface with optional getMessages for SDK agents */
 interface SDKAgentLike extends EventEmitter {
   abort: () => void
   run: (p: string) => Promise<void>
-  getMessages?: () => CerebrasMessageData[] | GeminiMessageData[]
+  getMessages?: () => CerebrasMessageData[] | GeminiMessageData[] | OpencodeMessageData[]
   setAttachments?: (attachments?: ImageAttachment[]) => void
 }
 
@@ -60,6 +60,11 @@ export interface DaemonConfig {
   reconstructedMessages?: unknown[]
   /** Image attachments for multimodal input */
   attachments?: ImageAttachment[]
+  /** GitHub repository info if working in a cloned repo */
+  githubRepo?: {
+    owner: string
+    repo: string
+  }
 }
 
 /**
@@ -119,7 +124,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, isResume, cliSessionId, githubRepo } =
       this.config
     const { daemonNonce } = this.config
 
@@ -145,6 +150,7 @@ export class AgentDaemon {
             sourceFile,
             sourceLine,
             debugRunId,
+            githubRepo,
           })
         )
       }
@@ -294,9 +300,12 @@ export class AgentDaemon {
         }) as unknown as SDKAgentLike
       })
       .with("opencode", () => {
-        // OpenCode SDK doesn't support message restoration or multimodal
-        // Messages will be formatted as context in the prompt by the caller
-        return new OpencodeAgent({ workingDir, model }) as unknown as SDKAgentLike
+        // OpenCode now tracks conversation state locally for resume support
+        return new OpencodeAgent({
+          workingDir,
+          model,
+          messages: reconstructedMessages as OpencodeMessageData[] | undefined,
+        }) as unknown as SDKAgentLike
       })
       .with(P.union("claude", "codex"), () => {
         const cliRunner = new CLIAgentRunner()

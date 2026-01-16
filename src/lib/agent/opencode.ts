@@ -6,7 +6,7 @@
 import { EventEmitter } from "events"
 import { createOpencode } from "@opencode-ai/sdk"
 import { match, P } from 'ts-pattern'
-import type { AgentOutputChunk } from "./types"
+import type { AgentOutputChunk, OpencodeMessageData } from "./types"
 
 // === Types ===
 
@@ -16,6 +16,8 @@ export interface OpencodeAgentOptions {
   model?: string
   /** Port for the OpenCode server (default: random) */
   port?: number
+  /** Existing conversation state for resuming a session */
+  messages?: OpencodeMessageData[]
 }
 
 export interface OpencodeEvents {
@@ -36,12 +38,15 @@ export class OpencodeAgent extends EventEmitter {
   private server: Awaited<ReturnType<typeof createOpencode>>["server"] | null = null
   private client: Awaited<ReturnType<typeof createOpencode>>["client"] | null = null
   private sessionId: string | null = null
+  private messages: OpencodeMessageData[] = []
+  private currentAssistantMessage = ""
 
   constructor(options: OpencodeAgentOptions) {
     super()
     this.workingDir = options.workingDir ?? process.cwd()
     this.model = options.model
     this.port = options.port
+    this.messages = options.messages ?? []
   }
 
   /**
@@ -76,9 +81,13 @@ export class OpencodeAgent extends EventEmitter {
    */
   async run(prompt: string): Promise<void> {
     this.aborted = false
+    this.currentAssistantMessage = ""
 
     try {
       this.emitOutput("system", "Starting OpenCode agent...")
+
+      // Add user message to conversation history
+      this.messages.push({ role: "user", content: prompt })
 
       // Create OpenCode instance (starts embedded server)
       const opencode = await createOpencode({
@@ -142,6 +151,11 @@ export class OpencodeAgent extends EventEmitter {
       if (promptResult.error) {
         const err = promptResult.error as { message?: string }
         throw new Error(err.message ?? "Prompt failed")
+      }
+
+      // Add assistant's complete response to conversation history
+      if (this.currentAssistantMessage) {
+        this.messages.push({ role: "assistant", content: this.currentAssistantMessage })
       }
 
       // Emit completion
@@ -208,7 +222,10 @@ export class OpencodeAgent extends EventEmitter {
 
             match(part.type)
               .with("text", () => {
-                if (part.text) this.emitOutput("text", part.text)
+                if (part.text) {
+                  this.currentAssistantMessage += part.text
+                  this.emitOutput("text", part.text)
+                }
               })
               .with("reasoning", () => {
                 if (part.text) this.emitOutput("thinking", part.text)
@@ -230,7 +247,10 @@ export class OpencodeAgent extends EventEmitter {
           })
           .with(P.union("message.part.text", "message.text", "assistant.text"), () => {
             const text = (props?.text as string) ?? (props?.content as string)
-            if (text) this.emitOutput("text", text)
+            if (text) {
+              this.currentAssistantMessage += text
+              this.emitOutput("text", text)
+            }
           })
           .with(P.union("message.part.tool_call", "tool.call", "assistant.tool"), () => {
             const toolName = (props?.name as string) ?? "unknown"
@@ -290,6 +310,13 @@ export class OpencodeAgent extends EventEmitter {
    */
   getSessionId(): string | null {
     return this.sessionId
+  }
+
+  /**
+   * Get current conversation state (for persistence/resume)
+   */
+  getMessages(): OpencodeMessageData[] {
+    return this.messages.map((m) => ({ ...m }))
   }
 }
 

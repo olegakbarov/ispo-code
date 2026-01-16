@@ -229,6 +229,14 @@ export interface GeminiMessageData {
 }
 
 /**
+ * Serializable OpenCode message format for session storage
+ */
+export interface OpencodeMessageData {
+  role: "user" | "assistant" | "system"
+  content: string
+}
+
+/**
  * Serializable MCPorter message format for session storage (Vercel AI SDK CoreMessage)
  */
 export interface MCPorterMessageData {
