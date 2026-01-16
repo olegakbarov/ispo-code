@@ -6,6 +6,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { useState, useRef, useMemo } from "react"
 import { Palette, Check, Volume2, Play, Bot, Moon, Sun, User, LogOut, Sparkles } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
+import { Button } from "@/components/ui/button"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { useSettingsStore, applyBrandHue } from "@/lib/stores/settings"
 import { themePresets } from "@/lib/theme-presets"
@@ -143,30 +144,24 @@ function SettingsPage() {
         </p>
 
         <div className="flex items-center gap-3">
-          <button
+          <Button
             type="button"
             onClick={toggleTheme}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md border transition-all ${
-              theme === 'dark'
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-background text-foreground hover:border-foreground/30'
-            }`}
+            variant={theme === 'dark' ? 'default' : 'outline'}
+            className="flex items-center gap-2"
           >
             <Moon className="w-4 h-4" />
             <span className="text-sm">Dark</span>
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={toggleTheme}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md border transition-all ${
-              theme === 'light'
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border bg-background text-foreground hover:border-foreground/30'
-            }`}
+            variant={theme === 'light' ? 'default' : 'outline'}
+            className="flex items-center gap-2"
           >
             <Sun className="w-4 h-4" />
             <span className="text-sm">Light</span>
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -183,17 +178,14 @@ function SettingsPage() {
 
         <div className="grid grid-cols-2 gap-2">
           {themePresets.map((preset) => (
-            <button
+            <Button
               key={preset.id}
               type="button"
               onClick={() => setThemeId(preset.id)}
-              className={`flex flex-col gap-1 p-3 rounded-lg border transition-all text-left ${
-                themeId === preset.id
-                  ? 'border-primary bg-primary/10'
-                  : 'border-border bg-card hover:border-foreground/30'
-              }`}
+              variant={themeId === preset.id ? 'default' : 'outline'}
+              className="flex flex-col gap-1 p-3 h-auto items-start"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full">
                 <div
                   className="w-4 h-4 rounded-full border border-border/50"
                   style={{
@@ -224,7 +216,7 @@ function SettingsPage() {
               </div>
               <span className="text-xs font-medium">{preset.name}</span>
               <span className="text-[10px] text-muted-foreground">{preset.description}</span>
-            </button>
+            </Button>
           ))}
         </div>
       </section>
@@ -247,15 +239,21 @@ function SettingsPage() {
           </label>
           <div className="flex flex-wrap gap-2">
             {COLOR_PRESETS.map((preset) => (
-              <button
+              <Button
                 key={preset.name}
                 type="button"
                 onClick={() => handleHueChange(preset.hue)}
-                className="group relative flex items-center gap-2 px-3 py-1.5 rounded-md border transition-all hover:border-foreground/30"
-                style={{
-                  borderColor: brandHue === preset.hue ? `oklch(0.65 0.2 ${preset.hue})` : undefined,
-                  backgroundColor: brandHue === preset.hue ? `oklch(0.65 0.2 ${preset.hue} / 0.1)` : undefined,
-                }}
+                variant={brandHue === preset.hue ? 'default' : 'outline'}
+                size="xs"
+                className="flex items-center gap-2"
+                style={
+                  brandHue === preset.hue
+                    ? {
+                        borderColor: `oklch(0.65 0.2 ${preset.hue})`,
+                        backgroundColor: `oklch(0.65 0.2 ${preset.hue} / 0.1)`,
+                      }
+                    : undefined
+                }
               >
                 <span
                   className="w-3 h-3 rounded-full shrink-0"
@@ -265,7 +263,7 @@ function SettingsPage() {
                 {brandHue === preset.hue && (
                   <Check className="w-3 h-3 text-primary" />
                 )}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -459,11 +457,13 @@ function SettingsPage() {
               Preview
             </label>
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={() => handlePlayPreview("completed")}
                 disabled={isGenerating !== null}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted transition-colors disabled:opacity-50"
+                variant="outline"
+                size="xs"
+                className="flex items-center gap-2"
               >
                 {isGenerating === "completed" ? (
                   <Spinner size="xs" />
@@ -471,12 +471,14 @@ function SettingsPage() {
                   <Play className="w-3 h-4" />
                 )}
                 Success Sound
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={() => handlePlayPreview("failed")}
                 disabled={isGenerating !== null}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted transition-colors disabled:opacity-50"
+                variant="outline"
+                size="xs"
+                className="flex items-center gap-2"
               >
                 {isGenerating === "failed" ? (
                   <Spinner size="xs" />
@@ -484,7 +486,7 @@ function SettingsPage() {
                   <Play className="w-3 h-3" />
                 )}
                 Failure Sound
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -695,14 +697,16 @@ function AccountSection() {
           </div>
         </div>
 
-        <button
+        <Button
           type="button"
           onClick={handleLogout}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          variant="outline"
+          size="xs"
+          className="flex items-center gap-2"
         >
           <LogOut className="w-3 h-3" />
           Sign out
-        </button>
+        </Button>
       </div>
     </section>
   )

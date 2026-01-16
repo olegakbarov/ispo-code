@@ -7,6 +7,7 @@ import { TaskSessions, type TaskSessionsGrouped } from './task-sessions'
 import type { AgentSession } from './agent-types'
 import { useState } from 'react'
 import { ExternalLink, GitMerge, CheckCircle, XCircle, Clock, RotateCcw, ChevronDown, ChevronRight, History } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import type { QAStatus, MergeHistoryEntry } from '@/lib/agent/task-service'
 
 interface TaskSidebarProps {
@@ -121,48 +122,52 @@ export function TaskSidebar({
 
           {/* Main action buttons - REVIEW, IMPLEMENT, VERIFY */}
           <div className="flex gap-2">
-            <button
+            <Button
               onClick={onReview}
               disabled={!!agentSession}
-              className={`flex-1 px-3 py-2 rounded border text-[11px] font-vcr uppercase tracking-wide cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                hasActiveDebate
-                  ? 'border-accent text-accent hover:bg-accent/10'
-                  : 'border-border text-text-muted hover:text-text-secondary hover:border-text-muted'
-              }`}
+              variant={hasActiveDebate ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1 text-[11px] uppercase tracking-wide"
               title={hasActiveDebate ? "Resume active spec review" : "Review spec quality"}
             >
               Review
-            </button>
+            </Button>
 
-            <button
+            <Button
               onClick={onAssignToAgent}
               disabled={isAssigning || !!agentSession}
-              className="flex-1 px-3 py-2 rounded border border-accent text-accent text-[11px] font-vcr uppercase tracking-wide cursor-pointer hover:bg-accent/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              variant="default"
+              size="sm"
+              className="flex-1 text-[11px] uppercase tracking-wide"
               title="Assign to AI agent"
             >
               {isAssigning ? '...' : 'Implement'}
-            </button>
+            </Button>
 
-            <button
+            <Button
               onClick={onVerify}
               disabled={!!agentSession}
-              className="flex-1 px-3 py-2 rounded border border-border text-text-muted text-[11px] font-vcr uppercase tracking-wide cursor-pointer hover:text-text-secondary hover:border-text-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              variant="outline"
+              size="sm"
+              className="flex-1 text-[11px] uppercase tracking-wide"
               title="Verify against codebase"
             >
               Verify
-            </button>
+            </Button>
           </div>
 
           {/* Split From Badge */}
           {splitFrom && onNavigateToSplitFrom && (
-            <button
+            <Button
               onClick={onNavigateToSplitFrom}
-              className="w-full px-3 py-2 rounded text-xs bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 cursor-pointer transition-colors flex items-center gap-2"
+              variant="default"
+              size="sm"
+              className="w-full flex items-center gap-2 justify-start"
               title={`Split from: ${splitFrom}`}
             >
               <ExternalLink className="w-3 h-3" />
-              <span className="truncate">Split from: {splitFrom.replace('tasks/', '')}</span>
-            </button>
+              <span className="truncate text-xs">Split from: {splitFrom.replace('tasks/', '')}</span>
+            </Button>
           )}
         </div>
 
@@ -189,60 +194,70 @@ export function TaskSidebar({
 
             {/* Merge Button - show when branch exists and no active merge */}
             {canMerge && (
-              <button
+              <Button
                 onClick={onMergeToMain}
                 disabled={isMerging || !!agentSession}
-                className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                variant="default"
+                size="xs"
+                className="w-full flex items-center justify-center gap-2"
                 title={`Merge ${worktreeBranch} to main`}
               >
                 <GitMerge className="w-3 h-3" />
                 {isMerging ? 'Merging...' : 'Merge to Main'}
-              </button>
+              </Button>
             )}
 
             {/* QA Pass/Fail buttons - show when QA status is pending */}
             {showQAControls && (
               <div className="flex gap-2">
-                <button
+                <Button
                   onClick={onSetQAPass}
                   disabled={isSettingQA}
-                  className="flex-1 px-3 py-2 rounded text-xs font-vcr border border-success/50 text-success cursor-pointer hover:bg-success/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  variant="success"
+                  size="xs"
+                  className="flex-1 flex items-center justify-center gap-1"
                   title="Mark QA as passed - changes are good"
                 >
                   <CheckCircle className="w-3 h-3" />
                   Pass
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={onSetQAFail}
                   disabled={isSettingQA}
-                  className="flex-1 px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  variant="destructive"
+                  size="xs"
+                  className="flex-1 flex items-center justify-center gap-1"
                   title="Mark QA as failed - will enable revert"
                 >
                   <XCircle className="w-3 h-3" />
                   Fail
-                </button>
+                </Button>
               </div>
             )}
 
             {/* Revert Button - show when QA failed and merge exists */}
             {canRevert && onRevertMerge && (
-              <button
+              <Button
                 onClick={onRevertMerge}
                 disabled={isReverting}
-                className="w-full px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                variant="destructive"
+                size="xs"
+                className="w-full flex items-center justify-center gap-2"
                 title="Revert the merge commit to restore main branch"
               >
                 <RotateCcw className="w-3 h-3" />
                 {isReverting ? 'Reverting...' : 'Revert Merge'}
-              </button>
+              </Button>
             )}
 
             {/* Merge History */}
             {hasHistory && (
               <div className="space-y-2">
-                <button
+                <Button
                   onClick={() => setShowMergeHistory(!showMergeHistory)}
-                  className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary cursor-pointer"
+                  variant="ghost"
+                  size="xs"
+                  className="flex items-center gap-1 text-[10px] h-auto px-0 py-0"
                 >
                   {showMergeHistory ? (
                     <ChevronDown className="w-3 h-3" />
@@ -251,7 +266,7 @@ export function TaskSidebar({
                   )}
                   <History className="w-3 h-3" />
                   <span>Merge History ({mergeHistory.length})</span>
-                </button>
+                </Button>
 
                 {showMergeHistory && (
                   <div className="space-y-1 pl-4 border-l border-border/30">
@@ -334,14 +349,16 @@ export function TaskSidebar({
 
         {/* Delete Button - pushed to bottom */}
         <div className="mt-auto pt-4 border-t border-border/50">
-          <button
+          <Button
             onClick={onDelete}
             disabled={isDeleting}
-            className="w-full px-3 py-2 rounded text-xs font-vcr border border-error/50 text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            variant="ghost"
+            size="xs"
+            className="w-full text-error hover:text-error hover:bg-error/10"
             title="Delete this task"
           >
             {isDeleting ? 'Deleting...' : 'Delete'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

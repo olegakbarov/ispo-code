@@ -6,6 +6,7 @@
 
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { match } from 'ts-pattern'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -627,25 +628,29 @@ export function DiffPanel({
                 </div>
 
                 {activeFile && (commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0) > 0 && (
-                  <button
+                  <Button
                     onClick={openSendModalForActiveFile}
                     aria-label={`Submit ${commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0} comments for current file`}
-                    className="px-2 py-1 rounded text-[10px] font-vcr bg-primary text-primary-foreground cursor-pointer hover:opacity-90 whitespace-nowrap"
+                    variant="default"
+                    size="xs"
+                    className="whitespace-nowrap"
                     title="Submit comments for this file"
                   >
                     Submit file
-                  </button>
+                  </Button>
                 )}
 
                 {toAgentCommentCount > 0 && (
-                  <button
+                  <Button
                     onClick={openSendModal}
                     aria-label={`Submit all ${toAgentCommentCount} comments from ${toAgentFileCount} files`}
-                    className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
+                    variant="outline"
+                    size="xs"
+                    className="whitespace-nowrap"
                     title="Submit all commented files"
                   >
                     Submit all ({toAgentCommentCount})
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -684,7 +689,7 @@ export function DiffPanel({
                       {list.length > 0 ? ` · ${list.length} comment${list.length === 1 ? '' : 's'}` : ''}
                     </div>
                     {!isDraftForThisLine && (
-                      <button
+                      <Button
                         onClick={() =>
                           setDraft({
                             file,
@@ -694,10 +699,11 @@ export function DiffPanel({
                             body: '',
                           })
                         }
-                        className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
+                        variant="outline"
+                        size="xs"
                       >
                         + Add
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -709,7 +715,7 @@ export function DiffPanel({
                           {c.body}
                         </div>
                         <div className="mt-1 flex items-center gap-2">
-                          <button
+                          <Button
                             onClick={() =>
                               setDraft({
                                 file,
@@ -720,16 +726,20 @@ export function DiffPanel({
                                 editingId: c.id,
                               })
                             }
-                            className="text-[10px] font-vcr text-muted-foreground hover:text-primary cursor-pointer"
+                            variant="ghost"
+                            size="xs"
+                            className="h-auto px-0 py-0 text-[10px]"
                           >
                             Edit
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             onClick={() => deleteComment(file, view, c.id)}
-                            className="text-[10px] font-vcr text-muted-foreground hover:text-destructive cursor-pointer"
+                            variant="ghost"
+                            size="xs"
+                            className="h-auto px-0 py-0 text-[10px] hover:text-destructive"
                           >
                             Delete
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -750,19 +760,21 @@ export function DiffPanel({
                         className="mt-1 min-h-20 bg-card resize-y"
                       />
                       <div className="mt-2 flex items-center justify-end gap-2">
-                        <button
+                        <Button
                           onClick={() => setDraft(null)}
-                          className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
+                          variant="outline"
+                          size="xs"
                         >
                           Cancel
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           onClick={saveDraft}
                           disabled={!draft.body.trim()}
-                          className="px-2 py-1 rounded text-[10px] font-vcr bg-primary text-primary-foreground cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                          variant="default"
+                          size="xs"
                         >
                           Save
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -794,16 +806,18 @@ export function DiffPanel({
                   Generates a markdown prompt from your commented files
                 </div>
               </div>
-              <button
+              <Button
                 onClick={() => {
                   if (!isSpawning) setSendOpen(false)
                 }}
                 aria-label="Close dialog"
-                className="px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
+                variant="ghost"
+                size="xs"
+                className="px-2 py-1"
                 title="Close"
               >
                 ×
-              </button>
+              </Button>
             </div>
 
             <div className="p-4 space-y-4">
@@ -855,7 +869,7 @@ export function DiffPanel({
                     const available = isAvailable(type)
                     const selected = agentType === type
                     return (
-                      <button
+                      <Button
                         key={type}
                         type="button"
                         disabled={!available}
@@ -863,16 +877,12 @@ export function DiffPanel({
                           setAgentType(type)
                           setModel(getDefaultModelId(type))
                         }}
-                        className={`flex-1 min-w-[80px] px-3 py-2 rounded border cursor-pointer transition-colors text-xs font-vcr ${
-                          selected
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : available
-                              ? 'border-border bg-background text-foreground hover:border-muted-foreground'
-                              : 'border-border bg-background text-muted-foreground cursor-not-allowed opacity-50'
-                        }`}
+                        variant={selected ? 'default' : 'outline'}
+                        size="sm"
+                        className="flex-1 min-w-[80px]"
                       >
                         {agentTypeLabel[type]}
-                      </button>
+                      </Button>
                     )
                   })}
                 </div>
@@ -914,14 +924,15 @@ export function DiffPanel({
             </div>
 
             <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
-              <button
+              <Button
                 onClick={() => setSendOpen(false)}
                 disabled={isSpawning || isBuildingPrompt}
-                className="px-3 py-2 bg-background border border-border rounded text-sm font-vcr text-foreground hover:border-muted-foreground cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="outline"
+                size="sm"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleSendToAgent}
                 disabled={
                   sendKeys.size === 0 ||
@@ -930,10 +941,11 @@ export function DiffPanel({
                   !isAvailable(agentType) ||
                   !onSpawnAgent
                 }
-                className="px-3 py-2 bg-primary text-primary-foreground rounded text-sm font-vcr cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="default"
+                size="sm"
               >
                 {isBuildingPrompt || isSpawning ? 'Sending…' : 'Start Agent'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1035,57 +1047,55 @@ const DiffTabsHeader = memo(function DiffTabsHeader({
 
         {activeFile && canToggleView && (
           <div className="flex items-center gap-1" role="tablist" aria-label="Diff view type">
-            <button
+            <Button
               onClick={() => onViewChange('working')}
               role="tab"
               aria-selected={activeView === 'working'}
               aria-label="Show working tree diff"
-              className={`px-2 py-1 rounded text-[10px] font-vcr border cursor-pointer transition-colors ${
-                activeView === 'working'
-                  ? 'border-primary text-primary bg-secondary'
-                  : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary'
-              }`}
+              variant={activeView === 'working' ? 'default' : 'outline'}
+              size="xs"
               title="Show working tree diff"
             >
               Working
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => onViewChange('staged')}
               role="tab"
               aria-selected={activeView === 'staged'}
               aria-label="Show staged diff"
-              className={`px-2 py-1 rounded text-[10px] font-vcr border cursor-pointer transition-colors ${
-                activeView === 'staged'
-                  ? 'border-primary text-primary bg-secondary'
-                  : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary'
-              }`}
+              variant={activeView === 'staged' ? 'default' : 'outline'}
+              size="xs"
               title="Show staged diff"
             >
               Staged
-            </button>
+            </Button>
           </div>
         )}
 
         {toAgentFileCount > 0 && (
-          <button
+          <Button
             onClick={onOpenSendToAgent}
             aria-label={`Send ${toAgentFileCount} files with ${toAgentCommentCount} comments to agent`}
-            className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
+            variant="outline"
+            size="xs"
+            className="whitespace-nowrap"
             title="Send commented files to an agent"
           >
             To Agent ({toAgentFileCount}/{toAgentCommentCount})
-          </button>
+          </Button>
         )}
 
         {openFiles.length > 0 && (
-          <button
+          <Button
             onClick={onCloseAll}
             aria-label="Close all open files"
-            className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
+            variant="outline"
+            size="xs"
+            className="whitespace-nowrap"
             title="Close all diffs"
           >
             Close all
-          </button>
+          </Button>
         )}
       </div>
     </div>

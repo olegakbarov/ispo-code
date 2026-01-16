@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 
 interface FileActionsProps {
   selectedFiles: Set<string>
@@ -52,27 +53,30 @@ export function FileActions({
       {/* Selected file actions */}
       {hasSelection && (
         <>
-          <ActionButton
+          <Button
             onClick={() => handleAction('stage', () => onStage(selectedArray))}
-            loading={isLoading === 'stage'}
             disabled={!!isLoading}
+            variant="outline"
+            size="xs"
           >
-            Stage Selected
-          </ActionButton>
-          <ActionButton
+            {isLoading === 'stage' ? 'Working...' : 'Stage Selected'}
+          </Button>
+          <Button
             onClick={() => handleAction('unstage', () => onUnstage(selectedArray))}
-            loading={isLoading === 'unstage'}
             disabled={!!isLoading}
+            variant="outline"
+            size="xs"
           >
-            Unstage Selected
-          </ActionButton>
-          <ActionButton
+            {isLoading === 'unstage' ? 'Working...' : 'Unstage Selected'}
+          </Button>
+          <Button
             onClick={() => setShowDiscardConfirm(true)}
-            variant="danger"
             disabled={!!isLoading}
+            variant="destructive"
+            size="xs"
           >
             Discard Selected
-          </ActionButton>
+          </Button>
         </>
       )}
 
@@ -80,22 +84,24 @@ export function FileActions({
       {!hasSelection && (
         <>
           {(hasModified || hasUntracked) && (
-            <ActionButton
+            <Button
               onClick={() => handleAction('stage-all', onStageAll)}
-              loading={isLoading === 'stage-all'}
               disabled={!!isLoading}
+              variant="outline"
+              size="xs"
             >
-              Stage All
-            </ActionButton>
+              {isLoading === 'stage-all' ? 'Working...' : 'Stage All'}
+            </Button>
           )}
           {hasStaged && (
-            <ActionButton
+            <Button
               onClick={() => handleAction('unstage-all', onUnstageAll)}
-              loading={isLoading === 'unstage-all'}
               disabled={!!isLoading}
+              variant="outline"
+              size="xs"
             >
-              Unstage All
-            </ActionButton>
+              {isLoading === 'unstage-all' ? 'Working...' : 'Unstage All'}
+            </Button>
           )}
         </>
       )}
@@ -109,40 +115,6 @@ export function FileActions({
         />
       )}
     </div>
-  )
-}
-
-interface ActionButtonProps {
-  children: React.ReactNode
-  onClick: () => void
-  loading?: boolean
-  disabled?: boolean
-  variant?: 'default' | 'danger'
-}
-
-function ActionButton({
-  children,
-  onClick,
-  loading,
-  disabled,
-  variant = 'default',
-}: ActionButtonProps) {
-  const baseStyles =
-    'px-2 py-1 font-vcr text-[10px] rounded cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
-
-  const variantStyles = {
-    default: 'bg-secondary text-foreground hover:bg-border',
-    danger: 'bg-destructive/20 text-destructive hover:bg-destructive/30',
-  }
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`${baseStyles} ${variantStyles[variant]}`}
-    >
-      {loading ? 'Working...' : children}
-    </button>
   )
 }
 
@@ -166,18 +138,20 @@ function DiscardConfirmModal({
           {fileCount !== 1 ? 's' : ''}. This action cannot be undone.
         </p>
         <div className="flex justify-end gap-2">
-          <button
+          <Button
             onClick={onCancel}
-            className="px-4 py-2 font-vcr text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+            variant="ghost"
+            size="sm"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onConfirm}
-            className="px-4 py-2 font-vcr text-xs bg-destructive text-white rounded cursor-pointer hover:opacity-90"
+            variant="destructive"
+            size="sm"
           >
             Discard
-          </button>
+          </Button>
         </div>
       </div>
     </div>

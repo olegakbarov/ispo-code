@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./dialog"
-import { cn } from "@/lib/utils"
+import { Button } from "./button"
 
 export type ConfirmDialogVariant = "default" | "danger"
 
@@ -49,23 +49,20 @@ export function ConfirmDialog({
           <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <button
+          <Button
             onClick={handleCancel}
-            className="px-4 py-2 rounded text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+            variant="outline"
+            size="sm"
           >
             {cancelText}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleConfirm}
-            className={cn(
-              "px-4 py-2 rounded text-sm font-medium transition-colors",
-              variant === "danger"
-                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
-            )}
+            variant={variant === "danger" ? "destructive" : "default"}
+            size="sm"
           >
             {confirmText}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
