@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Cpu } from 'lucide-react'
+import { Cpu, HelpCircle } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { UserMenu } from '@/components/auth/user-menu'
@@ -33,6 +33,14 @@ export function Sidebar() {
       </div>
 
       <footer className="border-t border-border shrink-0">
+        {/* FAQ Link */}
+        <Link
+          to="/docs/faq"
+          className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors [&.active]:text-foreground [&.active]:bg-secondary/50"
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span>FAQ</span>
+        </Link>
         {/* GitHub Auth */}
         <div className="px-3 py-2">
           {session?.authenticated ? (
