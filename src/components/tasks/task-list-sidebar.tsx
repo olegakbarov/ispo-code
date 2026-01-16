@@ -198,10 +198,6 @@ export function TaskListSidebar() {
   const sortBy = searchParams.sortBy ?? 'updated'
   const sortDir = searchParams.sortDir ?? 'desc'
 
-  // Track pending mutations locally to prevent refetch from overwriting optimistic state
-  const [pendingTasks, setPendingTasks] = useState<Set<string>>(new Set())
-  const hasPendingMutations = pendingTasks.size > 0
-
   // Track expanded tasks for subtask visibility
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
 
@@ -214,20 +210,8 @@ export function TaskListSidebar() {
   })
   const { data: activeAgentSessions = {} } = trpc.tasks.getActiveAgentSessions.useQuery(undefined, {
     enabled: !!workingDir,
-    // Disable polling while mutations are pending to prevent overwriting optimistic state
-    refetchInterval: hasPendingMutations ? false : 2000,
+    refetchInterval: 2000,
   })
-
-  // Merge pending tasks with actual active sessions for display
-  const mergedAgentSessions = useMemo(() => {
-    const merged = { ...activeAgentSessions }
-    for (const path of pendingTasks) {
-      if (!merged[path]) {
-        merged[path] = { sessionId: 'pending', status: 'pending' }
-      }
-    }
-    return merged
-  }, [activeAgentSessions, pendingTasks])
 
   // Filter and sort tasks
   const filteredTasks = useMemo(() => {
@@ -301,33 +285,55 @@ export function TaskListSidebar() {
 
   // Mutations for running implementation and verification with optimistic updates
   const assignToAgentMutation = trpc.tasks.assignToAgent.useMutation({
-    onMutate: ({ path }) => {
-      // Add to pending set immediately for optimistic UI
-      setPendingTasks((prev) => new Set(prev).add(path))
-    },
-    onSettled: (_data, _err, { path }) => {
-      // Remove from pending and refetch real data
-      setPendingTasks((prev) => {
-        const next = new Set(prev)
-        next.delete(path)
-        return next
+    onMutate: async ({ path }) => {
+      await utils.tasks.getActiveAgentSessions.cancel()
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+
+      utils.tasks.getActiveAgentSessions.setData(undefined, {
+        ...(previousSessions ?? {}),
+        [path]: {
+          sessionId: `pending-${Date.now()}`,
+          status: 'pending',
+        },
       })
+
+      return { previousSessions, path }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      } else {
+        utils.tasks.getActiveAgentSessions.setData(undefined, {})
+      }
+    },
+    onSettled: () => {
       utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
   const verifyWithAgentMutation = trpc.tasks.verifyWithAgent.useMutation({
-    onMutate: ({ path }) => {
-      // Add to pending set immediately for optimistic UI
-      setPendingTasks((prev) => new Set(prev).add(path))
-    },
-    onSettled: (_data, _err, { path }) => {
-      // Remove from pending and refetch real data
-      setPendingTasks((prev) => {
-        const next = new Set(prev)
-        next.delete(path)
-        return next
+    onMutate: async ({ path }) => {
+      await utils.tasks.getActiveAgentSessions.cancel()
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+
+      utils.tasks.getActiveAgentSessions.setData(undefined, {
+        ...(previousSessions ?? {}),
+        [path]: {
+          sessionId: `pending-verify-${Date.now()}`,
+          status: 'pending',
+        },
       })
+
+      return { previousSessions, path }
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      } else {
+        utils.tasks.getActiveAgentSessions.setData(undefined, {})
+      }
+    },
+    onSettled: () => {
       utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
@@ -446,7 +452,7 @@ export function TaskListSidebar() {
                 key={t.path}
                 task={t}
                 isActive={t.path === selectedPath}
-                agentSession={(mergedAgentSessions as Record<string, ActiveAgentSession>)?.[t.path]}
+                agentSession={(activeAgentSessions as Record<string, ActiveAgentSession>)?.[t.path]}
                 onSelect={handleTaskSelect}
                 onRunImpl={handleRunImpl}
                 onRunVerify={handleRunVerify}
