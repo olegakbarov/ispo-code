@@ -3,7 +3,7 @@
  */
 
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router"
-import { Settings, GitBranch, BarChart3, Wrench } from "lucide-react"
+import { Settings, GitBranch, BarChart3, Wrench, Bot } from "lucide-react"
 
 export const Route = createFileRoute("/settings")({
   component: SettingsLayout,
@@ -25,6 +25,9 @@ function SettingsLayout() {
         <div className="flex items-center gap-1 px-4 py-2">
           <NavLink to="/settings" icon={<Settings className="w-3 h-3" />}>
             General
+          </NavLink>
+          <NavLink to="/settings/agent-defaults" icon={<Bot className="w-3 h-3" />}>
+            Agent Defaults
           </NavLink>
           <NavLink to="/settings/worktrees" icon={<GitBranch className="w-3 h-3" />}>
             Worktrees

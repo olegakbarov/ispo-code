@@ -1,13 +1,11 @@
 /**
- * Settings Route - User preferences including brand color, audio notifications, and agent defaults
+ * Settings Route - User preferences including brand color and audio notifications
  */
 
 import { createFileRoute } from "@tanstack/react-router"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
-import { useSettingsStore } from "@/lib/stores/settings"
 import { AppearanceSection } from "@/components/settings/appearance-section"
 import { AudioSection } from "@/components/settings/audio-section"
-import { AgentDefaultsSection } from "@/components/settings/agent-defaults-section"
 import { ClaudeAuthSection, AccountSection } from "@/components/settings/account-section"
 
 export const Route = createFileRoute("/settings/")({
@@ -32,35 +30,10 @@ function SettingsPageWrapper() {
 }
 
 function SettingsPage() {
-  const {
-    defaultPlanningAgentType,
-    setDefaultPlanningAgentType,
-    defaultVerifyAgentType,
-    setDefaultVerifyAgentType,
-    defaultVerifyModelId,
-    setDefaultVerifyModelId,
-    defaultImplementAgentType,
-    setDefaultImplementAgentType,
-    defaultImplementModelId,
-    setDefaultImplementModelId,
-  } = useSettingsStore()
-
   return (
     <div className="p-4 max-w-2xl">
       <AppearanceSection />
       <AudioSection />
-      <AgentDefaultsSection
-        defaultPlanningAgentType={defaultPlanningAgentType}
-        setDefaultPlanningAgentType={setDefaultPlanningAgentType}
-        defaultVerifyAgentType={defaultVerifyAgentType}
-        setDefaultVerifyAgentType={setDefaultVerifyAgentType}
-        defaultVerifyModelId={defaultVerifyModelId}
-        setDefaultVerifyModelId={setDefaultVerifyModelId}
-        defaultImplementAgentType={defaultImplementAgentType}
-        setDefaultImplementAgentType={setDefaultImplementAgentType}
-        defaultImplementModelId={defaultImplementModelId}
-        setDefaultImplementModelId={setDefaultImplementModelId}
-      />
       <ClaudeAuthSection />
       <AccountSection />
     </div>
