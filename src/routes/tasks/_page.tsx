@@ -34,6 +34,9 @@ import { useTaskRefresh } from '@/lib/hooks/use-task-refresh'
 import { useTaskNavigation } from '@/lib/hooks/use-task-navigation'
 import { useTaskActions } from '@/lib/hooks/use-task-actions'
 import { getCreateTaskRenderMode } from '@/lib/tasks/create-task-visibility'
+import { useHotkey } from '@/lib/hooks/use-hotkeys'
+import { KEYMAP, isHotkeyActive } from '@/lib/hotkeys/keymap'
+import { useRouterState } from '@tanstack/react-router'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -167,6 +170,7 @@ export function TasksPage({
     activeSessionId,
     activeSessionInfo,
     taskSessions,
+    taskTitle: selectedSummary?.title,
   })
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -280,6 +284,48 @@ export function TasksPage({
     clearCreateTitleDraft,
   })
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // Task Hotkeys (Phase 8: task-specific hotkeys)
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  const routerState = useRouterState()
+  const pathname = routerState.location.pathname
+
+  // Implement task (i) - only when task is selected
+  useHotkey({
+    keys: KEYMAP.RUN_IMPLEMENT.keys,
+    handler: () => {
+      if (selectedPath && !agentSession) {
+        handleAssignToAgent()
+      }
+    },
+    enabled: !!selectedPath && isHotkeyActive(KEYMAP.RUN_IMPLEMENT, pathname),
+    preventDefault: true,
+  })
+
+  // Verify task (v) - only when task is selected
+  useHotkey({
+    keys: KEYMAP.RUN_VERIFY.keys,
+    handler: () => {
+      if (selectedPath && !agentSession) {
+        handleVerify()
+      }
+    },
+    enabled: !!selectedPath && isHotkeyActive(KEYMAP.RUN_VERIFY, pathname),
+    preventDefault: true,
+  })
+
+  // Review task (r) - only when task is selected
+  useHotkey({
+    keys: KEYMAP.REVIEW_TASK.keys,
+    handler: () => {
+      if (selectedPath && !agentSession) {
+        handleReview()
+      }
+    },
+    enabled: !!selectedPath && isHotkeyActive(KEYMAP.REVIEW_TASK, pathname),
+    preventDefault: true,
+  })
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // UI Rendering
@@ -331,6 +377,8 @@ export function TasksPage({
                       availablePlannerTypes={availablePlannerTypes}
                       debugAgents={create.debugAgents}
                       autoRun={create.autoRun}
+                      runAgentType={run.agentType}
+                      runModel={run.model}
                       onCreate={handleCreate}
                       onTitleChange={(title) => {
                         setCreateTitleDraft(title)
@@ -343,6 +391,8 @@ export function TasksPage({
                       onAutoRunChange={(autoRun) => dispatch({ type: 'SET_CREATE_AUTO_RUN', payload: autoRun })}
                       onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
                       onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
+                      onRunAgentTypeChange={handleRunAgentTypeChange}
+                      onRunModelChange={(model) => dispatch({ type: 'SET_RUN_MODEL', payload: model })}
                       autoFocus={true}
                     />
                   </div>

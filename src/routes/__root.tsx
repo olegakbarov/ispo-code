@@ -19,6 +19,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { initAudioUnlock } from '@/lib/audio/audio-unlock'
 import { preloadHighlighter } from '@/lib/utils/syntax-highlighter'
 import { useGlobalAudioNotifications } from '@/lib/hooks/use-global-audio-notifications'
+import { GlobalHotkeysProvider } from '@/components/hotkeys/global-hotkeys-provider'
 
 // Preload syntax highlighter early for better UX
 preloadHighlighter()
@@ -63,6 +64,7 @@ function RootDocument() {
             <TooltipProvider>
               <ErrorBoundary name="App" fallback={(error) => <AppErrorFallback error={error} />}>
                 <GlobalAudioNotificationsProvider />
+                <GlobalHotkeysProvider />
                 <div className="flex h-screen overflow-hidden">
                   <Sidebar />
                   <main className="flex-1 overflow-auto bg-background">

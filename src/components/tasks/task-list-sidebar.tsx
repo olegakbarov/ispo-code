@@ -419,6 +419,7 @@ export function TaskListSidebar() {
           placeholder="Filter..."
           variant="sm"
           className="bg-background border-t border-l border-border/60 flex-1"
+          data-hotkey-target="task-filter"
         />
       </div>
 
