@@ -52,9 +52,10 @@ export function useAudioNotification({
   const generateNotification = trpc.audio.generateNotification.useMutation()
 
   // Play audio notification
+  // Returns true if play succeeded, false otherwise
   const playNotification = useCallback(
-    async (type: "completed" | "failed") => {
-      if (!selectedVoiceId) return
+    async (type: "completed" | "failed"): Promise<boolean> => {
+      if (!selectedVoiceId) return false
 
       // Check if audio has been unlocked by user interaction
       if (!isAudioUnlocked()) {
@@ -64,7 +65,7 @@ export function useAudioNotification({
 
       if (!isAudioUnlocked()) {
         console.warn("[AudioNotification] Audio still locked - skipping notification")
-        return
+        return false
       }
 
       try {
@@ -80,6 +81,8 @@ export function useAudioNotification({
 
         audioRef.current.src = result.audioDataUrl
         await audioRef.current.play()
+        console.debug("[AudioNotification] Successfully played", type, "notification")
+        return true
       } catch (error) {
         // Check if this is an autoplay policy error
         if (error instanceof DOMException && error.name === "NotAllowedError") {
@@ -87,6 +90,7 @@ export function useAudioNotification({
         } else {
           console.error("[AudioNotification] Failed to play:", error)
         }
+        return false
       }
     },
     [selectedVoiceId, generateNotification]
@@ -114,14 +118,29 @@ export function useAudioNotification({
     const isNowTerminal = isTerminalStatus(status)
 
     if (wasActive && isNowTerminal) {
-      hasPlayedRef.current = true
-
+      // Determine notification type
+      let notificationType: "completed" | "failed" | null = null
       if (status === "completed") {
-        playNotification("completed")
+        notificationType = "completed"
       } else if (status === "failed") {
-        playNotification("failed")
+        notificationType = "failed"
       }
       // Note: 'cancelled' doesn't play a notification by design
+
+      if (notificationType) {
+        // Mark as attempting play - but allow retry if play fails
+        hasPlayedRef.current = true
+
+        // Play notification and reset flag if it fails
+        playNotification(notificationType).then((success) => {
+          if (!success) {
+            // Reset flag to allow retry on next status poll
+            // This handles cases where unlock wasn't ready yet
+            console.debug("[AudioNotification] Play failed, allowing retry")
+            hasPlayedRef.current = false
+          }
+        })
+      }
     }
   }, [status, audioEnabled, selectedVoiceId, playNotification])
 

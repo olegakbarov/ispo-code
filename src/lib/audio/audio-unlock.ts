@@ -60,7 +60,9 @@ async function attemptUnlock(): Promise<boolean> {
 
     // Resume the AudioContext (this requires user gesture)
     if (audioContext && audioContext.state === "suspended") {
-      await audioContext.resume()
+      void audioContext.resume().catch((error) => {
+        console.debug("[AudioUnlock] AudioContext resume failed:", error)
+      })
     }
 
     // Also play a silent audio element to unlock HTMLAudioElement
@@ -71,20 +73,25 @@ async function attemptUnlock(): Promise<boolean> {
 
     let htmlUnlocked = false
     try {
-      await silentAudio.play()
+      // Call play() before any await to preserve user-gesture context
+      const playPromise = silentAudio.play()
+      await playPromise
       htmlUnlocked = true
-    } catch {
-      // Ignore; unlock may still fail and we'll retry on the next interaction.
+    } catch (playError) {
+      console.debug("[AudioUnlock] Silent audio play failed:", playError)
+      // Unlock may still fail and we'll retry on the next interaction.
     }
     silentAudio.pause()
 
     if (!htmlUnlocked) {
+      console.debug("[AudioUnlock] HTML audio unlock failed - will retry on next interaction")
       return false
     }
 
     isUnlocked = true
     console.debug("[AudioUnlock] Audio unlocked successfully")
     unlockPromiseResolve?.(true)
+    unlockPromiseResolve = null
     return true
   } catch (error) {
     console.debug("[AudioUnlock] Unlock attempt failed:", error)
@@ -130,4 +137,13 @@ export function initAudioUnlock(): void {
  */
 export function getAudioContext(): AudioContext | null {
   return audioContext
+}
+
+/**
+ * Manually attempt to unlock audio.
+ * Useful for retry scenarios when the automatic unlock failed.
+ * Returns true if unlock succeeded, false otherwise.
+ */
+export async function tryUnlockAudio(): Promise<boolean> {
+  return attemptUnlock()
 }
