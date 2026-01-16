@@ -7,7 +7,6 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Scissors, ChevronDown, Sparkles } from 'lucide-react'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
-import type { AgentSession } from './agent-types'
 import { TaskInput } from './task-input'
 
 interface TaskFooterProps {
@@ -17,7 +16,6 @@ interface TaskFooterProps {
   rewriteModel: string
   isRewriting: boolean
   availableTypes: AgentType[] | undefined
-  agentSession: AgentSession | null
 
   // Split task
   canSplit?: boolean
@@ -36,7 +34,6 @@ export function TaskFooter({
   rewriteModel,
   isRewriting,
   availableTypes,
-  agentSession,
   canSplit,
   onSplit,
   onRewriteCommentChange,
@@ -59,11 +56,6 @@ export function TaskFooter({
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showAgentPicker])
-
-  // Don't show footer when agent is running
-  if (agentSession) {
-    return null
-  }
 
   const canSubmit = Boolean(rewriteComment.trim()) && !isRewriting
   const models = supportsModelSelection(rewriteAgentType) ? getModelsForAgentType(rewriteAgentType) : []
@@ -153,7 +145,6 @@ export function TaskFooter({
       value={rewriteComment}
       onChange={onRewriteCommentChange}
       placeholder="Describe changes you'd like to make to this plan..."
-      disabled={isRewriting}
       rows={6}
       onSubmit={onRewritePlan}
       canSubmit={canSubmit}
@@ -166,7 +157,7 @@ export function TaskFooter({
           {splitButton}
         </>
       }
-      containerClassName="absolute bottom-0 left-0 right-0 p-5 flex justify-center pointer-events-none"
+      containerClassName="shrink-0 border-t border-border p-4 flex justify-center"
     />
   )
 }

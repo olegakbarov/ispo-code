@@ -443,51 +443,49 @@ export function TasksPage({
             </ErrorBoundary>
           ) : (
             <>
-              <div className="flex-1 min-h-0 flex flex-col">
-                <ErrorBoundary
-                  name="TaskEditor"
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
-                        Failed to load task editor
-                      </div>
+              <ErrorBoundary
+                name="TaskEditor"
+                fallback={
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                      Failed to load task editor
                     </div>
-                  }
-                >
-                  <TaskEditor
-                    title={editorTitle}
-                    path={selectedPath}
-                    mode={mode}
-                    draft={editor.draft}
-                    taskDescription={editor.draft}
-                    createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
-                    updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
-                    subtasks={taskData?.subtasks ?? []}
-                    taskVersion={taskData?.version ?? 1}
-                    onSubtasksChange={() => utils.tasks.get.invalidate({ path: selectedPath })}
-                    isArchived={selectedSummary?.archived ?? false}
-                    isArchiving={archiveMutation.isPending}
-                    isRestoring={restoreMutation.isPending}
-                    onArchive={handleArchive}
-                    onRestore={handleRestore}
-                    onUnarchiveWithAgent={handleOpenUnarchiveModal}
-                    onCommitAndArchive={handleOpenCommitArchiveModal}
-                    activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
-                    isPlanningActive={isActivePlanningSession}
-                    reviewFile={reviewFile}
-                    onReviewFileChange={handleReviewFileChange}
-                    onModeChange={handleModeChange}
-                    onDraftChange={(newDraft) => {
-                      dispatch({ type: 'SET_DRAFT', payload: newDraft })
-                      dispatch({ type: 'SET_DIRTY', payload: true })
-                      // Trigger autosave after 500ms of inactivity
-                      if (selectedPath) {
-                        debouncedSave(selectedPath, newDraft)
-                      }
-                    }}
-                  />
-                </ErrorBoundary>
-              </div>
+                  </div>
+                }
+              >
+                <TaskEditor
+                  title={editorTitle}
+                  path={selectedPath}
+                  mode={mode}
+                  draft={editor.draft}
+                  taskDescription={editor.draft}
+                  createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
+                  updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
+                  subtasks={taskData?.subtasks ?? []}
+                  taskVersion={taskData?.version ?? 1}
+                  onSubtasksChange={() => utils.tasks.get.invalidate({ path: selectedPath })}
+                  isArchived={selectedSummary?.archived ?? false}
+                  isArchiving={archiveMutation.isPending}
+                  isRestoring={restoreMutation.isPending}
+                  onArchive={handleArchive}
+                  onRestore={handleRestore}
+                  onUnarchiveWithAgent={handleOpenUnarchiveModal}
+                  onCommitAndArchive={handleOpenCommitArchiveModal}
+                  activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
+                  isPlanningActive={isActivePlanningSession}
+                  reviewFile={reviewFile}
+                  onReviewFileChange={handleReviewFileChange}
+                  onModeChange={handleModeChange}
+                  onDraftChange={(newDraft) => {
+                    dispatch({ type: 'SET_DRAFT', payload: newDraft })
+                    dispatch({ type: 'SET_DIRTY', payload: true })
+                    // Trigger autosave after 500ms of inactivity
+                    if (selectedPath) {
+                      debouncedSave(selectedPath, newDraft)
+                    }
+                  }}
+                />
+              </ErrorBoundary>
 
               {/* Footer with rewrite controls - only show in edit mode */}
               {mode === 'edit' && (
@@ -497,7 +495,6 @@ export function TasksPage({
                   rewriteModel={rewrite.model}
                   isRewriting={rewriteWithAgentMutation.isPending}
                   availableTypes={availableTypes}
-                  agentSession={agentSession}
                   canSplit={sectionsData?.canSplit}
                   onSplit={handleOpenSplitModal}
                   onRewriteCommentChange={(comment) => {
