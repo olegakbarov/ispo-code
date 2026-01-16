@@ -13,7 +13,7 @@ import { useState, useMemo, lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router'
 import { GitCommit, Check, X, Sparkles, FileCode, ExternalLink } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
-import { Textarea } from '@/components/ui/textarea'
+import { StyledTextarea } from '@/components/ui/styled-textarea'
 import { trpc } from '@/lib/trpc-client'
 import { sessionTrpcOptions } from '@/lib/trpc-session'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
@@ -54,7 +54,7 @@ export function ThreadSidebar({ sessionId, session: sessionWithMetadata }: Threa
 
   if (!sessionWithMetadata) {
     return (
-      <div className="w-72 border-l border-border bg-card p-4">
+      <div className="w-[360px] border-l border-border bg-card p-4">
         <div className="text-sm text-muted-foreground font-vcr">Loading...</div>
       </div>
     )
@@ -71,7 +71,7 @@ export function ThreadSidebar({ sessionId, session: sessionWithMetadata }: Threa
     : Date.now() - new Date(session.startedAt).getTime()
 
   return (
-    <div className="w-72 border-l border-border bg-card flex flex-col">
+    <div className="w-[360px] border-l border-border bg-card flex flex-col">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* 1. STATUS - Most important, always visible */}
         <Section title="Status">
@@ -403,12 +403,13 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
           {/* Commit form */}
           <div className="space-y-2">
             <div className="relative">
-              <Textarea
+              <StyledTextarea
                 value={commitMessage}
                 onChange={(e) => setCommitMessage(e.target.value)}
+                autoGrowValue={commitMessage}
                 placeholder="Commit message..."
                 variant="sm"
-                className="min-h-[60px] bg-background font-mono"
+                className="font-mono min-h-[60px]"
                 disabled={commitMutation.isPending || generateCommitMutation.isPending}
               />
               {selectedFiles.size > 0 && (
@@ -416,7 +417,7 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
                   onClick={handleGenerateCommitMessage}
                   disabled={generateCommitMutation.isPending}
                   aria-label="Generate commit message with AI"
-                  className="absolute top-1 right-1 px-1.5 py-1 text-[9px] font-vcr rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  className="absolute top-1 right-1 px-1.5 py-1 text-[9px] font-vcr rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 z-10"
                   title="Generate commit message with AI"
                 >
                   {generateCommitMutation.isPending ? (

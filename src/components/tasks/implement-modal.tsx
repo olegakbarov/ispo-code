@@ -8,7 +8,7 @@ import { Play, Terminal, Cpu, Sparkles, ChevronDown, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
+import { StyledTextarea } from '@/components/ui/styled-textarea'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { supportsModelSelection, getModelsForAgentType, getDefaultModelId } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
@@ -228,12 +228,13 @@ export function ImplementModal({
             <label className="text-xs font-medium text-muted-foreground mb-2 block">
               Instructions <span className="text-muted-foreground/50 font-normal">(optional)</span>
             </label>
-            <Textarea
+            <StyledTextarea
               value={customInstructions}
               onChange={(e) => setCustomInstructions(e.target.value)}
+              autoGrowValue={customInstructions}
               placeholder="Add context or constraints for this implementation..."
               variant="sm"
-              className="h-20 bg-background rounded-lg"
+              className="min-h-[80px]"
               spellCheck={false}
               disabled={isStarting}
             />

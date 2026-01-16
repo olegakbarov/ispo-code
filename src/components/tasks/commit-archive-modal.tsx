@@ -5,10 +5,10 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import { Textarea } from '@/components/ui/textarea'
+import { StyledTextarea } from '@/components/ui/styled-textarea'
 import { trpc } from '@/lib/trpc-client'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
-import { GitCommit, Archive, FileText, RefreshCw, GitMerge, AlertTriangle } from 'lucide-react'
+import { GitCommit, Archive, RefreshCw, GitMerge, AlertTriangle } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 
 type CommitMode = 'commit-only' | 'commit-merge'
@@ -242,14 +242,21 @@ export function CommitArchiveModal({
       // 3. Clear draft on successful commit
       clearMessageDraft()
 
-      // 4. Close modal immediately after successful commit (and merge if applicable)
-      onCommitSuccess()
-
-      // 5. Archive task in background (don't await) - only for commit-only mode
+      // 4. Archive task BEFORE closing modal - only for commit-only mode
       // For commit-merge mode, archive after QA passes
+      // We await the archive to ensure it completes before the modal unmounts
       if (commitMode === 'commit-only') {
-        archiveMutation.mutate({ path: taskPath })
+        try {
+          await archiveMutation.mutateAsync({ path: taskPath })
+        } catch (archiveErr) {
+          // Log error but still close modal - commit succeeded
+          console.error('Archive failed:', archiveErr)
+          // Continue to close modal - commit was successful
+        }
       }
+
+      // 5. Close modal after archive completes (or immediately for merge mode)
+      onCommitSuccess()
 
       // Archive success handler will trigger navigation
     } catch {
@@ -258,60 +265,59 @@ export function CommitArchiveModal({
     }
   }
 
-  // Only block on commit/merge mutations (archive runs in bg after modal closes)
-  const isProcessing = commitMutation.isPending || mergeMutation.isPending
+  // Block on all mutations since archive now runs before modal closes
+  const isProcessing = commitMutation.isPending || mergeMutation.isPending || archiveMutation.isPending
   const canConfirm = gitRelativeFiles.length > 0 && commitMessage.trim() && !isProcessing
 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-lg bg-panel border border-border rounded shadow-lg">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+      <div className="w-full max-w-lg bg-panel border border-border rounded-lg shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-border">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-2.5">
             <GitCommit className="w-4 h-4 text-accent" />
-            <div className="font-vcr text-sm text-accent">Commit and Archive</div>
+            <span className="font-vcr text-sm text-accent tracking-wide">Commit and Archive</span>
           </div>
           <button
             onClick={handleClose}
             disabled={isProcessing}
-            className="px-2 py-1 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-panel-hover transition-colors disabled:opacity-50"
+            aria-label="Close"
           >
-            x
+            ×
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-4 space-y-4">
-          {/* Task info */}
-          <div>
-            <div className="font-vcr text-xs text-text-muted mb-1">Task:</div>
-            <div className="text-sm text-text-primary truncate">{taskTitle}</div>
+        <div className="px-4 py-3 space-y-0">
+          {/* Task row - no border-b (header already has border above) */}
+          <div className="flex items-center gap-3 py-3">
+            <span className="font-vcr text-[10px] text-text-muted uppercase tracking-wider w-16 shrink-0">Task</span>
+            <span className="text-sm text-text-primary truncate">{taskTitle}</span>
           </div>
 
-          {/* Files list */}
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <FileText className="w-4 h-4 text-text-muted" />
-              <div className="font-vcr text-xs text-text-muted">
-                Files to commit ({filesLoading ? '...' : gitRelativeFiles.length}):
-              </div>
+          {/* Files row */}
+          <div className="py-3 border-b border-border/50">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="font-vcr text-[10px] text-text-muted uppercase tracking-wider w-16 shrink-0">Files</span>
+              <span className="text-xs text-text-secondary">
+                {filesLoading ? '...' : gitRelativeFiles.length} to commit
+              </span>
             </div>
 
             {filesLoading ? (
-              <div className="flex items-center gap-2 text-sm text-text-muted p-3 border border-border rounded">
-                <Spinner size="sm" />
-                Loading files...
+              <div className="flex items-center gap-2 text-xs text-text-muted ml-[76px]">
+                <Spinner size="xs" />
+                <span>Loading...</span>
               </div>
             ) : gitRelativeFiles.length === 0 ? (
-              <div className="text-sm text-text-muted p-3 border border-border rounded">
-                No uncommitted changes found
-              </div>
+              <div className="text-xs text-text-muted ml-[76px]">No uncommitted changes</div>
             ) : (
-              <div className="max-h-[150px] overflow-y-auto border border-border rounded p-2 space-y-1 bg-background">
+              <div className="ml-[76px] max-h-[134px] overflow-y-auto">
                 {gitRelativeFiles.map((file) => (
-                  <div key={file} className="text-xs text-text-secondary font-mono truncate">
+                  <div key={file} className="text-xs text-text-secondary font-mono truncate py-0.5">
                     {file}
                   </div>
                 ))}
@@ -319,132 +325,121 @@ export function CommitArchiveModal({
             )}
           </div>
 
-          {/* Commit message */}
-          <div className="border-t border-border pt-4">
+          {/* Message row */}
+          <div className="py-3 border-b border-border/50">
             <div className="flex items-center justify-between mb-2">
-              <div className="font-vcr text-xs text-text-muted">Commit message:</div>
+              <span className="font-vcr text-[10px] text-text-muted uppercase tracking-wider">Message</span>
               <button
                 onClick={handleRegenerate}
                 disabled={generateMutation.isPending || gitRelativeFiles.length === 0}
-                className="flex items-center gap-1 text-xs text-accent hover:underline disabled:opacity-50 disabled:no-underline"
+                className="flex items-center gap-1.5 text-[10px] text-accent hover:text-accent/80 disabled:opacity-40 transition-colors"
               >
                 <RefreshCw className={`w-3 h-3 ${generateMutation.isPending ? 'animate-spin' : ''}`} />
-                {generateMutation.isPending ? 'Generating...' : 'Regenerate'}
+                {generateMutation.isPending ? 'Generating' : 'Regenerate'}
               </button>
             </div>
 
-            <Textarea
+            <StyledTextarea
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
+              autoGrowValue={commitMessage}
               disabled={isProcessing}
-              placeholder={generateMutation.isPending ? 'Generating commit message...' : 'Enter commit message...'}
-              className="h-24 bg-background"
+              placeholder={generateMutation.isPending ? 'Generating...' : 'Enter commit message...'}
+              variant="sm"
+              className="min-h-[80px]"
             />
           </div>
 
-          {/* Commit Mode Selection - only show if merge is available */}
+          {/* Merge options - only if available */}
           {canMerge && (
-            <div className="border-t border-border pt-4">
-              <div className="font-vcr text-xs text-text-muted mb-3">After commit:</div>
-              <div className="space-y-2">
-                <label className="flex items-start gap-3 p-2 rounded border border-border hover:bg-panel-hover cursor-pointer">
+            <div className="py-3 border-b border-border/50">
+              <span className="font-vcr text-[10px] text-text-muted uppercase tracking-wider block mb-3">After commit</span>
+              <div className="space-y-1.5">
+                <label className={`flex items-center gap-3 px-3 py-2 rounded cursor-pointer transition-colors ${commitMode === 'commit-only' ? 'bg-panel-hover' : 'hover:bg-panel-hover/50'}`}>
                   <input
                     type="radio"
                     name="commitMode"
-                    value="commit-only"
                     checked={commitMode === 'commit-only'}
                     onChange={() => setCommitMode('commit-only')}
-                    className="mt-0.5"
+                    className="accent-accent"
                   />
-                  <div>
-                    <div className="flex items-center gap-2 text-xs font-vcr text-text-primary">
-                      <Archive className="w-3 h-3" />
-                      Commit Only
-                    </div>
-                    <div className="text-[10px] text-text-muted mt-0.5">
-                      Commit to worktree and archive task. Merge manually later.
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <Archive className="w-3.5 h-3.5 text-text-muted" />
+                    <span className="text-xs text-text-primary">Archive only</span>
+                    <span className="text-[10px] text-text-muted">— merge later</span>
                   </div>
                 </label>
 
-                <label className="flex items-start gap-3 p-2 rounded border border-accent/30 hover:bg-accent/5 cursor-pointer">
+                <label className={`flex items-center gap-3 px-3 py-2 rounded cursor-pointer transition-colors ${commitMode === 'commit-merge' ? 'bg-accent/10' : 'hover:bg-accent/5'}`}>
                   <input
                     type="radio"
                     name="commitMode"
-                    value="commit-merge"
                     checked={commitMode === 'commit-merge'}
                     onChange={() => setCommitMode('commit-merge')}
-                    className="mt-0.5"
+                    className="accent-accent"
                   />
-                  <div>
-                    <div className="flex items-center gap-2 text-xs font-vcr text-accent">
-                      <GitMerge className="w-3 h-3" />
-                      Commit & Merge to Main
-                    </div>
-                    <div className="text-[10px] text-text-muted mt-0.5">
-                      Commit, merge to main, then QA. Archive after QA passes.
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <GitMerge className="w-3.5 h-3.5 text-accent" />
+                    <span className="text-xs text-accent">Merge to main</span>
+                    <span className="text-[10px] text-text-muted">— requires QA</span>
                   </div>
                 </label>
 
                 {commitMode === 'commit-merge' && (
-                  <div className="flex items-start gap-2 p-2 bg-warning/10 border border-warning/30 rounded text-[10px] text-warning">
-                    <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                    <span>
-                      Merge will require manual QA. If QA fails, you can revert the merge.
-                    </span>
+                  <div className="flex items-center gap-2 px-3 py-2 text-[10px] text-warning">
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    <span>QA required after merge. Revert available if QA fails.</span>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Error display */}
+          {/* Status messages */}
           {error && (
-            <div className="p-2 bg-error/10 border border-error/30 rounded text-xs text-error">
-              {error}
-            </div>
+            <div className="py-3 text-xs text-error">{error}</div>
           )}
 
-          {/* Processing status */}
           {isProcessing && (
-            <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/30 rounded text-sm text-accent">
+            <div className="flex items-center gap-2 py-3 text-sm text-accent">
               <Spinner size="sm" />
-              {commitMutation.isPending ? 'Committing changes...' :
-               mergeMutation.isPending ? 'Merging to main...' :
-               'Processing...'}
+              <span>
+                {commitMutation.isPending ? 'Committing...' :
+                 mergeMutation.isPending ? 'Merging...' :
+                 archiveMutation.isPending ? 'Archiving...' : 'Processing...'}
+              </span>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 p-3 border-t border-border">
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
           <button
             onClick={handleClose}
             disabled={isProcessing}
-            className="px-3 py-1.5 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-1.5 text-xs text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={!canConfirm}
-            className="px-3 py-1.5 rounded text-xs font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-4 py-1.5 rounded text-xs font-medium bg-accent text-background hover:bg-accent/90 disabled:opacity-40 transition-colors flex items-center gap-2"
           >
             {isProcessing ? (
               <>
                 <Spinner size="xs" />
-                Processing...
+                Processing
               </>
             ) : commitMode === 'commit-merge' && canMerge ? (
               <>
-                <GitMerge className="w-3 h-3" />
+                <GitMerge className="w-3.5 h-3.5" />
                 Commit & Merge
               </>
             ) : (
               <>
-                <Archive className="w-3 h-3" />
-                Commit and Archive
+                <Archive className="w-3.5 h-3.5" />
+                Commit & Archive
               </>
             )}
           </button>

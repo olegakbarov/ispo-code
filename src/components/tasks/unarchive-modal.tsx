@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { X, PlayCircle } from 'lucide-react'
+import { StyledTextarea } from '@/components/ui/styled-textarea'
 import type { AgentType } from '@/lib/agent/types'
 import type { PlannerAgentType } from '@/lib/agent/config'
 
@@ -77,12 +78,13 @@ export function UnarchiveModal({
               <p className="text-xs text-muted-foreground mb-3">
                 The agent will receive this message along with the task content and previous session outputs.
               </p>
-              <textarea
+              <StyledTextarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
+                autoGrowValue={message}
                 placeholder="e.g., 'The previous fix didn't work. The issue is still happening when...' or 'Please investigate why the test is still failing...'"
-                className="w-full px-4 py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-none"
-                rows={6}
+                variant="md"
+                className="min-h-[150px]"
                 disabled={isSubmitting}
               />
             </div>

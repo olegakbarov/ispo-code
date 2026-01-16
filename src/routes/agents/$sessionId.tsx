@@ -14,18 +14,19 @@
  */
 
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { ArrowLeft, Send, CheckCircle, XCircle } from 'lucide-react'
 import { z } from 'zod'
 import { trpc } from '@/lib/trpc-client'
 import { useAdaptivePolling, computeSessionHash } from '@/lib/hooks/use-adaptive-polling'
+import { mergeOutputWithPending, filterPendingUserMessages, type PendingUserMessage } from '@/lib/agent/output-utils'
 import { PromptDisplay } from '@/components/agents/prompt-display'
 import { AgentProgressBanner } from '@/components/agents/progress-banner'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
 import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
 import { Spinner } from '@/components/ui/spinner'
-import { Textarea } from '@/components/ui/textarea'
+import { StyledTextarea } from '@/components/ui/styled-textarea'
 import type { ImageAttachment } from '@/lib/agent/types'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 
@@ -36,10 +37,21 @@ export const Route = createFileRoute('/agents/$sessionId')({
   component: AgentSessionPage,
 })
 
+const RESUME_POLL_TIMEOUT_MS = 20000
+
+function createClientMessageId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && 'randomUUID' in globalThis.crypto) {
+    return globalThis.crypto.randomUUID()
+  }
+  return `resume-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 function AgentSessionPage() {
   const { sessionId } = Route.useParams()
   const [resumeMessage, setResumeMessage] = useState('')
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
+  const [pendingMessages, setPendingMessages] = useState<PendingUserMessage[]>([])
+  const [awaitingResumeStatus, setAwaitingResumeStatus] = useState(false)
   const outputContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch session with metadata
@@ -49,8 +61,11 @@ function AgentSessionPage() {
   )
 
   // Adaptive polling based on session status
+  const isTerminalStatus = session?.status === 'completed' || session?.status === 'failed' || session?.status === 'cancelled'
+  const pollingStatus = awaitingResumeStatus && isTerminalStatus ? 'running' : session?.status
+
   const { refetchInterval, reset: resetPolling } = useAdaptivePolling({
-    status: session?.status,
+    status: pollingStatus,
     dataHash: computeSessionHash(session ?? null),
   })
 
@@ -63,18 +78,46 @@ function AgentSessionPage() {
   // Reset polling when sessionId changes
   useEffect(() => {
     resetPolling()
+    setPendingMessages([])
+    setAwaitingResumeStatus(false)
   }, [sessionId, resetPolling])
+
+  const outputChunks = useMemo(
+    () => mergeOutputWithPending(session?.output ?? [], pendingMessages),
+    [session?.output, pendingMessages]
+  )
 
   // Auto-scroll to bottom when new output arrives
   useEffect(() => {
-    if (outputContainerRef.current && session?.output) {
+    if (outputContainerRef.current && outputChunks.length > 0) {
       const container = outputContainerRef.current
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
       if (isNearBottom) {
         container.scrollTop = container.scrollHeight
       }
     }
-  }, [session?.output?.length])
+  }, [outputChunks.length])
+
+  useEffect(() => {
+    if (!session?.output || pendingMessages.length === 0) return
+    setPendingMessages((prev) => {
+      const next = filterPendingUserMessages(session.output, prev)
+      return next.length === prev.length ? prev : next
+    })
+  }, [session?.output, pendingMessages.length])
+
+  useEffect(() => {
+    if (!awaitingResumeStatus || !session?.status) return
+    if (session.status !== 'completed' && session.status !== 'failed' && session.status !== 'cancelled') {
+      setAwaitingResumeStatus(false)
+    }
+  }, [awaitingResumeStatus, session?.status])
+
+  useEffect(() => {
+    if (!awaitingResumeStatus) return
+    const timeout = setTimeout(() => setAwaitingResumeStatus(false), RESUME_POLL_TIMEOUT_MS)
+    return () => clearTimeout(timeout)
+  }, [awaitingResumeStatus])
 
   // Mutations
   const cancelMutation = trpc.agent.cancel.useMutation({
@@ -86,11 +129,46 @@ function AgentSessionPage() {
   })
 
   const resumeMutation = trpc.agent.sendMessage.useMutation({
-    onSuccess: () => {
+    onMutate: (variables) => {
+      setAwaitingResumeStatus(true)
+      resetPolling()
+
+      const previousMessage = resumeMessage
+      const previousAttachments = attachments
+      const serializedAttachments = variables.attachments?.map((att) => ({
+        type: att.type,
+        mimeType: att.mimeType,
+        data: att.data,
+        fileName: att.fileName,
+      }))
+
+      const pendingMessage: PendingUserMessage = {
+        id: variables.clientMessageId ?? createClientMessageId(),
+        content: variables.message,
+        timestamp: new Date().toISOString(),
+        attachments: serializedAttachments,
+      }
+
+      setPendingMessages((prev) => [...prev, pendingMessage])
       setResumeMessage('')
       setAttachments([])
-      resetPolling()
+
+      return { previousMessage, previousAttachments, pendingId: pendingMessage.id }
+    },
+    onSuccess: () => {
       refetch()
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.pendingId) {
+        setPendingMessages((prev) => prev.filter((msg) => msg.id !== context.pendingId))
+      }
+      if (context?.previousMessage !== undefined) {
+        setResumeMessage(context.previousMessage)
+      }
+      if (context?.previousAttachments !== undefined) {
+        setAttachments(context.previousAttachments)
+      }
+      setAwaitingResumeStatus(false)
     },
   })
 
@@ -103,11 +181,13 @@ function AgentSessionPage() {
   }
 
   const handleResume = () => {
-    if (!resumeMessage.trim()) return
+    const trimmed = resumeMessage.trim()
+    if (!trimmed) return
     resumeMutation.mutate({
       sessionId,
-      message: resumeMessage.trim(),
+      message: trimmed,
       attachments: attachments.length > 0 ? attachments : undefined,
+      clientMessageId: createClientMessageId(),
     })
   }
 
@@ -258,7 +338,7 @@ function AgentSessionPage() {
           ref={outputContainerRef}
           className="flex-1 overflow-y-auto p-4 space-y-2"
         >
-          {session.output.length === 0 ? (
+          {outputChunks.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               {isRunning ? (
                 <div className="flex items-center gap-2">
@@ -270,7 +350,7 @@ function AgentSessionPage() {
               )}
             </div>
           ) : (
-            <OutputRenderer chunks={session.output} />
+            <OutputRenderer chunks={outputChunks} />
           )}
         </div>
 
@@ -283,19 +363,21 @@ function AgentSessionPage() {
                 onChange={setAttachments}
               />
               <div className="flex items-end gap-2">
-                <Textarea
+                <StyledTextarea
                   value={resumeMessage}
                   onChange={(e) => setResumeMessage(e.target.value)}
+                  autoGrowValue={resumeMessage}
                   onKeyDown={handleKeyDown}
                   placeholder={isWaitingInput ? "Respond to agent..." : "Send follow-up message..."}
                   variant="sm"
-                  className="flex-1 min-h-[60px] max-h-[200px] resize-y"
+                  containerClassName="flex-1"
+                  className="min-h-[60px] max-h-[200px]"
                   disabled={resumeMutation.isPending}
                 />
                 <button
                   onClick={handleResume}
                   disabled={!resumeMessage.trim() || resumeMutation.isPending}
-                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-vcr rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-vcr rounded-lg bg-accent text-background hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {resumeMutation.isPending ? (
                     <Spinner size="xs" />

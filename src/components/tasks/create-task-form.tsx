@@ -4,7 +4,7 @@
  * Styled to match cmdk (command palette) aesthetic
  */
 
-import { Textarea } from '@/components/ui/textarea'
+import { StyledTextarea } from '@/components/ui/styled-textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, supportsAskUserQuestion, type PlannerAgentType } from '@/lib/agent/config'
@@ -100,11 +100,12 @@ export function CreateTaskForm({
       {/* Description section */}
       <div>
         <GroupHeading>Description</GroupHeading>
-        <Textarea
+        <StyledTextarea
           value={newTitle}
           onChange={(e) => onTitleChange(e.target.value)}
+          autoGrowValue={newTitle}
           placeholder="What do you want to accomplish?"
-          className="bg-background/50 border-border/50 focus:border-accent/50 text-sm p-4"
+          variant="md"
           rows={4}
           autoFocus={autoFocus}
           onKeyDown={(e) => {
