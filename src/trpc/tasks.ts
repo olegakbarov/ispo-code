@@ -7,6 +7,7 @@
 import { z } from "zod"
 import { randomBytes } from "crypto"
 import { router, procedure } from "./trpc"
+import { taskLogger } from "@/lib/logger"
 import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge, generateArchiveCommitMessage } from "@/lib/agent/task-service"
 import { buildTaskVerifyPrompt } from "@/lib/tasks/verify-prompt"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
@@ -935,7 +936,10 @@ export const tasksRouter = router({
       content: z.string().optional(),
     }))
     .mutation(({ ctx, input }) => {
-      return createTask(ctx.workingDir, { title: input.title, content: input.content })
+      taskLogger.info('create', `Creating task: ${input.title}`)
+      const result = createTask(ctx.workingDir, { title: input.title, content: input.content })
+      taskLogger.info('create', 'Task created', { path: result.path })
+      return result
     }),
 
   /**
@@ -1016,6 +1020,8 @@ export const tasksRouter = router({
       path: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
+      taskLogger.warn('delete', `Deleting task: ${input.path}`)
+
       // Get task info (for splitFrom fallback)
       let splitFrom: string | undefined
       try {
@@ -1033,6 +1039,9 @@ export const tasksRouter = router({
       const sessionIds = getActiveSessionIdsForTask(registryEvents, input.path, splitFrom)
 
       // Kill daemon processes and soft-delete each session
+      if (sessionIds.length > 0) {
+        taskLogger.info('delete', `Cleaning up ${sessionIds.length} attached sessions`)
+      }
       const monitor = getProcessMonitor()
       for (const sessionId of sessionIds) {
         // Kill daemon if running
@@ -1045,7 +1054,9 @@ export const tasksRouter = router({
       }
 
       // Delete the task file
-      return deleteTask(ctx.workingDir, input.path)
+      const result = deleteTask(ctx.workingDir, input.path)
+      taskLogger.info('delete', 'Task deleted', { path: input.path, sessionsRemoved: sessionIds.length })
+      return result
     }),
 
   /**
@@ -1058,6 +1069,7 @@ export const tasksRouter = router({
       path: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
+      taskLogger.info('archive', `Archiving task: ${input.path}`)
       // Check for uncommitted changes before archiving
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
@@ -1121,7 +1133,7 @@ export const tasksRouter = router({
               }
             } catch (error) {
               // Log but don't fail archive on worktree cleanup errors
-              console.warn(`[archive] Failed to cleanup worktree for session ${sessionId}:`, error)
+              taskLogger.warn('archive', `Failed to cleanup worktree for session ${sessionId}`, error)
             }
           }
         }
@@ -1139,9 +1151,11 @@ export const tasksRouter = router({
       )
 
       if (!commitResult.success) {
+        taskLogger.error('archive', 'Archive commit failed', new Error(commitResult.error))
         throw new Error(`Archive commit failed: ${commitResult.error}`)
       }
 
+      taskLogger.info('archive', 'Task archived successfully', { newPath: result.path, commitHash: commitResult.hash })
       return { ...result, commitHash: commitResult.hash }
     }),
 
@@ -1153,7 +1167,10 @@ export const tasksRouter = router({
       path: z.string().min(1),
     }))
     .mutation(({ ctx, input }) => {
-      return restoreTask(ctx.workingDir, input.path)
+      taskLogger.info('restore', `Restoring task: ${input.path}`)
+      const result = restoreTask(ctx.workingDir, input.path)
+      taskLogger.info('restore', 'Task restored', { newPath: result.path })
+      return result
     }),
 
   /**
@@ -1385,6 +1402,7 @@ Begin working on the task now.`
       instructions: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      taskLogger.info('assignToAgent', `Assigning task to ${input.agentType}`, { path: input.path, model: input.model })
       const task = getTask(ctx.workingDir, input.path)
       const prompt = buildTaskExecutionPrompt({
         taskPath: input.path,
@@ -1410,6 +1428,7 @@ Begin working on the task now.`
         title: `Run: ${task.title}`,
       })
 
+      taskLogger.info('assignToAgent', 'Agent session spawned', { sessionId, agentType: input.agentType })
       return {
         path: input.path,
         sessionId,
@@ -2003,6 +2022,7 @@ Begin working on the task now.`
       )
 
       // Build changed files map and collect per-session file sets
+      // Key by gitPath (repoRelativePath) to dedupe files across worktrees
       const allFiles = new Map<string, {
         path: string
         relativePath?: string
@@ -2021,10 +2041,12 @@ Begin working on the task now.`
 
         const gitPaths = new Set<string>()
         for (const file of changedFiles) {
-          // Aggregate for changed files output
-          const existing = allFiles.get(file.path)
+          // Compute git-relative path for deduplication
+          const gitPath = file.repoRelativePath || file.relativePath || file.path
+          // Aggregate for changed files output - dedupe by gitPath to avoid duplicates across worktrees
+          const existing = allFiles.get(gitPath)
           if (!existing || new Date(file.timestamp) > new Date(existing.timestamp)) {
-            allFiles.set(file.path, {
+            allFiles.set(gitPath, {
               path: file.path,
               relativePath: file.relativePath,
               repoRelativePath: file.repoRelativePath,
@@ -2036,7 +2058,6 @@ Begin working on the task now.`
             })
           }
           // Track git path for uncommitted check
-          const gitPath = file.repoRelativePath || file.relativePath || file.path
           gitPaths.add(gitPath)
         }
 
@@ -2806,6 +2827,11 @@ _Generating plans with 2 agents..._
       mergedAt: z.string().optional(),
     }))
     .mutation(({ ctx, input }) => {
+      taskLogger.info('recordMerge', `Recording merge for task`, {
+        path: input.path,
+        sessionId: input.sessionId.slice(0, 8),
+        commitHash: input.commitHash.slice(0, 8),
+      })
       return recordMerge(ctx.workingDir, input.path, {
         sessionId: input.sessionId,
         commitHash: input.commitHash,
@@ -2836,6 +2862,11 @@ _Generating plans with 2 agents..._
       revertCommitHash: z.string().min(1),
     }))
     .mutation(({ ctx, input }) => {
+      taskLogger.warn('recordRevert', `Recording revert for task`, {
+        path: input.path,
+        mergeCommitHash: input.mergeCommitHash.slice(0, 8),
+        revertCommitHash: input.revertCommitHash.slice(0, 8),
+      })
       return recordRevert(
         ctx.workingDir,
         input.path,

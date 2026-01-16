@@ -12,8 +12,6 @@ import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
 import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
-import { FileListPanel, type ChangedFile } from "./file-list-panel"
-import { CommitActionButton } from "./commit-action-button"
 import { AllCommittedState, ArchivedTaskActions } from "./all-committed-state"
 
 interface TaskReviewPanelProps {
@@ -26,7 +24,18 @@ interface TaskReviewPanelProps {
   onArchive?: () => void
   onRestore?: () => void
   onUnarchiveWithAgent?: () => void
-  onCommitAndArchive?: () => void
+  /** Pre-generated commit message */
+  initialCommitMessage?: string | null
+  /** Whether the initial message is still being generated */
+  isGeneratingCommitMessage?: boolean
+  /** Session ID for tracking merge history */
+  sessionId?: string
+  /** Worktree branch name if using worktree isolation */
+  worktreeBranch?: string
+  /** Called after successful archive */
+  onArchiveSuccess?: () => void
+  /** Called after successful merge */
+  onMergeSuccess?: () => void
   /** Selected file from URL (git-relative path) */
   reviewFile?: string
   /** Callback when active file changes (for URL sync) */
@@ -35,13 +44,20 @@ interface TaskReviewPanelProps {
 
 export function TaskReviewPanel({
   taskPath,
+  taskTitle,
+  taskDescription,
   isArchived = false,
   isArchiving = false,
   isRestoring = false,
   onArchive,
   onRestore,
   onUnarchiveWithAgent,
-  onCommitAndArchive,
+  initialCommitMessage,
+  isGeneratingCommitMessage,
+  sessionId,
+  worktreeBranch,
+  onArchiveSuccess,
+  onMergeSuccess,
   reviewFile,
   onReviewFileChange,
 }: TaskReviewPanelProps) {
@@ -101,8 +117,8 @@ export function TaskReviewPanel({
     untracked: gitStatus.untracked,
   } : undefined
 
-  // Track whether we've initialized from URL reviewFile
-  const initializedFromUrlRef = useRef(false)
+  // Track previous reviewFile to detect external changes (e.g., sidebar clicks)
+  const prevReviewFileRef = useRef<string | undefined>(reviewFile)
   const autoOpenedRef = useRef(false)
 
   // Helper to fetch diff for a file
@@ -122,9 +138,16 @@ export function TaskReviewPanel({
       })
   }, [utils])
 
-  // Initialize from URL reviewFile param on mount
+  // Sync reviewFile prop to local activeFile state (handles sidebar clicks and URL changes)
   useEffect(() => {
-    if (initializedFromUrlRef.current || !reviewFile) return
+    const prevReviewFile = prevReviewFileRef.current
+    prevReviewFileRef.current = reviewFile
+
+    // Skip if reviewFile hasn't changed
+    if (reviewFile === prevReviewFile) return
+    // Skip if no reviewFile provided
+    if (!reviewFile) return
+    // Skip if files not loaded yet
     if (uncommittedFiles.length === 0) return
 
     const matchingFile = uncommittedFiles.find(f => {
@@ -134,7 +157,6 @@ export function TaskReviewPanel({
 
     if (matchingFile) {
       const gitPath = matchingFile.repoRelativePath || matchingFile.relativePath || matchingFile.path
-      initializedFromUrlRef.current = true
       setActiveFile(gitPath)
       setActiveFileWorkingDir(matchingFile.sessionWorkingDir)
       fetchDiff(gitPath, matchingFile.sessionWorkingDir)
@@ -157,22 +179,16 @@ export function TaskReviewPanel({
     fetchDiff(gitPath, firstFile.sessionWorkingDir)
   }, [reviewFile, activeFile, uncommittedFiles, fetchDiff])
 
-  // Sync activeFile changes to URL
+  // Sync activeFile changes to URL (when user interacts with diff panel)
   const prevActiveFileRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!initializedFromUrlRef.current && reviewFile) return
     const prev = prevActiveFileRef.current
     prevActiveFileRef.current = activeFile
     if (prev === activeFile) return
+    // Only sync to URL if this change didn't come from reviewFile prop
+    if (activeFile === reviewFile) return
     onReviewFileChange?.(activeFile)
   }, [activeFile, reviewFile, onReviewFileChange])
-
-  // Handle file click from list
-  const handleFileClick = useCallback((file: string, _view: GitDiffView, sessionWorkingDir?: string) => {
-    setActiveFile(file)
-    setActiveFileWorkingDir(sessionWorkingDir)
-    fetchDiff(file, sessionWorkingDir)
-  }, [fetchDiff])
 
   // DiffPanel handlers (simplified - no multi-file support needed)
   const handleSelectFile = useCallback((file: string) => {
@@ -249,64 +265,43 @@ export function TaskReviewPanel({
     )
   }
 
-  const typedFiles: ChangedFile[] = uncommittedFiles
-
   return (
-    <div className="h-full flex">
-      {/* Left panel - File list and commit controls */}
-      <div className="w-72 shrink-0 flex flex-col h-full border-r border-border bg-card">
-        <FileListPanel
-          files={typedFiles}
-          activeFile={activeFile}
-          onFileClick={handleFileClick}
-        />
-
-        {/* Commit and Archive button */}
-        {onCommitAndArchive && (
-          <CommitActionButton
-            fileCount={uncommittedFiles.length}
-            onCommitAndArchive={onCommitAndArchive}
-          />
-        )}
-      </div>
-
-      {/* Right panel - Diff viewer */}
-      <div className="flex-1 min-w-0">
-        {diffPanelStatus ? (
-          <ErrorBoundary
-            name="DiffPanel"
-            fallback={
-              <div className="flex items-center justify-center h-full">
-                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
-                  Failed to load diff viewer
-                </div>
+    <div className="h-full">
+      {/* Diff viewer only - file list is now in sidebar */}
+      {diffPanelStatus ? (
+        <ErrorBoundary
+          name="DiffPanel"
+          fallback={
+            <div className="flex items-center justify-center h-full">
+              <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                Failed to load diff viewer
               </div>
-            }
-          >
-            <DiffPanel
-              status={diffPanelStatus}
-              openFiles={activeFile ? [activeFile] : []}
-              activeFile={activeFile}
-              activeView="working"
-              fileViews={activeFile ? { [activeFile]: "working" } : {}}
-              diffData={diffData}
-              diffLoading={diffLoading}
-              theme={resolvedTheme}
-              onSelectFile={handleSelectFile}
-              onCloseFile={handleCloseFile}
-              onCloseAll={handleCloseFile}
-              onViewChange={handleViewChange}
-              onFetchDiff={handleFetchDiff}
-              reviewMode
-              taskPath={taskPath}
-            />
-          </ErrorBoundary>
-        ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            Loading git status...
-          </div>
-        )}
-      </div>
+            </div>
+          }
+        >
+          <DiffPanel
+            status={diffPanelStatus}
+            openFiles={activeFile ? [activeFile] : []}
+            activeFile={activeFile}
+            activeView="working"
+            fileViews={activeFile ? { [activeFile]: "working" } : {}}
+            diffData={diffData}
+            diffLoading={diffLoading}
+            theme={resolvedTheme}
+            onSelectFile={handleSelectFile}
+            onCloseFile={handleCloseFile}
+            onCloseAll={handleCloseFile}
+            onViewChange={handleViewChange}
+            onFetchDiff={handleFetchDiff}
+            reviewMode
+            taskPath={taskPath}
+          />
+        </ErrorBoundary>
+      ) : (
+        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+          Loading git status...
+        </div>
+      )}
     </div>
   )
 }
