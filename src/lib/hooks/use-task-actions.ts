@@ -10,7 +10,7 @@
  * - Pre-generate commit message effect
  */
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useDebouncedCallback } from '@/lib/utils/debounce'
 import { trpc } from '@/lib/trpc-client'
@@ -18,6 +18,7 @@ import { encodeTaskPath } from '@/lib/utils/task-routing'
 import type { AgentType } from '@/lib/agent/types'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import type { AgentSession } from '@/components/tasks/agent-types'
+import type { MergeHistoryEntry } from '@/lib/agent/task-service'
 import type {
   TasksAction,
   EditorState,
@@ -39,6 +40,9 @@ interface TaskSessionsData {
 
 interface UseTaskActionsParams {
   selectedPath: string | null
+  workingDir: string | null
+  activeSessionId: string | null | undefined
+  latestActiveMerge: MergeHistoryEntry | null | undefined
   dispatch: React.Dispatch<TasksAction>
   editor: EditorState
   create: CreateModalState
@@ -70,12 +74,21 @@ interface UseTaskActionsParams {
   rewriteWithAgentMutation: ReturnType<typeof trpc.tasks.rewriteWithAgent.useMutation>
   splitTaskMutation: ReturnType<typeof trpc.tasks.splitTask.useMutation>
   orchestrateMutation: ReturnType<typeof trpc.tasks.orchestrateDebugRun.useMutation>
+  mergeBranchMutation: ReturnType<typeof trpc.git.mergeBranch.useMutation>
+  recordMergeMutation: ReturnType<typeof trpc.tasks.recordMerge.useMutation>
+  setQAStatusMutation: ReturnType<typeof trpc.tasks.setQAStatus.useMutation>
+  revertMergeMutation: ReturnType<typeof trpc.git.revertMerge.useMutation>
+  recordRevertMutation: ReturnType<typeof trpc.tasks.recordRevert.useMutation>
   // Draft management
   clearRewriteDraft: () => void
+  clearCreateTitleDraft: () => void
 }
 
 export function useTaskActions({
   selectedPath,
+  workingDir,
+  activeSessionId,
+  latestActiveMerge,
   dispatch,
   editor,
   create,
@@ -101,7 +114,13 @@ export function useTaskActions({
   rewriteWithAgentMutation,
   splitTaskMutation,
   orchestrateMutation,
+  mergeBranchMutation,
+  recordMergeMutation,
+  setQAStatusMutation,
+  revertMergeMutation,
+  recordRevertMutation,
   clearRewriteDraft,
+  clearCreateTitleDraft,
 }: UseTaskActionsParams) {
   const navigate = useNavigate()
   const utils = trpc.useUtils()
@@ -150,37 +169,44 @@ export function useTaskActions({
     }
   }, [dispatch, navigate, selectedPath, buildSearchParams])
 
-  const handleCreate = useCallback(async () => {
+  const handleCreate = useCallback(() => {
     const title = create.title.trim()
     if (!title) return
 
-    try {
-      if (create.useAgent) {
-        if (create.taskType === 'bug') {
-          const selectedAgents = create.debugAgents
-            .filter((da) => da.selected)
-            .map((da) => ({ agentType: da.agentType, model: da.model || undefined }))
+    // Optimistic update: reset state and clear draft immediately for instant feedback
+    dispatch({ type: 'RESET_CREATE_MODAL' })
+    clearCreateTitleDraft()
 
-          if (selectedAgents.length > 0) {
-            await debugWithAgentsMutation.mutateAsync({
-              title,
-              agents: selectedAgents,
-            })
-          }
-        } else {
-          await createWithAgentMutation.mutateAsync({
+    // Fire mutation without await (fire-and-forget pattern)
+    // Errors logged to console; optimistic update already applied
+    if (create.useAgent) {
+      if (create.taskType === 'bug') {
+        const selectedAgents = create.debugAgents
+          .filter((da) => da.selected)
+          .map((da) => ({ agentType: da.agentType, model: da.model || undefined }))
+
+        if (selectedAgents.length > 0) {
+          debugWithAgentsMutation.mutate(
+            { title, agents: selectedAgents },
+            { onError: (err) => console.error('Failed to create debug task:', err) }
+          )
+        }
+      } else {
+        createWithAgentMutation.mutate(
+          {
             title,
             taskType: create.taskType,
             agentType: create.agentType,
             model: create.model || undefined,
-          })
-        }
-      } else {
-        await createMutation.mutateAsync({ title })
+          },
+          { onError: (err) => console.error('Failed to create task with agent:', err) }
+        )
       }
-      dispatch({ type: 'RESET_CREATE_MODAL' })
-    } catch (err) {
-      console.error('Failed to create task:', err)
+    } else {
+      createMutation.mutate(
+        { title },
+        { onError: (err) => console.error('Failed to create task:', err) }
+      )
     }
   }, [
     create.title,
@@ -193,6 +219,7 @@ export function useTaskActions({
     createWithAgentMutation,
     createMutation,
     dispatch,
+    clearCreateTitleDraft,
   ])
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -411,6 +438,114 @@ export function useTaskActions({
   }, [tasks, selectedPath, navigate, buildSearchParams])
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // QA Workflow Handlers
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const handleMergeSuccess = useCallback(() => {
+    utils.tasks.get.invalidate()
+    utils.tasks.getLatestActiveMerge.invalidate()
+  }, [utils])
+
+  const expectedWorktreeBranch = activeSessionId ? `agentz/session-${activeSessionId}` : undefined
+  const { data: branchData } = trpc.git.branches.useQuery(undefined, {
+    enabled: !!workingDir && !!expectedWorktreeBranch,
+  })
+  const activeWorktreeBranch = useMemo(() => {
+    if (!expectedWorktreeBranch || !branchData?.all) return undefined
+    return branchData.all.includes(expectedWorktreeBranch) ? expectedWorktreeBranch : undefined
+  }, [expectedWorktreeBranch, branchData?.all])
+
+  const handleMergeToMain = useCallback(async () => {
+    if (!selectedPath || !activeSessionId || !activeWorktreeBranch) return
+
+    dispatch({ type: 'SET_SAVE_ERROR', payload: null })
+    try {
+      const mergeResult = await mergeBranchMutation.mutateAsync({
+        targetBranch: 'main',
+        sourceBranch: activeWorktreeBranch,
+      })
+
+      if (mergeResult.success && mergeResult.mergeCommitHash) {
+        await recordMergeMutation.mutateAsync({
+          path: selectedPath,
+          sessionId: activeSessionId,
+          commitHash: mergeResult.mergeCommitHash,
+        })
+      } else if (!mergeResult.success) {
+        dispatch({ type: 'SET_SAVE_ERROR', payload: mergeResult.error || 'Merge failed' })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Merge failed'
+      dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
+      console.error('Merge to main failed:', err)
+    }
+  }, [
+    selectedPath,
+    activeSessionId,
+    activeWorktreeBranch,
+    mergeBranchMutation,
+    recordMergeMutation,
+    dispatch,
+  ])
+
+  const handleSetQAPass = useCallback(async () => {
+    if (!selectedPath) return
+
+    try {
+      await setQAStatusMutation.mutateAsync({
+        path: selectedPath,
+        status: 'pass',
+      })
+    } catch (err) {
+      console.error('Failed to set QA pass:', err)
+    }
+  }, [selectedPath, setQAStatusMutation])
+
+  const handleSetQAFail = useCallback(async () => {
+    if (!selectedPath) return
+
+    try {
+      await setQAStatusMutation.mutateAsync({
+        path: selectedPath,
+        status: 'fail',
+      })
+    } catch (err) {
+      console.error('Failed to set QA fail:', err)
+    }
+  }, [selectedPath, setQAStatusMutation])
+
+  const handleRevertMerge = useCallback(async () => {
+    if (!selectedPath || !latestActiveMerge) return
+
+    dispatch({ type: 'SET_SAVE_ERROR', payload: null })
+    try {
+      const revertResult = await revertMergeMutation.mutateAsync({
+        mergeCommitHash: latestActiveMerge.commitHash,
+      })
+
+      if (revertResult.success && revertResult.revertCommitHash) {
+        await recordRevertMutation.mutateAsync({
+          path: selectedPath,
+          mergeCommitHash: latestActiveMerge.commitHash,
+          revertCommitHash: revertResult.revertCommitHash,
+        })
+      } else if (!revertResult.success) {
+        dispatch({ type: 'SET_SAVE_ERROR', payload: revertResult.error || 'Revert failed' })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Revert failed'
+      dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
+      console.error('Revert merge failed:', err)
+    }
+  }, [
+    selectedPath,
+    latestActiveMerge,
+    revertMergeMutation,
+    recordRevertMutation,
+    dispatch,
+  ])
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Debate Handlers
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -609,6 +744,12 @@ export function useTaskActions({
     handleCloseCommitArchiveModal,
     handleCommitSuccess,
     handleArchiveSuccess,
+    handleMergeSuccess,
+    activeWorktreeBranch,
+    handleMergeToMain,
+    handleSetQAPass,
+    handleSetQAFail,
+    handleRevertMerge,
 
     // Debate
     handleDebateAccept,

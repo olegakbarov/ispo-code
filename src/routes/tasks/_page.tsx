@@ -292,6 +292,7 @@ export function TasksPage({
     revertMergeMutation,
     recordRevertMutation,
     clearRewriteDraft,
+    clearCreateTitleDraft,
   })
 
   // Sync create modal state with props
