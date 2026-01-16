@@ -1103,6 +1103,21 @@ export function getConflictedFiles(cwd: string): string[] {
   }
 }
 
+/**
+ * Check if a branch exists (locally)
+ */
+export function branchExists(cwd: string, branch: string): boolean {
+  if (!isGitRepo(cwd)) {
+    return false
+  }
+  if (!branch.trim() || !isValidBranchName(branch)) {
+    return false
+  }
+
+  const result = runGit(["rev-parse", "--verify", branch], cwd)
+  return result.ok
+}
+
 // === Merge/Revert Operations ===
 
 /**
@@ -1143,6 +1158,16 @@ export function mergeBranch(
   }
   if (!isValidBranchName(sourceBranch)) {
     return { success: false, error: "Invalid source branch name" }
+  }
+
+  // Check if source branch exists before attempting merge
+  if (!branchExists(cwd, sourceBranch)) {
+    return { success: false, error: `Branch '${sourceBranch}' does not exist. The worktree may have been deleted or worktree isolation was disabled.` }
+  }
+
+  // Check if target branch exists
+  if (!branchExists(cwd, targetBranch)) {
+    return { success: false, error: `Target branch '${targetBranch}' does not exist.` }
   }
 
   // Save current branch to return to later
