@@ -150,6 +150,7 @@ export function useAgentSessionTracking({
       id: liveSession.id,
       status: liveSession.status,
       prompt: liveSession.prompt,
+      title: liveSession.title,
       output: liveSession.output,
       error: liveSession.error,
     }
