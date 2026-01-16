@@ -511,3 +511,193 @@ describe('Task Creation - Performance Marks', () => {
     )
   })
 })
+
+describe('Task Creation - Auto-Start Implementation (No-Plan)', () => {
+  let mockCreateMutation: any
+  let mockAssignToAgentMutation: any
+  let consoleLogSpy: any
+
+  beforeEach(() => {
+    mockCreateMutation = {
+      mutate: vi.fn(),
+    }
+    mockAssignToAgentMutation = {
+      mutate: vi.fn(),
+    }
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  it('should auto-start implementation after no-plan task creation', () => {
+    const title = 'Add logout button'
+    const runState = {
+      agentType: 'codex' as const,
+      model: 'claude-sonnet-3.5-latest',
+    }
+
+    // Simulate no-plan create (useAgent=false)
+    const createNoPlanTask = () => {
+      mockCreateMutation.mutate(
+        { title },
+        {
+          onSuccess: (result: { path: string }) => {
+            const taskPath = result.path
+
+            console.log('[auto-start] No-plan task created, auto-starting implementation...', {
+              taskPath,
+              agentType: runState.agentType,
+              model: runState.model,
+            })
+
+            // Auto-start implementation
+            mockAssignToAgentMutation.mutate(
+              {
+                path: taskPath,
+                agentType: runState.agentType,
+                model: runState.model,
+                instructions: undefined,
+              },
+              {
+                onError: (err: Error) => {
+                  console.error('[auto-start] Failed to auto-start implementation:', err)
+                },
+              }
+            )
+          },
+          onError: (err: Error) => {
+            console.error('Failed to create task:', err)
+          },
+        }
+      )
+    }
+
+    createNoPlanTask()
+
+    // Verify createMutation was called
+    expect(mockCreateMutation.mutate).toHaveBeenCalledWith(
+      { title },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      })
+    )
+
+    // Simulate onSuccess callback
+    const onSuccessCallback = mockCreateMutation.mutate.mock.calls[0][1].onSuccess
+    onSuccessCallback({ path: 'tasks/add-logout-button.md' })
+
+    // Verify assignToAgentMutation was triggered
+    expect(mockAssignToAgentMutation.mutate).toHaveBeenCalledWith(
+      {
+        path: 'tasks/add-logout-button.md',
+        agentType: 'codex',
+        model: 'claude-sonnet-3.5-latest',
+        instructions: undefined,
+      },
+      expect.objectContaining({
+        onError: expect.any(Function),
+      })
+    )
+
+    // Verify logging
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[auto-start] No-plan task created, auto-starting implementation...',
+      expect.objectContaining({
+        taskPath: 'tasks/add-logout-button.md',
+        agentType: 'codex',
+        model: 'claude-sonnet-3.5-latest',
+      })
+    )
+
+    consoleLogSpy.mockRestore()
+  })
+
+  it('should not auto-start for plan-with-agent creates', () => {
+    const title = 'Add logout button'
+    const mockCreateWithAgentMutation = {
+      mutate: vi.fn(),
+    }
+
+    // Simulate plan-with-agent create (useAgent=true)
+    const createWithAgentTask = () => {
+      mockCreateWithAgentMutation.mutate(
+        {
+          title,
+          agentType: 'codex',
+          model: 'claude-sonnet-3.5-latest',
+          autoRun: true,
+        },
+        {
+          onError: (err: Error) => console.error('Failed to create task with agent:', err),
+        }
+      )
+    }
+
+    createWithAgentTask()
+
+    // Verify createWithAgentMutation was called
+    expect(mockCreateWithAgentMutation.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title,
+        agentType: 'codex',
+        autoRun: true,
+      }),
+      expect.objectContaining({
+        onError: expect.any(Function),
+      })
+    )
+
+    // Verify assignToAgentMutation was NOT called (planning session will be created instead)
+    expect(mockAssignToAgentMutation.mutate).not.toHaveBeenCalled()
+
+    consoleLogSpy.mockRestore()
+  })
+
+  it('should handle auto-start implementation errors gracefully', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const runState = {
+      agentType: 'codex' as const,
+      model: 'claude-sonnet-3.5-latest',
+    }
+
+    // Create task
+    mockCreateMutation.mutate(
+      { title: 'Test' },
+      {
+        onSuccess: (result: { path: string }) => {
+          mockAssignToAgentMutation.mutate(
+            {
+              path: result.path,
+              agentType: runState.agentType,
+              model: runState.model,
+              instructions: undefined,
+            },
+            {
+              onError: (err: Error) => {
+                console.error('[auto-start] Failed to auto-start implementation:', err)
+              },
+            }
+          )
+        },
+        onError: vi.fn(),
+      }
+    )
+
+    // Trigger onSuccess
+    const onSuccess = mockCreateMutation.mutate.mock.calls[0][1].onSuccess
+    onSuccess({ path: 'tasks/test.md' })
+
+    // Simulate assignToAgent error
+    const assignOnError = mockAssignToAgentMutation.mutate.mock.calls[0][1].onError
+    const testError = new Error('Agent unavailable')
+    assignOnError(testError)
+
+    // Verify error was logged
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[auto-start] Failed to auto-start implementation:',
+      testError
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})

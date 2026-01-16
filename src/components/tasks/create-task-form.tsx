@@ -28,6 +28,10 @@ export interface CreateTaskFormProps {
   debugAgents: DebugAgentSelection[]
   /** Auto-run phases: planning→impl→verify */
   autoRun: boolean
+  /** Implementation agent type (for !useAgent create) */
+  runAgentType: AgentType
+  /** Implementation model (for !useAgent create) */
+  runModel: string
   onCreate: () => void
   onTitleChange: (title: string) => void
   onTaskTypeChange: (taskType: TaskType) => void
@@ -37,6 +41,10 @@ export interface CreateTaskFormProps {
   onAutoRunChange: (autoRun: boolean) => void
   onToggleDebugAgent: (agentType: PlannerAgentType) => void
   onDebugAgentModelChange: (agentType: PlannerAgentType, model: string) => void
+  /** Set implementation agent type (for !useAgent create) */
+  onRunAgentTypeChange: (agentType: AgentType) => void
+  /** Set implementation model (for !useAgent create) */
+  onRunModelChange: (model: string) => void
   /** Optional: called on Escape key (only used in modal context) */
   onCancel?: () => void
   /** Whether to auto-focus the title input */
@@ -53,6 +61,8 @@ export function CreateTaskForm({
   availablePlannerTypes,
   debugAgents,
   autoRun,
+  runAgentType,
+  runModel,
   onCreate,
   onTitleChange,
   onTaskTypeChange,
@@ -62,6 +72,8 @@ export function CreateTaskForm({
   onAutoRunChange,
   onToggleDebugAgent,
   onDebugAgentModelChange,
+  onRunAgentTypeChange,
+  onRunModelChange,
   onCancel,
   autoFocus = true,
 }: CreateTaskFormProps) {
@@ -150,6 +162,47 @@ export function CreateTaskForm({
             (planning→impl→verify)
           </span>
         </label>
+      )}
+
+      {!useAgent && (
+        /* Implementation agent selection for no-plan create */
+        <>
+          <div>
+            <div className="font-vcr text-xs text-text-muted mb-2">Implementation Agent</div>
+            <Select
+              value={runAgentType}
+              onChange={(e) => onRunAgentTypeChange(e.target.value as AgentType)}
+              variant="sm"
+              disabled={isCreating}
+              className="bg-background"
+            >
+              {availablePlannerTypes.map((t) => (
+                <option key={t} value={t}>
+                  {agentTypeLabel[t]}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          {supportsModelSelection(runAgentType as PlannerAgentType) && (
+            <div>
+              <div className="font-vcr text-xs text-text-muted mb-2">Model</div>
+              <Select
+                value={runModel}
+                onChange={(e) => onRunModelChange(e.target.value)}
+                variant="sm"
+                disabled={isCreating}
+                className="bg-background"
+              >
+                {getModelsForAgentType(runAgentType as PlannerAgentType).map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}{m.description ? ` - ${m.description}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+        </>
       )}
 
       {useAgent && canUseAgent && taskType === 'bug' && (
