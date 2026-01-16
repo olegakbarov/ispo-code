@@ -7,7 +7,7 @@
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
-import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from '@/lib/agent/config'
+import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, supportsAskUserQuestion, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import type { DebugAgentSelection } from '@/lib/stores/tasks-reducer'
 import { Sparkles, Bug, Zap, Bot, Cpu, HelpCircle } from 'lucide-react'
@@ -188,19 +188,21 @@ export function CreateTaskForm({
           )}
 
           {useAgent && canUseAgent && taskType === 'feature' && (
-            <label className={`flex items-center gap-4 px-4 py-3 rounded-md cursor-pointer transition-colors ${
-              includeQuestions ? 'bg-accent/10' : 'hover:bg-accent/5'
+            <label className={`flex items-center gap-4 px-4 py-3 rounded-md transition-colors ${
+              !supportsAskUserQuestion(createAgentType)
+                ? 'opacity-50 cursor-not-allowed'
+                : includeQuestions ? 'bg-accent/10 cursor-pointer' : 'hover:bg-accent/5 cursor-pointer'
             }`}>
               <Checkbox
-                checked={includeQuestions}
+                checked={includeQuestions && supportsAskUserQuestion(createAgentType)}
                 onChange={() => onIncludeQuestionsChange(!includeQuestions)}
-                disabled={isCreating}
+                disabled={isCreating || !supportsAskUserQuestion(createAgentType)}
                 size="lg"
               />
               <HelpCircle className="w-5 h-5 text-muted-foreground" />
               <span className="text-sm font-vcr text-foreground">Ask clarifying questions</span>
               <span className="text-xs text-muted-foreground/60 ml-auto">
-                refine plan
+                {supportsAskUserQuestion(createAgentType) ? 'refine plan' : 'Claude only'}
               </span>
             </label>
           )}

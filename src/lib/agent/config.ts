@@ -24,6 +24,20 @@ export type PlannerAgentType = AgentType
 // Legacy alias for backward compatibility
 export type { CorePlannerAgentType as RestrictedPlannerAgentType }
 
+/**
+ * Agent types that support the AskUserQuestion tool for interactive clarification.
+ * Currently only Claude CLI provides this capability natively.
+ */
+const AGENTS_WITH_ASK_USER_QUESTION: AgentType[] = ['claude', 'research', 'qa']
+
+/**
+ * Check if an agent type supports the AskUserQuestion tool.
+ * Used to gate includeQuestions feature in task creation.
+ */
+export function supportsAskUserQuestion(agentType: AgentType): boolean {
+  return AGENTS_WITH_ASK_USER_QUESTION.includes(agentType)
+}
+
 export const TASK_REVIEW_OUTPUT_START = '===TASK_REVIEW_OUTPUT_START==='
 export const TASK_REVIEW_OUTPUT_END = '===TASK_REVIEW_OUTPUT_END==='
 

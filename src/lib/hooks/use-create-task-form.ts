@@ -22,7 +22,7 @@ import { useSynchronizeAgentType } from '@/lib/hooks/use-synchronize-agent-type'
 import { useSettingsStore } from '@/lib/stores/settings'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { generateOptimisticTaskPath } from '@/lib/utils/slugify'
-import { getDefaultModelId, type PlannerAgentType } from '@/lib/agent/config'
+import { getDefaultModelId, supportsAskUserQuestion, type PlannerAgentType } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import type { TaskType } from '@/components/tasks/create-task-form'
 import { ALL_PLANNER_CANDIDATES } from '@/components/tasks/create-task-form'
@@ -87,6 +87,8 @@ function createFormReducer(state: CreateFormState, action: CreateFormAction): Cr
       ...state,
       agentType: payload,
       model: getDefaultModelId(payload),
+      // Auto-clear includeQuestions if new agent doesn't support AskUserQuestion
+      includeQuestions: supportsAskUserQuestion(payload) ? state.includeQuestions : false,
     }))
     .with({ type: 'SET_MODEL' }, ({ payload }) => ({ ...state, model: payload }))
     .with({ type: 'SET_AUTO_RUN' }, ({ payload }) => ({ ...state, autoRun: payload }))

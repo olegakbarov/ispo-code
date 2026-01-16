@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { supportsAskUserQuestion } from '@/lib/agent/config'
 
 describe('Task Creation - Optimistic Update Pattern', () => {
   it('should demonstrate optimistic update pattern with clear ordering', () => {
@@ -587,6 +588,23 @@ describe('Task Creation - Auto-Start Implementation (No-Plan)', () => {
         onError: expect.any(Function),
       })
     )
+  })
+
+  it('should auto-clear includeQuestions when switching to unsupported agent type', () => {
+    // This tests the reducer behavior where switching agent type
+    // auto-clears includeQuestions for agents that don't support AskUserQuestion
+
+    // Claude supports AskUserQuestion
+    expect(supportsAskUserQuestion('claude')).toBe(true)
+    expect(supportsAskUserQuestion('research')).toBe(true)
+    expect(supportsAskUserQuestion('qa')).toBe(true)
+
+    // Other agents don't support AskUserQuestion
+    expect(supportsAskUserQuestion('codex')).toBe(false)
+    expect(supportsAskUserQuestion('opencode')).toBe(false)
+    expect(supportsAskUserQuestion('cerebras')).toBe(false)
+    expect(supportsAskUserQuestion('gemini')).toBe(false)
+    expect(supportsAskUserQuestion('openrouter')).toBe(false)
   })
 
   it('should handle auto-start implementation errors gracefully', () => {

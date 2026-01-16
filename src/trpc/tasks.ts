@@ -10,13 +10,14 @@ import { router, procedure } from "./trpc"
 import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge, generateArchiveCommitMessage } from "@/lib/agent/task-service"
 import { buildTaskVerifyPrompt } from "@/lib/tasks/verify-prompt"
 import type { SubTask, CheckboxItem } from "@/lib/agent/task-service"
-import { getActiveSessionIdsForTask, resolveTaskSessionIdsFromRegistry } from "@/lib/agent/task-session"
+import { getActiveSessionIdsForTask, resolveTaskSessionIdsFromRegistry, getTaskFailedSessionsMap } from "@/lib/agent/task-session"
 import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
 import { getGitStatus, getGitRoot, commitScopedChanges } from "@/lib/agent/git-service"
 import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
 import { agentTypeSchema, type SessionStatus, type AgentType, type EditedFileInfo, type AgentOutputChunk } from "@/lib/agent/types"
+import { supportsAskUserQuestion } from "@/lib/agent/config"
 import { checkCLIAvailable } from "@/lib/agent/cli-runner"
 import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent } from "@/streams/schemas"
 import { createRegistryEvent } from "@/streams/schemas"
@@ -803,6 +804,9 @@ export const tasksRouter = router({
       })
 
       // Build the appropriate prompt based on task type
+      // Gate includeQuestions: only pass true if agent supports AskUserQuestion
+      const effectiveIncludeQuestions = input.includeQuestions && supportsAskUserQuestion(input.agentType)
+
       const prompt = input.taskType === 'bug'
         ? buildTaskDebugPrompt({
             title: input.title,
@@ -813,7 +817,7 @@ export const tasksRouter = router({
             title: input.title,
             taskPath,
             workingDir: ctx.workingDir,
-            includeQuestions: input.includeQuestions,
+            includeQuestions: effectiveIncludeQuestions,
           })
 
       const sessionId = randomBytes(6).toString("hex")
@@ -1451,6 +1455,26 @@ Begin working on the task now.`
     }
 
     return taskSessions
+  }),
+
+  /**
+   * Get tasks that have failed sessions (for sidebar error indicators).
+   * Returns a record of taskPath -> true for tasks with at least one failed session.
+   * Excludes deleted sessions.
+   */
+  getTasksWithFailedSessions: procedure.query(async () => {
+    const streamAPI = getStreamAPI()
+    const registryEvents = await streamAPI.readRegistry()
+
+    const failedMap = getTaskFailedSessionsMap(registryEvents)
+
+    // Convert Map to plain object for JSON serialization
+    const result: Record<string, boolean> = {}
+    for (const [taskPath, hasFailed] of failedMap) {
+      result[taskPath] = hasFailed
+    }
+
+    return result
   }),
 
   /**
