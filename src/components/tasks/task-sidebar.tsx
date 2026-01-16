@@ -5,7 +5,8 @@
 
 import { TaskSessions, type TaskSessionsGrouped } from './task-sessions'
 import type { AgentSession } from './agent-types'
-import { ExternalLink, GitMerge, CheckCircle, XCircle, Clock, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
+import { ExternalLink, GitMerge, CheckCircle, XCircle, Clock, RotateCcw, ChevronDown, ChevronRight, History } from 'lucide-react'
 import type { QAStatus, MergeHistoryEntry } from '@/lib/agent/task-service'
 
 interface TaskSidebarProps {
