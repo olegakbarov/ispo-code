@@ -15,6 +15,7 @@ import { GitCommit, Loader2, Check, X, Sparkles, FileCode, ExternalLink } from '
 import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
 import { sessionTrpcOptions } from '@/lib/trpc-session'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import {
   Section,
@@ -171,7 +172,7 @@ function dedupeEditedFiles(editedFiles: EditedFileInfo[]): EditedFileInfo[] {
 
 function GitSection({ sessionId, session }: { sessionId: string; session: SessionWithMetadata }) {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
-  const [commitMessage, setCommitMessage] = useState("")
+  const [commitMessage, setCommitMessage, clearMessageDraft] = useTextareaDraft(`thread-sidebar-commit:${sessionId}`)
   const [diffFile, setDiffFile] = useState<string | null>(null)
   const utils = trpc.useUtils()
   const sessionTrpc = sessionTrpcOptions(sessionId)
@@ -230,9 +231,9 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
         )
       }
 
-      // 6. Clear local state immediately
+      // 6. Clear local state and draft immediately
       setSelectedFiles(new Set())
-      setCommitMessage("")
+      clearMessageDraft()
 
       // 7. Return rollback context
       return {

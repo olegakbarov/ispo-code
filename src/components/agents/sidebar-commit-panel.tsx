@@ -7,6 +7,7 @@ import { useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
+import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
 import { GitCommit, Check, X, Loader2, GitBranch, ChevronDown, ChevronRight } from "lucide-react"
 
 interface SidebarCommitPanelProps {
@@ -16,7 +17,7 @@ interface SidebarCommitPanelProps {
 export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
-  const [commitMessage, setCommitMessage] = useState("")
+  const [commitMessage, setCommitMessage, clearMessageDraft] = useTextareaDraft(`sidebar-commit:${sessionId}`)
   const utils = trpc.useUtils()
   const sessionTrpc = sessionTrpcOptions(sessionId)
 
@@ -76,9 +77,9 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
         )
       }
 
-      // 6. Clear local state immediately
+      // 6. Clear local state and draft immediately
       setSelectedFiles(new Set())
-      setCommitMessage("")
+      clearMessageDraft()
 
       // 7. Return rollback context
       return {

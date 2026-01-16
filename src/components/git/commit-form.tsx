@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react'
 import { Textarea } from '@/components/ui/textarea'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 
 interface CommitFormProps {
   hasStagedChanges: boolean
@@ -11,7 +12,7 @@ interface CommitFormProps {
 }
 
 export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
-  const [message, setMessage] = useState('')
+  const [message, setMessage, clearMessageDraft] = useTextareaDraft('commit-form-message')
   const [isCommitting, setIsCommitting] = useState(false)
   const [lastCommit, setLastCommit] = useState<{ hash: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -35,7 +36,7 @@ export function CommitForm({ hasStagedChanges, onCommit }: CommitFormProps) {
       const result = await onCommit(message.trim())
       if (result.success && result.hash) {
         setLastCommit({ hash: result.hash })
-        setMessage('')
+        clearMessageDraft()
       } else {
         setError(result.error || 'Commit failed')
       }

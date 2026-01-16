@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, getDefaultModelId } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 
@@ -34,15 +35,16 @@ export function ReviewModal({
 }: ReviewModalProps) {
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(initialAgentType)
   const [selectedModel, setSelectedModel] = useState(initialModel)
-  const [customInstructions, setCustomInstructions] = useState('')
+  // Use mode and taskTitle for scoped draft key
+  const draftKey = `${mode}-modal:${taskTitle}`
+  const [customInstructions, setCustomInstructions, clearInstructionsDraft] = useTextareaDraft(draftKey)
   const [isStarting, setIsStarting] = useState(false)
 
-  // Reset state when modal opens
+  // Reset agent/model state when modal opens (draft is restored automatically)
   useEffect(() => {
     if (isOpen) {
       setSelectedAgentType(initialAgentType)
       setSelectedModel(initialModel)
-      setCustomInstructions('')
       setIsStarting(false)
     }
   }, [isOpen, initialAgentType, initialModel])
@@ -62,6 +64,8 @@ export function ReviewModal({
     setIsStarting(true)
     try {
       await onStart(selectedAgentType, selectedModel || undefined, customInstructions.trim() || undefined)
+      // Clear draft on successful start
+      clearInstructionsDraft()
       onClose()
     } catch (err) {
       console.error('Failed to start review/verify:', err)

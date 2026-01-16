@@ -1,12 +1,16 @@
 /**
  * Modal for one-click commit and archive workflow
  * Auto-generates commit message, commits all files, archives task
+ * Supports optional merge-to-main with QA workflow
  */
 
 import { useState, useEffect } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
-import { Loader2, GitCommit, Archive, FileText, RefreshCw } from 'lucide-react'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
+import { Loader2, GitCommit, Archive, FileText, RefreshCw, GitMerge, AlertTriangle } from 'lucide-react'
+
+type CommitMode = 'commit-only' | 'commit-merge'
 
 interface CommitArchiveModalProps {
   isOpen: boolean
@@ -17,8 +21,17 @@ interface CommitArchiveModalProps {
   initialMessage?: string | null
   /** Whether the initial message is still being generated */
   isGeneratingInitial?: boolean
+  /** Session ID for tracking merge history */
+  sessionId?: string
+  /** Worktree branch name if using worktree isolation */
+  worktreeBranch?: string
   onClose: () => void
-  onSuccess: () => void
+  /** Called after commit succeeds (modal closes immediately) */
+  onCommitSuccess: () => void
+  /** Called after archive completes in background */
+  onArchiveSuccess: () => void
+  /** Called after merge succeeds */
+  onMergeSuccess?: () => void
 }
 
 export function CommitArchiveModal({
@@ -28,14 +41,23 @@ export function CommitArchiveModal({
   taskContent,
   initialMessage,
   isGeneratingInitial,
+  sessionId,
+  worktreeBranch,
   onClose,
-  onSuccess,
+  onCommitSuccess,
+  onArchiveSuccess,
+  onMergeSuccess,
 }: CommitArchiveModalProps) {
   const utils = trpc.useUtils()
 
-  // Local state
-  const [commitMessage, setCommitMessage] = useState('')
+  // Local state - use task path for scoped draft key
+  const draftKey = taskPath ? `commit-archive:${taskPath}` : ''
+  const [commitMessage, setCommitMessage, clearMessageDraft] = useTextareaDraft(draftKey)
   const [error, setError] = useState<string | null>(null)
+  const [commitMode, setCommitMode] = useState<CommitMode>('commit-only')
+
+  // Determine if merge is available (worktree isolation enabled)
+  const canMerge = !!worktreeBranch && !!sessionId
 
   // Fetch changed files for this task
   const { data: changedFiles = [], isLoading: filesLoading } = trpc.tasks.getChangedFilesForTask.useQuery(
@@ -63,7 +85,7 @@ export function CommitArchiveModal({
     },
   })
 
-  // Archive mutation
+  // Archive mutation - runs in background after modal closes
   const archiveMutation = trpc.tasks.archive.useMutation({
     onMutate: async ({ path }) => {
       // Cancel outgoing refetches
@@ -87,14 +109,34 @@ export function CommitArchiveModal({
       utils.tasks.list.invalidate()
       utils.tasks.getChangedFilesForTask.invalidate()
       utils.tasks.hasUncommittedChanges.invalidate()
-      onSuccess()
+      onArchiveSuccess()
     },
     onError: (err, _variables, context) => {
       // Rollback on error
       if (context?.previousList) {
         utils.tasks.list.setData(undefined, context.previousList)
       }
-      setError(`Archive failed: ${err.message}`)
+      // Note: Modal is already closed, error handling is silent for now
+      console.error('Archive failed after modal close:', err.message)
+    },
+  })
+
+  // Merge mutation - merges worktree branch to main
+  const mergeMutation = trpc.git.mergeBranch.useMutation({
+    onError: (err) => {
+      setError(`Merge failed: ${err.message}`)
+    },
+  })
+
+  // Record merge mutation - stores merge info in task
+  const recordMergeMutation = trpc.tasks.recordMerge.useMutation({
+    onSuccess: () => {
+      utils.tasks.get.invalidate()
+      utils.tasks.getLatestActiveMerge.invalidate()
+      onMergeSuccess?.()
+    },
+    onError: (err) => {
+      console.error('Failed to record merge:', err.message)
     },
   })
 
@@ -123,7 +165,7 @@ export function CommitArchiveModal({
 
   // Reset state when modal closes
   const handleClose = () => {
-    setCommitMessage('')
+    clearMessageDraft()
     setError(null)
     onClose()
   }
@@ -149,16 +191,47 @@ export function CommitArchiveModal({
         message: commitMessage,
       })
 
-      // 2. Archive task
-      await archiveMutation.mutateAsync({ path: taskPath })
+      // 2. If merge mode and we have a worktree branch, merge to main
+      if (commitMode === 'commit-merge' && worktreeBranch && sessionId) {
+        const mergeResult = await mergeMutation.mutateAsync({
+          targetBranch: 'main',
+          sourceBranch: worktreeBranch,
+        })
 
-      // Success callback handles navigation
+        if (mergeResult.success && mergeResult.mergeCommitHash) {
+          // Record the merge in task metadata (sets QA to pending)
+          recordMergeMutation.mutate({
+            path: taskPath,
+            sessionId,
+            commitHash: mergeResult.mergeCommitHash,
+          })
+        } else if (!mergeResult.success) {
+          setError(mergeResult.error || 'Merge failed')
+          return
+        }
+      }
+
+      // 3. Clear draft on successful commit
+      clearMessageDraft()
+
+      // 4. Close modal immediately after successful commit (and merge if applicable)
+      onCommitSuccess()
+
+      // 5. Archive task in background (don't await) - only for commit-only mode
+      // For commit-merge mode, archive after QA passes
+      if (commitMode === 'commit-only') {
+        archiveMutation.mutate({ path: taskPath })
+      }
+
+      // Archive success handler will trigger navigation
     } catch {
       // Error already set by mutation onError
+      // Modal stays open on commit error
     }
   }
 
-  const isProcessing = commitMutation.isPending || archiveMutation.isPending
+  // Only block on commit/merge mutations (archive runs in bg after modal closes)
+  const isProcessing = commitMutation.isPending || mergeMutation.isPending
   const canConfirm = gitRelativeFiles.length > 0 && commitMessage.trim() && !isProcessing
 
   if (!isOpen) return null
@@ -241,6 +314,63 @@ export function CommitArchiveModal({
             />
           </div>
 
+          {/* Commit Mode Selection - only show if merge is available */}
+          {canMerge && (
+            <div className="border-t border-border pt-4">
+              <div className="font-vcr text-xs text-text-muted mb-3">After commit:</div>
+              <div className="space-y-2">
+                <label className="flex items-start gap-3 p-2 rounded border border-border hover:bg-panel-hover cursor-pointer">
+                  <input
+                    type="radio"
+                    name="commitMode"
+                    value="commit-only"
+                    checked={commitMode === 'commit-only'}
+                    onChange={() => setCommitMode('commit-only')}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2 text-xs font-vcr text-text-primary">
+                      <Archive className="w-3 h-3" />
+                      Commit Only
+                    </div>
+                    <div className="text-[10px] text-text-muted mt-0.5">
+                      Commit to worktree and archive task. Merge manually later.
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 p-2 rounded border border-accent/30 hover:bg-accent/5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="commitMode"
+                    value="commit-merge"
+                    checked={commitMode === 'commit-merge'}
+                    onChange={() => setCommitMode('commit-merge')}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2 text-xs font-vcr text-accent">
+                      <GitMerge className="w-3 h-3" />
+                      Commit & Merge to Main
+                    </div>
+                    <div className="text-[10px] text-text-muted mt-0.5">
+                      Commit, merge to main, then QA. Archive after QA passes.
+                    </div>
+                  </div>
+                </label>
+
+                {commitMode === 'commit-merge' && (
+                  <div className="flex items-start gap-2 p-2 bg-warning/10 border border-warning/30 rounded text-[10px] text-warning">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    <span>
+                      Merge will require manual QA. If QA fails, you can revert the merge.
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Error display */}
           {error && (
             <div className="p-2 bg-error/10 border border-error/30 rounded text-xs text-error">
@@ -252,7 +382,9 @@ export function CommitArchiveModal({
           {isProcessing && (
             <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/30 rounded text-sm text-accent">
               <Loader2 className="w-4 h-4 animate-spin" />
-              {commitMutation.isPending ? 'Committing changes...' : 'Archiving task...'}
+              {commitMutation.isPending ? 'Committing changes...' :
+               mergeMutation.isPending ? 'Merging to main...' :
+               'Processing...'}
             </div>
           )}
         </div>
@@ -275,6 +407,11 @@ export function CommitArchiveModal({
               <>
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Processing...
+              </>
+            ) : commitMode === 'commit-merge' && canMerge ? (
+              <>
+                <GitMerge className="w-3 h-3" />
+                Commit & Merge
               </>
             ) : (
               <>

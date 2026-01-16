@@ -10,6 +10,7 @@ import { Send, Loader2 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { ImageAttachmentInput } from "@/components/agents/image-attachment-input"
+import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
 import type { ImageAttachment } from "@/lib/agent/types"
 
 interface FileCommentInputProps {
@@ -31,7 +32,9 @@ export function FileCommentInput({
   sourceLine,
   onSubmit,
 }: FileCommentInputProps) {
-  const [comment, setComment] = useState("")
+  // Draft key includes file and optional line number for unique context
+  const draftKey = `file-comment:${fileName}${sourceLine ? `:${sourceLine}` : ''}`
+  const [comment, setComment, clearDraft] = useTextareaDraft(draftKey)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const navigate = useNavigate()
@@ -55,6 +58,8 @@ export function FileCommentInput({
       return { previousList, previousComment }
     },
     onSuccess: (data) => {
+      // Clear draft on successful submit
+      clearDraft()
       // Navigate to the new session
       navigate({
         to: "/agents/$sessionId",
@@ -102,7 +107,7 @@ export function FileCommentInput({
       } else if (onSubmit) {
         // Legacy behavior - use callback
         await onSubmit(comment)
-        setComment("")
+        clearDraft()
       }
     } catch (error) {
       console.error("Failed to submit comment:", error)

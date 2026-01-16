@@ -8,6 +8,7 @@ import { Play, Terminal, Cpu, Sparkles, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { supportsModelSelection, getModelsForAgentType, getDefaultModelId } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 
@@ -42,16 +43,17 @@ export function ImplementModal({
 }: ImplementModalProps) {
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(initialAgentType)
   const [selectedModel, setSelectedModel] = useState(initialModel)
-  const [customInstructions, setCustomInstructions] = useState('')
+  // Use taskTitle for scoped draft key
+  const draftKey = `implement-modal:${taskTitle}`
+  const [customInstructions, setCustomInstructions, clearInstructionsDraft] = useTextareaDraft(draftKey)
   const [isStarting, setIsStarting] = useState(false)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
 
-  // Reset state when modal opens
+  // Reset agent/model state when modal opens (draft is restored automatically)
   useEffect(() => {
     if (isOpen) {
       setSelectedAgentType(initialAgentType)
       setSelectedModel(initialModel)
-      setCustomInstructions('')
       setIsStarting(false)
       setShowModelDropdown(false)
     }
@@ -67,6 +69,8 @@ export function ImplementModal({
     setIsStarting(true)
     try {
       await onStart(selectedAgentType, selectedModel || undefined, customInstructions.trim() || undefined)
+      // Clear draft on successful start
+      clearInstructionsDraft()
       onClose()
     } catch (err) {
       console.error('Failed to start implementation:', err)

@@ -10,6 +10,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useDebouncedCallback } from '@/lib/utils/debounce'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
@@ -126,6 +127,20 @@ export function TasksPage({
 
   // Destructure for convenience
   const { editor, create, run, verify, rewrite, save, modals, pendingCommit, confirmDialog, orchestrator } = state
+
+  // Draft persistence for rewrite comment (per-task)
+  const [rewriteDraft, setRewriteDraft, clearRewriteDraft] = useTextareaDraft(
+    selectedPath ? `task-rewrite:${selectedPath}` : '',
+    '',
+    { skipRestore: !selectedPath }
+  )
+
+  // Sync rewrite draft with reducer state (bidirectional)
+  useEffect(() => {
+    if (rewriteDraft !== rewrite.comment) {
+      dispatch({ type: 'SET_REWRITE_COMMENT', payload: rewriteDraft })
+    }
+  }, [rewriteDraft, rewrite.comment])
 
   // Track active agent session for progress display (from polling)
   const activeSessionInfo = selectedPath ? activeAgentSessions[selectedPath] : undefined
@@ -1312,12 +1327,16 @@ export function TasksPage({
     }
   }, [selectedPath])
 
-  const handleCommitArchiveSuccess = useCallback(() => {
+  const handleCommitSuccess = useCallback(() => {
+    // Close modal immediately after commit (archive runs in bg)
     dispatch({ type: 'SET_COMMIT_ARCHIVE_OPEN', payload: false })
     if (selectedPath) {
       dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
     }
-    // Navigate to topmost non-archived task
+  }, [selectedPath])
+
+  const handleArchiveSuccess = useCallback(() => {
+    // Navigate to topmost non-archived task (archive completed in background)
     const topmostTask = tasks.find(
       (t) => !t.archived && t.path !== selectedPath
     )
@@ -1389,12 +1408,13 @@ export function TasksPage({
         userComment: rewrite.comment,
       })
       dispatch({ type: 'RESET_REWRITE' }) // Clear comment after submitting
+      clearRewriteDraft() // Clear persisted draft
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to rewrite plan'
       dispatch({ type: 'SET_SAVE_ERROR', payload: msg })
       console.error('Failed to rewrite plan:', err)
     }
-  }, [selectedPath, rewrite.comment, rewrite.agentType, rewrite.model, rewriteWithAgentMutation])
+  }, [selectedPath, rewrite.comment, rewrite.agentType, rewrite.model, rewriteWithAgentMutation, clearRewriteDraft])
 
   const editorTitle = selectedSummary?.title ?? (selectedPath ? selectedPath : 'Tasks')
 
@@ -1522,7 +1542,10 @@ export function TasksPage({
                   agentSession={agentSession}
                   canSplit={sectionsData?.canSplit}
                   onSplit={handleOpenSplitModal}
-                  onRewriteCommentChange={(comment) => dispatch({ type: 'SET_REWRITE_COMMENT', payload: comment })}
+                  onRewriteCommentChange={(comment) => {
+                    setRewriteDraft(comment)
+                    dispatch({ type: 'SET_REWRITE_COMMENT', payload: comment })
+                  }}
                   onRewriteAgentTypeChange={handleRewriteAgentTypeChange}
                   onRewriteModelChange={(model) => dispatch({ type: 'SET_REWRITE_MODEL', payload: model })}
                   onRewritePlan={handleRewritePlan}
@@ -1626,7 +1649,8 @@ export function TasksPage({
           initialMessage={pendingCommitMessage}
           isGeneratingInitial={pendingCommitGenerating}
           onClose={handleCloseCommitArchiveModal}
-          onSuccess={handleCommitArchiveSuccess}
+          onCommitSuccess={handleCommitSuccess}
+          onArchiveSuccess={handleArchiveSuccess}
         />
       )}
 

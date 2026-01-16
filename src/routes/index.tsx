@@ -5,11 +5,13 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useEffect } from 'react'
 import type { AgentType } from '@/lib/agent/types'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select } from '@/components/ui/select'
 import { getModelsForAgentType, supportsModelSelection, getDefaultModelId } from '@/lib/agent/config'
 import { trpc } from '@/lib/trpc-client'
+import { useWorkingDirStore } from '@/lib/stores/working-dir'
 
 export const Route = createFileRoute('/')({
   component: NewAgentPage,
@@ -43,11 +45,12 @@ const agentLabels: Record<AgentType, { name: string; description: string }> = {
 }
 
 function NewAgentPage() {
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt, clearPromptDraft] = useTextareaDraft('new-agent-prompt')
   const [agentType, setAgentType] = useState<AgentType>('cerebras')
   const [model, setModel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
+  const { selectedRepo } = useWorkingDirStore()
 
   // Fetch available agent types from server
   const { data: availableTypes = [] } = trpc.agent.availableTypes.useQuery()
@@ -64,6 +67,7 @@ function NewAgentPage() {
   // Spawn mutation
   const spawnMutation = trpc.agent.spawn.useMutation({
     onSuccess: (data) => {
+      clearPromptDraft() // Clear draft after successful spawn
       navigate({ to: '/agents/$sessionId', params: { sessionId: data.sessionId } })
     },
     onError: (err) => {
@@ -81,6 +85,7 @@ function NewAgentPage() {
       prompt: prompt.trim(),
       agentType,
       model: model || undefined,
+      githubRepo: selectedRepo || undefined,
     })
   }
 

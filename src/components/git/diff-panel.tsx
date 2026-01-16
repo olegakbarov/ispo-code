@@ -9,6 +9,7 @@ import { match } from 'ts-pattern'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import type { AgentType } from '@/lib/agent/types'
 import { getModelsForAgentType, supportsModelSelection, getDefaultModelId, agentTypeLabel } from '@/lib/agent/config'
 
@@ -189,7 +190,7 @@ export function DiffPanel({
   const [sendOpen, setSendOpen] = useState(false)
   const [sendKeys, setSendKeys] = useState<Set<string>>(new Set())
   const [includeFullFile, setIncludeFullFile] = useState(false)
-  const [instructions, setInstructions] = useState('')
+  const [instructions, setInstructions, clearInstructionsDraft] = useTextareaDraft('diff-panel-instructions')
   const [agentType, setAgentType] = useState<AgentType>('claude')
   const [model, setModel] = useState('')
   const [sendError, setSendError] = useState<string | null>(null)
@@ -522,6 +523,8 @@ export function DiffPanel({
         agentType,
         model: model || undefined,
       })
+      // Clear instructions draft on successful send
+      clearInstructionsDraft()
       setSendOpen(false)
     } catch (err) {
       setSendError((err as Error).message ?? 'Failed to build prompt')

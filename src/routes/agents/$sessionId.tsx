@@ -11,6 +11,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Square, RotateCcw, Trash2, Image } from 'lucide-react'
 import { z } from 'zod'
+import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { PromptDisplay } from '@/components/agents/prompt-display'
 import { StatusDot } from '@/components/agents/session-primitives'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
@@ -128,7 +129,7 @@ function AgentSessionPage() {
     }
   }, [session, isLoading, retryCount, sessionId, utils])
 
-  const [messageInput, setMessageInput] = useState('')
+  const [messageInput, setMessageInput, clearMessageDraft] = useTextareaDraft(`agent-message:${sessionId}`)
   const [messageQueue, setMessageQueue] = useState<string[]>([])
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
@@ -303,7 +304,7 @@ function AgentSessionPage() {
 
   const sendMessageMutation = trpc.agent.sendMessage.useMutation({
     onSuccess: () => {
-      setMessageInput('')
+      clearMessageDraft() // Clear persisted draft
       setAttachments([]) // Clear attachments after sending
       setMessageQueue((prevQueue) => prevQueue.length > 0 ? prevQueue.slice(1) : prevQueue)
       utils.agent.getSessionWithMetadata.invalidate({ id: sessionId })
@@ -368,7 +369,7 @@ function AgentSessionPage() {
     if (!messageInput.trim()) return
     const trimmedMessage = messageInput.trim()
     setMessageQueue((prev) => [...prev, trimmedMessage])
-    setMessageInput('')
+    clearMessageDraft()
   }
 
   useEffect(() => {

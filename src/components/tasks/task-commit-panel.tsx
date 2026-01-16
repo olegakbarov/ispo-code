@@ -7,6 +7,7 @@ import { useState } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
+import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
 import { GitCommit, Check, X, Loader2, FileCheck } from "lucide-react"
 
 interface TaskCommitPanelProps {
@@ -16,7 +17,9 @@ interface TaskCommitPanelProps {
 
 export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
-  const [commitMessage, setCommitMessage] = useState("")
+  // Use sessionId in draft key to scope per session
+  const draftKey = sessionId ? `task-commit:${sessionId}` : ''
+  const [commitMessage, setCommitMessage, clearMessageDraft] = useTextareaDraft(draftKey)
   const utils = trpc.useUtils()
   const sessionTrpc = sessionTrpcOptions(sessionId)
 
@@ -30,9 +33,9 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
   const commitMutation = trpc.git.commitScoped.useMutation({
     ...sessionTrpc,
     onSuccess: () => {
-      // Clear selections and message
+      // Clear selections and draft
       setSelectedFiles(new Set())
-      setCommitMessage("")
+      clearMessageDraft()
       // Invalidate git status and changed files
       utils.git.status.invalidate()
       utils.agent.getChangedFiles.invalidate()
