@@ -33,7 +33,7 @@ import { useTaskAgentTypeSync } from '@/lib/hooks/use-task-agent-type-sync'
 import { useTaskRefresh } from '@/lib/hooks/use-task-refresh'
 import { useTaskNavigation } from '@/lib/hooks/use-task-navigation'
 import { useTaskActions } from '@/lib/hooks/use-task-actions'
-import { getCreateTaskRenderMode } from './create-task-visibility'
+import { getCreateTaskRenderMode } from '@/lib/tasks/create-task-visibility'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -258,6 +258,9 @@ export function TasksPage({
     handleCloseOrchestratorModal,
   } = useTaskActions({
     selectedPath,
+    workingDir,
+    activeSessionId,
+    latestActiveMerge,
     dispatch,
     editor,
     create,
@@ -283,6 +286,11 @@ export function TasksPage({
     rewriteWithAgentMutation,
     splitTaskMutation,
     orchestrateMutation,
+    mergeBranchMutation,
+    recordMergeMutation,
+    setQAStatusMutation,
+    revertMergeMutation,
+    recordRevertMutation,
     clearRewriteDraft,
   })
 
