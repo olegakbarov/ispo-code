@@ -324,6 +324,12 @@ export interface AgentSession {
 }
 
 /**
+ * Agent session with computed metadata
+ * Used by components that need both session data and derived analytics
+ */
+export type SessionWithMetadata = AgentSession & { metadata: AgentSessionMetadata | null }
+
+/**
  * Parameters for spawning an agent
  */
 export interface SpawnAgentParams {

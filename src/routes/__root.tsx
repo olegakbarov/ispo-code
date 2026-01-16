@@ -18,6 +18,7 @@ import { AppErrorFallback } from '@/components/ui/app-error-fallback'
 import { Sidebar } from '@/components/layout/sidebar'
 import { initAudioUnlock } from '@/lib/audio/audio-unlock'
 import { preloadHighlighter } from '@/lib/utils/syntax-highlighter'
+import { useGlobalAudioNotifications } from '@/lib/hooks/use-global-audio-notifications'
 
 // Preload syntax highlighter early for better UX
 preloadHighlighter()
@@ -61,6 +62,7 @@ function RootDocument() {
           <ThemeProvider>
             <TooltipProvider>
               <ErrorBoundary name="App" fallback={(error) => <AppErrorFallback error={error} />}>
+                <GlobalAudioNotificationsProvider />
                 <div className="flex h-screen overflow-hidden">
                   <Sidebar />
                   <main className="flex-1 overflow-auto bg-background">
@@ -75,4 +77,10 @@ function RootDocument() {
       </body>
     </html>
   )
+}
+
+/** Component that mounts global audio notifications (must be inside TRPCProvider) */
+function GlobalAudioNotificationsProvider() {
+  useGlobalAudioNotifications()
+  return null
 }

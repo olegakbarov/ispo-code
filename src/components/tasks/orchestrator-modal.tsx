@@ -3,7 +3,6 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import { trpc } from '@/lib/trpc-client'
 import { Spinner } from '@/components/ui/spinner'
 import { isTerminalStatus } from '@/lib/agent/status'
@@ -21,7 +20,6 @@ export function OrchestratorModal({
   taskPath,
   onClose,
 }: OrchestratorModalProps) {
-  const navigate = useNavigate()
   const outputRef = useRef<HTMLDivElement>(null)
 
   // Subscribe to session output
@@ -49,13 +47,8 @@ export function OrchestratorModal({
     .join('') ?? ''
 
   const handleViewSession = () => {
-    if (sessionId) {
-      navigate({
-        to: '/agents/$sessionId',
-        params: { sessionId },
-      })
-      onClose()
-    }
+    // Session is already visible in task sidebar - just close modal
+    onClose()
   }
 
   const handleViewTask = () => {
@@ -137,7 +130,7 @@ export function OrchestratorModal({
                 onClick={handleViewSession}
                 className="px-3 py-1.5 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors"
               >
-                View Full Session
+                Close
               </button>
             )}
             {isTerminal && taskPath && (

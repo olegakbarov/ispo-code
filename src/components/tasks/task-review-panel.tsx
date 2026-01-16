@@ -60,8 +60,9 @@ export function TaskReviewPanel({
       const previousList = utils.agent.list.getData()
       return { previousList }
     },
-    onSuccess: (data) => {
-      navigate({ to: '/agents/$sessionId', params: { sessionId: data.sessionId } })
+    onSuccess: () => {
+      // Stay on current page - session will be visible in task sidebar
+      // No navigation needed
     },
     onError: (_err, _variables, context) => {
       // Rollback list on error

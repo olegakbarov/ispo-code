@@ -4,7 +4,6 @@
  */
 
 import { useMemo } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import { match, P } from 'ts-pattern'
 import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { Spinner } from '@/components/ui/spinner'
@@ -119,7 +118,6 @@ function ActiveSessionCard({
   session: TaskSession
   onCancel?: () => void
 }) {
-  const navigate = useNavigate()
   const statusColor = STATUS_COLORS[session.status]
   const showSpinner = SPINNER_STATUSES.includes(session.status)
 
@@ -142,10 +140,8 @@ function ActiveSessionCard({
   }, [session.output])
 
   const handleClick = () => {
-    navigate({
-      to: '/agents/$sessionId',
-      params: { sessionId: session.sessionId },
-    })
+    // Session is already visible in current task UI - no navigation needed
+    // TODO: Could add visual feedback or expand session details in sidebar
   }
 
   return (
@@ -202,16 +198,13 @@ function ActiveSessionCard({
 
 /** Compact session card for completed sessions */
 function SessionCard({ session }: { session: TaskSession }) {
-  const navigate = useNavigate()
   const statusColor = STATUS_COLORS[session.status]
   const statusIcon = STATUS_ICONS[session.status]
   const showSpinner = SPINNER_STATUSES.includes(session.status)
 
   const handleClick = () => {
-    navigate({
-      to: '/agents/$sessionId',
-      params: { sessionId: session.sessionId },
-    })
+    // Session is already visible in current task UI - no navigation needed
+    // TODO: Could add visual feedback or expand session details in sidebar
   }
 
   // Format timestamp to relative time

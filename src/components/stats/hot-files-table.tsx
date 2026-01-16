@@ -199,13 +199,9 @@ export function HotFilesTable({ data }: HotFilesTableProps) {
                               key={session.sessionId}
                               className="flex items-center gap-4 text-xs py-1"
                             >
-                              <Link
-                                to="/agents/$sessionId"
-                                params={{ sessionId: session.sessionId }}
-                                className="text-primary hover:underline font-mono"
-                              >
+                              <span className="font-mono text-muted-foreground">
                                 {session.sessionId.slice(0, 8)}
-                              </Link>
+                              </span>
                               <span className="text-muted-foreground">
                                 {session.editCount} edit{session.editCount !== 1 ? 's' : ''}
                               </span>

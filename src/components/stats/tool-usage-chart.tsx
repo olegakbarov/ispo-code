@@ -152,13 +152,9 @@ export function ToolUsageChart({ data, details }: ToolUsageChartProps) {
                               key={session.sessionId}
                               className="flex items-center gap-3 text-xs"
                             >
-                              <Link
-                                to="/agents/$sessionId"
-                                params={{ sessionId: session.sessionId }}
-                                className="text-primary hover:underline font-mono"
-                              >
+                              <span className="font-mono text-muted-foreground">
                                 {session.sessionId.slice(0, 8)}
-                              </Link>
+                              </span>
                               <span className="text-muted-foreground">
                                 {session.callCount} call{session.callCount !== 1 ? 's' : ''}
                               </span>

@@ -5,7 +5,7 @@
  * Can be used to detect orphaned processes and ensure clean shutdown.
  */
 
-import { spawn, ChildProcess } from "child_process"
+import { spawn, type ChildProcess, type SpawnOptions } from "child_process"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { randomBytes } from "crypto"
@@ -13,6 +13,81 @@ import type { DaemonConfig } from "./agent-daemon"
 import { getDaemonRegistry, type DaemonRecord } from "./daemon-registry"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+
+const RETRYABLE_SPAWN_ERRORS = new Set(["EAGAIN", "EMFILE", "ENFILE", "ENOMEM"])
+
+function isRetryableSpawnError(error: unknown): error is NodeJS.ErrnoException {
+  return !!error
+    && typeof error === "object"
+    && "code" in error
+    && typeof error.code === "string"
+    && RETRYABLE_SPAWN_ERRORS.has(error.code)
+}
+
+function formatSpawnError(error: unknown): string {
+  if (isRetryableSpawnError(error)) {
+    return `Failed to spawn agent daemon: system refused to create a new process (${error.code}).`
+  }
+  if (error instanceof Error) {
+    return `Failed to spawn agent daemon: ${error.message}`
+  }
+  return "Failed to spawn agent daemon."
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function waitForSpawn(child: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: unknown) => {
+      cleanup()
+      reject(err)
+    }
+    const onSpawn = () => {
+      cleanup()
+      resolve()
+    }
+    const cleanup = () => {
+      child.removeListener("error", onError)
+      child.removeListener("spawn", onSpawn)
+    }
+    child.once("error", onError)
+    child.once("spawn", onSpawn)
+  })
+}
+
+async function spawnWithRetry(
+  command: string,
+  args: string[],
+  options: SpawnOptions,
+  maxAttempts = 3,
+  baseDelayMs = 150
+): Promise<ChildProcess> {
+  let attempt = 0
+  let lastError: unknown
+
+  while (attempt < maxAttempts) {
+    attempt += 1
+    try {
+      const child = spawn(command, args, options)
+      await waitForSpawn(child)
+      return child
+    } catch (err) {
+      lastError = err
+      const isRetryable = isRetryableSpawnError(err)
+      if (!isRetryable || attempt >= maxAttempts) {
+        throw err
+      }
+      const waitMs = baseDelayMs * attempt
+      const errorCode = (err as NodeJS.ErrnoException).code ?? "unknown"
+      console.warn(`[ProcessMonitor] Spawn failed (${errorCode}); retrying in ${waitMs}ms`)
+      await delay(waitMs)
+    }
+  }
+
+  throw lastError ?? new Error("Failed to spawn daemon process.")
+}
 
 export interface SpawnedDaemon {
   sessionId: string
@@ -30,7 +105,7 @@ export class ProcessMonitor {
   /**
    * Spawn a new agent daemon process (detached)
    */
-  spawnDaemon(config: DaemonConfig): SpawnedDaemon {
+  async spawnDaemon(config: DaemonConfig): Promise<SpawnedDaemon> {
     const daemonNonce = config.daemonNonce || randomBytes(16).toString("hex")
     const spawnConfig: DaemonConfig = { ...config, daemonNonce }
     const configJson = JSON.stringify(spawnConfig)
@@ -43,15 +118,22 @@ export class ProcessMonitor {
       : join(process.cwd(), "dist", "daemon", "agent-daemon.js")
 
     // Spawn detached process
-    const child: ChildProcess = spawn(command, [daemonScript, `--config=${configJson}`], {
-      detached: true,
-      stdio: "ignore", // Don't pipe stdio - daemon writes to streams
-      cwd: spawnConfig.workingDir,
-      env: {
-        ...process.env,
-        STREAM_SERVER_URL: spawnConfig.streamServerUrl || process.env.STREAM_SERVER_URL,
-      },
-    })
+    let child: ChildProcess
+    try {
+      child = await spawnWithRetry(command, [daemonScript, `--config=${configJson}`], {
+        detached: true,
+        stdio: "ignore", // Don't pipe stdio - daemon writes to streams
+        cwd: spawnConfig.workingDir,
+        env: {
+          ...process.env,
+          STREAM_SERVER_URL: spawnConfig.streamServerUrl || process.env.STREAM_SERVER_URL,
+        },
+      })
+    } catch (err) {
+      const message = formatSpawnError(err)
+      console.error(`[ProcessMonitor] ${message}`)
+      throw new Error(message)
+    }
 
     // Unref so parent can exit independently
     child.unref()

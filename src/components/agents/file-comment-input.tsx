@@ -5,7 +5,6 @@
  */
 
 import { useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
 import { Send } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
@@ -38,7 +37,6 @@ export function FileCommentInput({
   const [comment, setComment, clearDraft] = useTextareaDraft(draftKey)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const navigate = useNavigate()
 
   const utils = trpc.useUtils()
 
@@ -58,14 +56,10 @@ export function FileCommentInput({
 
       return { previousList, previousComment }
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       // Clear draft on successful submit
       clearDraft()
-      // Navigate to the new session
-      navigate({
-        to: "/agents/$sessionId",
-        params: { sessionId: data.sessionId },
-      })
+      // Stay on current page - session will be visible in task sidebar
     },
     onError: (_err, _variables, context) => {
       // Rollback on error

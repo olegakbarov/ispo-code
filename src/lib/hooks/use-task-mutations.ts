@@ -154,12 +154,8 @@ export function useTaskMutations({
         utils.tasks.get.invalidate({ path: serverPath })
       })
 
-      // Navigate to agent session view (user will see agent working on their task)
-      navigate({
-        to: '/agents/$sessionId',
-        params: { sessionId: data.sessionId },
-        search: { taskPath: serverPath },
-      })
+      // Stay on task page - session will be visible in sidebar
+      // No navigation needed, task already loaded from optimistic navigation
     },
     onError: (_err, _variables, context) => {
       // Rollback: restore previous list and remove optimistic task.get entry
@@ -212,12 +208,8 @@ export function useTaskMutations({
         dispatch({ type: 'SET_ORCHESTRATOR_TRIGGERED', payload: data.debugRunId })
       }
 
-      // Navigate to first agent session (user will see agent debugging)
-      navigate({
-        to: '/agents/$sessionId',
-        params: { sessionId: data.sessionIds[0] },
-        search: { taskPath: serverPath },
-      })
+      // Stay on task page - debug sessions will be visible in sidebar
+      // No navigation needed, task already loaded from optimistic navigation
     },
     onError: (_err, _variables, context) => {
       // Rollback: restore previous list and remove optimistic task.get entry
@@ -397,6 +389,7 @@ export function useTaskMutations({
     },
     onSettled: () => {
       utils.tasks.getActiveAgentSessions.invalidate()
+      utils.tasks.getSessionsForTask.invalidate()
     },
   })
 
@@ -450,12 +443,9 @@ export function useTaskMutations({
 
       return { previousSessions, path }
     },
-    onSuccess: (data) => {
-      navigate({
-        to: '/agents/$sessionId',
-        params: { sessionId: data.sessionId },
-        search: { taskPath: data.path },
-      })
+    onSuccess: () => {
+      // Stay on task page - rewrite session will be visible in sidebar
+      // No navigation needed, already on task page
     },
     onError: (_err, _variables, context) => {
       if (context?.previousSessions !== undefined) {

@@ -107,54 +107,47 @@ export function TaskSidebar({
     <div className="w-full h-full bg-panel overflow-y-auto flex flex-col">
       <div className="p-3 flex-1 flex flex-col">
         {/* Controls Section */}
-        <div className="space-y-3 mb-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
-              Controls
-            </h3>
-            {/* Autosave status indicator */}
-            {isSaving && (
-              <span className="text-[10px] text-text-muted animate-pulse">
-                Saving...
-              </span>
-            )}
-          </div>
-
+        <div className="space-y-2 mb-4">
           {saveError && (
             <div className="p-2 bg-error/10 border border-error/30 rounded text-xs text-error">
               {saveError}
             </div>
           )}
+          {isSaving && (
+            <span className="text-[10px] text-text-muted animate-pulse block text-right">
+              Saving...
+            </span>
+          )}
 
           {/* Main action buttons - REVIEW, IMPLEMENT, VERIFY */}
-          <div className="space-y-2">
+          <div className="flex gap-2">
             <button
               onClick={onReview}
               disabled={!!agentSession}
-              className={`w-full px-3 py-2 rounded text-xs font-vcr border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`flex-1 px-3 py-2 rounded border text-[11px] font-vcr uppercase tracking-wide cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                 hasActiveDebate
-                  ? 'border-accent/50 text-accent hover:bg-accent/10'
-                  : 'border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover'
+                  ? 'border-accent text-accent hover:bg-accent/10'
+                  : 'border-border text-text-muted hover:text-text-secondary hover:border-text-muted'
               }`}
-              title={hasActiveDebate ? "Resume active spec review" : "Review spec quality (clarity, completeness, actionability)"}
+              title={hasActiveDebate ? "Resume active spec review" : "Review spec quality"}
             >
-              {hasActiveDebate ? 'Resume Review' : 'Review'}
+              Review
             </button>
 
             <button
               onClick={onAssignToAgent}
               disabled={isAssigning || !!agentSession}
-              className="w-full px-3 py-2 rounded text-xs font-vcr border border-accent/50 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Assign this task to an AI agent for implementation"
+              className="flex-1 px-3 py-2 rounded border border-accent text-accent text-[11px] font-vcr uppercase tracking-wide cursor-pointer hover:bg-accent/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="Assign to AI agent"
             >
-              {isAssigning ? 'Implementing...' : 'Implement'}
+              {isAssigning ? '...' : 'Implement'}
             </button>
 
             <button
               onClick={onVerify}
               disabled={!!agentSession}
-              className="w-full px-3 py-2 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Verify completed items against codebase"
+              className="flex-1 px-3 py-2 rounded border border-border text-text-muted text-[11px] font-vcr uppercase tracking-wide cursor-pointer hover:text-text-secondary hover:border-text-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="Verify against codebase"
             >
               Verify
             </button>

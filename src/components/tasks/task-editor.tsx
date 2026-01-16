@@ -126,7 +126,7 @@ export function TaskEditor({
         {mode === 'edit' ? (
           // Show session output when planning is active (regardless of placeholder text)
           isPlanningActive ? (
-            <div className="w-full h-full overflow-y-auto p-3">
+            <div className="w-full h-full overflow-y-auto p-3 pb-64">
               {/* Planning header */}
               <div className="flex items-center gap-2 mb-4 pb-2 border-b border-border">
                 <Spinner size="sm" className="text-accent" />
@@ -182,11 +182,11 @@ export function TaskEditor({
                   value={draft}
                   onChange={(e) => onDraftChange(e.target.value)}
                   variant="sm"
-                  className="flex-1 min-h-0 p-3 bg-background font-mono border-0"
+                  className="flex-1 min-h-0 p-3 pb-64 bg-background font-mono border-0"
                   spellCheck={false}
                 />
               ) : (
-                <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 pb-64">
                   <ErrorBoundary
                     name="SubtaskSection"
                     fallback={

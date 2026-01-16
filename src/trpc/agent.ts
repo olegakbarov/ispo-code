@@ -326,7 +326,7 @@ export const agentRouter = router({
 
       // Spawn daemon as detached process and track it
       const monitor = getProcessMonitor()
-      const daemon = monitor.spawnDaemon({
+      const daemon = await monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
         prompt: input.prompt,
@@ -452,7 +452,7 @@ export const agentRouter = router({
       const daemonNonce = randomBytes(16).toString("hex")
 
       // Spawn new daemon for resume and track it
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId: input.sessionId,
         agentType: session.agentType ?? "cerebras",
         prompt: input.message,

@@ -30,14 +30,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { AgentSession, EditedFileInfo } from '@/lib/agent/types'
+import type { AgentSession, EditedFileInfo, SessionWithMetadata } from '@/lib/agent/types'
 
 // Lazy load diff viewer to avoid SSR issues
 const MultiFileDiff = lazy(() =>
   import('@pierre/diffs/react').then((mod) => ({ default: mod.MultiFileDiff }))
 )
-
-import type { SessionWithMetadata } from '@/routes/agents/$sessionId'
 
 interface ThreadSidebarProps {
   sessionId: string

@@ -450,26 +450,19 @@ describe('Task Creation - Path Reconciliation', () => {
     expect(mockUtils.tasks.get.invalidate).toHaveBeenCalledWith({ path })
   })
 
-  it('should redirect agent creates to agent session after mutation', () => {
+  it('should stay on task page after agent creation (no navigation)', () => {
     const serverPath = 'tasks/test-task.md'
     const sessionId = 'session-123'
 
-    const handleAgentSuccess = (data: { path: string; sessionId: string }) => {
-      // Navigate to agent session view
-      mockNavigate({
-        to: '/agents/$sessionId',
-        params: { sessionId: data.sessionId },
-        search: { taskPath: data.path },
-      })
+    const handleAgentSuccess = (_data: { path: string; sessionId: string }) => {
+      // Stay on current page - session will be visible in task sidebar
+      // No navigation needed
     }
 
     handleAgentSuccess({ path: serverPath, sessionId })
 
-    expect(mockNavigate).toHaveBeenCalledWith({
-      to: '/agents/$sessionId',
-      params: { sessionId },
-      search: { taskPath: serverPath },
-    })
+    // Verify no navigation occurred
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 })
 
