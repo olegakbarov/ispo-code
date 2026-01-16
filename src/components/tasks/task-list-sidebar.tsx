@@ -444,8 +444,8 @@ export function TaskListSidebar() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      {/* Command palette trigger - full row */}
-      <div className="px-3 py-2 border-b border-border">
+      {/* Command palette - prominent with more space */}
+      <div className="px-3 pt-3 pb-2">
         <TaskCommandPalette
           variant="inline"
           tasks={tasks}
@@ -458,16 +458,16 @@ export function TaskListSidebar() {
         />
       </div>
 
-      {/* Filters row */}
-      <div className="px-3 py-2 flex items-center gap-2 border-b border-muted-foreground/20">
+      {/* Filters section */}
+      <div className="px-3 pb-2 space-y-2">
         {/* Archive filter tabs */}
-        <div className="flex items-center gap-1 shrink-0" role="tablist" aria-label="Task filter">
+        <div className="flex items-center gap-1" role="tablist" aria-label="Task filter">
           <button
             onClick={() => handleArchiveFilterChange('active')}
             role="tab"
             aria-selected={archiveFilter === 'active'}
             aria-label="Show active tasks"
-            className={`px-2 py-1 rounded text-[10px] font-vcr transition-colors ${
+            className={`px-2.5 py-1 rounded text-[10px] font-vcr transition-colors ${
               archiveFilter === 'active'
                 ? 'bg-accent/20 text-accent'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -480,7 +480,7 @@ export function TaskListSidebar() {
             role="tab"
             aria-selected={archiveFilter === 'archived'}
             aria-label="Show archived tasks"
-            className={`px-2 py-1 rounded text-[10px] font-vcr transition-colors ${
+            className={`px-2.5 py-1 rounded text-[10px] font-vcr transition-colors ${
               archiveFilter === 'archived'
                 ? 'bg-accent/20 text-accent'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -494,12 +494,15 @@ export function TaskListSidebar() {
         <Input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter..."
+          placeholder="Filter tasks..."
           variant="sm"
-          className="bg-background border-t border-l border-border/60 flex-1"
+          className="w-full bg-background"
           data-hotkey-target="task-filter"
         />
       </div>
+
+      {/* Divider */}
+      <div className="border-b border-border" />
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         {isLoading ? (
