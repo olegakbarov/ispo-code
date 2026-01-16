@@ -9,10 +9,28 @@ import { createFileRoute } from '@tanstack/react-router'
 import { ToolCallV2 } from '@/components/agents/tool-call-v2'
 import { ToolResultV2 } from '@/components/agents/tool-result-v2'
 import { AskUserQuestionDisplay } from '@/components/agents/ask-user-question-display'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 
 export const Route = createFileRoute('/tool-calls')({
-  component: ToolCallsPage,
+  component: ToolCallsPageWrapper,
 })
+
+function ToolCallsPageWrapper() {
+  return (
+    <ErrorBoundary
+      name="ToolCallsPage"
+      fallback={
+        <div className="flex items-center justify-center h-full">
+          <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+            Tool Calls page failed to load. Please refresh the page.
+          </div>
+        </div>
+      }
+    >
+      <ToolCallsPage />
+    </ErrorBoundary>
+  )
+}
 
 function ToolCallsPage() {
   return (

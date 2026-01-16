@@ -6,6 +6,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { useState, useRef, useMemo } from "react"
 import { Settings, Palette, Check, Volume2, Play, Bot, Moon, Sun, User, LogOut, Sparkles } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { useSettingsStore, applyBrandHue } from "@/lib/stores/settings"
 import { themePresets } from "@/lib/theme-presets"
 import { trpc } from "@/lib/trpc-client"
@@ -19,8 +20,25 @@ import { ALL_PLANNER_CANDIDATES } from "@/components/tasks/create-task-form"
 const ALL_AGENT_TYPES: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'gemini', 'mcporter']
 
 export const Route = createFileRoute("/settings")({
-  component: SettingsPage,
+  component: SettingsPageWrapper,
 })
+
+function SettingsPageWrapper() {
+  return (
+    <ErrorBoundary
+      name="SettingsPage"
+      fallback={
+        <div className="flex items-center justify-center h-full">
+          <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+            Settings page failed to load. Please refresh the page.
+          </div>
+        </div>
+      }
+    >
+      <SettingsPage />
+    </ErrorBoundary>
+  )
+}
 
 // Preset color options with their hue values
 const COLOR_PRESETS = [

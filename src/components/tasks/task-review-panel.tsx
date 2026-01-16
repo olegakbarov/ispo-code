@@ -7,6 +7,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { Spinner } from "@/components/ui/spinner"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
 import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
@@ -387,25 +388,36 @@ export function TaskReviewPanel({
       {/* Right panel - Diff viewer */}
       <div className="flex-1 min-w-0">
         {diffPanelStatus ? (
-          <DiffPanel
-            status={diffPanelStatus}
-            openFiles={openFiles}
-            activeFile={activeFile}
-            activeView={activeView}
-            fileViews={fileViews}
-            diffData={diffData}
-            diffLoading={diffLoading}
-            theme={resolvedTheme}
-            availableAgentTypes={availableAgentTypes}
-            onSelectFile={handleSelectFile}
-            onCloseFile={handleCloseFile}
-            onCloseAll={handleCloseAll}
-            onViewChange={handleViewChange}
-            onFetchDiff={handleFetchDiff}
-            onSpawnAgent={handleSpawnAgent}
-            isSpawning={spawnMutation.isPending}
-            spawnError={spawnMutation.error?.message}
-          />
+          <ErrorBoundary
+            name="DiffPanel"
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                  Failed to load diff viewer
+                </div>
+              </div>
+            }
+          >
+            <DiffPanel
+              status={diffPanelStatus}
+              openFiles={openFiles}
+              activeFile={activeFile}
+              activeView={activeView}
+              fileViews={fileViews}
+              diffData={diffData}
+              diffLoading={diffLoading}
+              theme={resolvedTheme}
+              availableAgentTypes={availableAgentTypes}
+              onSelectFile={handleSelectFile}
+              onCloseFile={handleCloseFile}
+              onCloseAll={handleCloseAll}
+              onViewChange={handleViewChange}
+              onFetchDiff={handleFetchDiff}
+              onSpawnAgent={handleSpawnAgent}
+              isSpawning={spawnMutation.isPending}
+              spawnError={spawnMutation.error?.message}
+            />
+          </ErrorBoundary>
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             Loading git status...

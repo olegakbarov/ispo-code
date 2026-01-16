@@ -4,6 +4,7 @@ import { trpc } from '@/lib/trpc-client'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { UserMenu } from '@/components/auth/user-menu'
 import { GitHubLoginButton } from '@/components/auth/github-login-button'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 
 export function Sidebar() {
   const { data: session } = trpc.github.getSession.useQuery()
@@ -19,7 +20,16 @@ export function Sidebar() {
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Task List - always visible */}
-        <TaskListSidebar />
+        <ErrorBoundary
+          name="TaskListSidebar"
+          fallback={
+            <div className="flex-1 flex items-center justify-center p-3">
+              <div className="text-sm text-destructive">Task list failed to load</div>
+            </div>
+          }
+        >
+          <TaskListSidebar />
+        </ErrorBoundary>
       </div>
 
       <footer className="border-t border-border shrink-0">

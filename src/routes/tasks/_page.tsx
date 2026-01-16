@@ -21,6 +21,7 @@ import { CommitArchiveModal } from '@/components/tasks/commit-archive-modal'
 import { DebatePanel } from '@/components/debate'
 import { OrchestratorModal } from '@/components/tasks/orchestrator-modal'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { tasksReducer, createInitialState } from '@/lib/stores/tasks-reducer'
 import { trpc } from '@/lib/trpc-client'
@@ -264,6 +265,8 @@ export function TasksPage({
     dispatch,
     editor,
     create,
+    run,
+    verify,
     rewrite,
     orchestrator,
     pendingCommit,
@@ -351,12 +354,14 @@ export function TasksPage({
                       availableTypes={availableTypes}
                       availablePlannerTypes={availablePlannerTypes}
                       debugAgents={create.debugAgents}
+                      autoRun={create.autoRun}
                       onCreate={handleCreate}
                       onTitleChange={(title) => setCreateTitleDraft(title)}
                       onTaskTypeChange={(taskType) => dispatch({ type: 'SET_CREATE_TASK_TYPE', payload: taskType })}
                       onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
                       onAgentTypeChange={handleCreateAgentTypeChange}
                       onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
+                      onAutoRunChange={(autoRun) => dispatch({ type: 'SET_CREATE_AUTO_RUN', payload: autoRun })}
                       onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
                       onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
                       autoFocus={true}
@@ -380,49 +385,71 @@ export function TasksPage({
             )
           ) : mode === 'debate' ? (
             // Debate mode - show inline debate panel
-            <DebatePanel
-              taskPath={selectedPath}
-              taskTitle={editorTitle}
-              availableTypes={availableTypes}
-              existingDebate={activeDebate}
-              onBack={handleCloseDebatePanel}
-              onClose={handleCloseDebatePanel}
-              onAccept={handleDebateAccept}
-            />
+            <ErrorBoundary
+              name="DebatePanel"
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                    Failed to load debate panel
+                  </div>
+                </div>
+              }
+            >
+              <DebatePanel
+                taskPath={selectedPath}
+                taskTitle={editorTitle}
+                availableTypes={availableTypes}
+                existingDebate={activeDebate}
+                onBack={handleCloseDebatePanel}
+                onClose={handleCloseDebatePanel}
+                onAccept={handleDebateAccept}
+              />
+            </ErrorBoundary>
           ) : (
             <>
               <div className="flex-1 min-h-0 flex flex-col">
-                <TaskEditor
-                  title={editorTitle}
-                  path={selectedPath}
-                  mode={mode}
-                  draft={editor.draft}
-                  taskDescription={editor.draft}
-                  createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
-                  updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
-                  subtasks={taskData?.subtasks ?? []}
-                  taskVersion={taskData?.version ?? 1}
-                  onSubtasksChange={() => utils.tasks.get.invalidate({ path: selectedPath })}
-                  isArchived={selectedSummary?.archived ?? false}
-                  isArchiving={archiveMutation.isPending}
-                  isRestoring={restoreMutation.isPending}
-                  onArchive={handleArchive}
-                  onRestore={handleRestore}
-                  onCommitAndArchive={handleOpenCommitArchiveModal}
-                  activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
-                  isPlanningActive={isActivePlanningSession}
-                  reviewFile={reviewFile}
-                  onReviewFileChange={handleReviewFileChange}
-                  onModeChange={handleModeChange}
-                  onDraftChange={(newDraft) => {
-                    dispatch({ type: 'SET_DRAFT', payload: newDraft })
-                    dispatch({ type: 'SET_DIRTY', payload: true })
-                    // Trigger autosave after 500ms of inactivity
-                    if (selectedPath) {
-                      debouncedSave(selectedPath, newDraft)
-                    }
-                  }}
-                />
+                <ErrorBoundary
+                  name="TaskEditor"
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                        Failed to load task editor
+                      </div>
+                    </div>
+                  }
+                >
+                  <TaskEditor
+                    title={editorTitle}
+                    path={selectedPath}
+                    mode={mode}
+                    draft={editor.draft}
+                    taskDescription={editor.draft}
+                    createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
+                    updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
+                    subtasks={taskData?.subtasks ?? []}
+                    taskVersion={taskData?.version ?? 1}
+                    onSubtasksChange={() => utils.tasks.get.invalidate({ path: selectedPath })}
+                    isArchived={selectedSummary?.archived ?? false}
+                    isArchiving={archiveMutation.isPending}
+                    isRestoring={restoreMutation.isPending}
+                    onArchive={handleArchive}
+                    onRestore={handleRestore}
+                    onCommitAndArchive={handleOpenCommitArchiveModal}
+                    activePlanningOutput={isActivePlanningSession ? agentSession?.output : undefined}
+                    isPlanningActive={isActivePlanningSession}
+                    reviewFile={reviewFile}
+                    onReviewFileChange={handleReviewFileChange}
+                    onModeChange={handleModeChange}
+                    onDraftChange={(newDraft) => {
+                      dispatch({ type: 'SET_DRAFT', payload: newDraft })
+                      dispatch({ type: 'SET_DIRTY', payload: true })
+                      // Trigger autosave after 500ms of inactivity
+                      if (selectedPath) {
+                        debouncedSave(selectedPath, newDraft)
+                      }
+                    }}
+                  />
+                </ErrorBoundary>
               </div>
 
               {/* Footer with rewrite controls - only show in edit mode */}
@@ -452,36 +479,45 @@ export function TasksPage({
         {/* Right: Task Controls Panel - hidden in review/debate mode */}
         {selectedPath && mode === 'edit' && (
           <div className="w-80 shrink-0 border-l border-border overflow-hidden">
-            <TaskSidebar
-              mode={mode}
-              isSaving={save.saving}
-              isDeleting={deleteMutation.isPending}
-              isAssigning={assignToAgentMutation.isPending}
-              saveError={save.error}
-              agentSession={agentSession}
-              taskSessions={taskSessions}
-              splitFrom={taskData?.splitFrom}
-              onNavigateToSplitFrom={handleNavigateToSplitFrom}
-              hasActiveDebate={!!activeDebate}
-              // QA workflow props
-              qaStatus={taskData?.qaStatus}
-              latestActiveMerge={latestActiveMerge}
-              mergeHistory={taskData?.mergeHistory}
-              worktreeBranch={activeWorktreeBranch}
-              isMerging={mergeBranchMutation.isPending}
-              isReverting={revertMergeMutation.isPending}
-              isSettingQA={setQAStatusMutation.isPending}
-              onMergeToMain={handleMergeToMain}
-              onSetQAPass={handleSetQAPass}
-              onSetQAFail={handleSetQAFail}
-              onRevertMerge={handleRevertMerge}
-              // Action handlers
-              onDelete={handleDelete}
-              onReview={handleReview}
-              onVerify={handleVerify}
-              onAssignToAgent={handleAssignToAgent}
-              onCancelAgent={handleCancelAgent}
-            />
+            <ErrorBoundary
+              name="TaskSidebar"
+              fallback={
+                <div className="p-4 text-sm text-destructive bg-destructive/10">
+                  Sidebar failed to load
+                </div>
+              }
+            >
+              <TaskSidebar
+                mode={mode}
+                isSaving={save.saving}
+                isDeleting={deleteMutation.isPending}
+                isAssigning={assignToAgentMutation.isPending}
+                saveError={save.error}
+                agentSession={agentSession}
+                taskSessions={taskSessions}
+                splitFrom={taskData?.splitFrom}
+                onNavigateToSplitFrom={handleNavigateToSplitFrom}
+                hasActiveDebate={!!activeDebate}
+                // QA workflow props
+                qaStatus={taskData?.qaStatus}
+                latestActiveMerge={latestActiveMerge}
+                mergeHistory={taskData?.mergeHistory}
+                worktreeBranch={activeWorktreeBranch}
+                isMerging={mergeBranchMutation.isPending}
+                isReverting={revertMergeMutation.isPending}
+                isSettingQA={setQAStatusMutation.isPending}
+                onMergeToMain={handleMergeToMain}
+                onSetQAPass={handleSetQAPass}
+                onSetQAFail={handleSetQAFail}
+                onRevertMerge={handleRevertMerge}
+                // Action handlers
+                onDelete={handleDelete}
+                onReview={handleReview}
+                onVerify={handleVerify}
+                onAssignToAgent={handleAssignToAgent}
+                onCancelAgent={handleCancelAgent}
+              />
+            </ErrorBoundary>
           </div>
         )}
       </div>
@@ -497,6 +533,7 @@ export function TasksPage({
         availableTypes={availableTypes}
         availablePlannerTypes={availablePlannerTypes}
         debugAgents={create.debugAgents}
+        autoRun={create.autoRun}
         onClose={handleCloseCreate}
         onCreate={handleCreate}
         onTitleChange={(title) => setCreateTitleDraft(title)}
@@ -504,6 +541,7 @@ export function TasksPage({
         onUseAgentChange={(useAgent) => dispatch({ type: 'SET_CREATE_USE_AGENT', payload: useAgent })}
         onAgentTypeChange={handleCreateAgentTypeChange}
         onModelChange={(model) => dispatch({ type: 'SET_CREATE_MODEL', payload: model })}
+        onAutoRunChange={(autoRun) => dispatch({ type: 'SET_CREATE_AUTO_RUN', payload: autoRun })}
         onToggleDebugAgent={(agentType) => dispatch({ type: 'TOGGLE_DEBUG_AGENT', payload: agentType })}
         onDebugAgentModelChange={(agentType, model) => dispatch({ type: 'SET_DEBUG_AGENT_MODEL', payload: { agentType, model } })}
       />
@@ -545,20 +583,25 @@ export function TasksPage({
 
       {/* Commit and Archive Modal */}
       {selectedPath && (
-        <CommitArchiveModal
-          isOpen={modals.commitArchiveOpen}
-          taskPath={selectedPath}
-          taskTitle={editorTitle}
-          taskContent={editor.draft}
-          initialMessage={pendingCommitMessage}
-          isGeneratingInitial={pendingCommitGenerating}
-          sessionId={activeSessionId}
-          worktreeBranch={activeWorktreeBranch}
-          onClose={handleCloseCommitArchiveModal}
-          onCommitSuccess={handleCommitSuccess}
-          onArchiveSuccess={handleArchiveSuccess}
-          onMergeSuccess={handleMergeSuccess}
-        />
+        <ErrorBoundary
+          name="CommitArchiveModal"
+          fallback={null}
+        >
+          <CommitArchiveModal
+            isOpen={modals.commitArchiveOpen}
+            taskPath={selectedPath}
+            taskTitle={editorTitle}
+            taskContent={editor.draft}
+            initialMessage={pendingCommitMessage}
+            isGeneratingInitial={pendingCommitGenerating}
+            sessionId={activeSessionId}
+            worktreeBranch={activeWorktreeBranch}
+            onClose={handleCloseCommitArchiveModal}
+            onCommitSuccess={handleCommitSuccess}
+            onArchiveSuccess={handleArchiveSuccess}
+            onMergeSuccess={handleMergeSuccess}
+          />
+        </ErrorBoundary>
       )}
 
       <ConfirmDialog

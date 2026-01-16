@@ -8,6 +8,7 @@ import { SubtaskSection } from './subtask-section'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { formatDateTime, formatTimeAgo } from '@/lib/utils/time'
 import type { AgentOutputChunk } from '@/lib/agent/types'
 import type { SubTask } from '@/lib/agent/task-service'
@@ -74,9 +75,9 @@ export function TaskEditor({
   onModeChange,
   onDraftChange,
 }: TaskEditorProps) {
-  // Check if task content has the placeholder text (indicating plan is being generated)
-  const hasPlaceholder = draft.includes('_Generating detailed task plan..._') ||
-    draft.includes('_Investigating bug..._')
+  // Check if task content has debug placeholder (for header text display)
+  // Matches both single-agent "_Investigating bug..._" and multi-agent "_Investigating bug with N agent(s)..._"
+  const isDebugTask = draft.includes('_Investigating bug')
 
   // Edit mode sub-tabs (Draft/Subtasks)
   const [editTab, setEditTab] = useState<EditTab>('draft')
@@ -123,14 +124,14 @@ export function TaskEditor({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {mode === 'edit' ? (
-          // Show session output when planning is active with placeholder content
-          hasPlaceholder && isPlanningActive ? (
+          // Show session output when planning is active (regardless of placeholder text)
+          isPlanningActive ? (
             <div className="w-full h-full overflow-y-auto p-3">
               {/* Planning header */}
               <div className="flex items-center gap-2 mb-4 pb-2 border-b border-border">
                 <Spinner size="sm" className="text-accent" />
                 <span className="font-vcr text-xs text-accent">
-                  {draft.includes('_Investigating bug..._') ? 'INVESTIGATING BUG' : 'GENERATING PLAN'}
+                  {isDebugTask ? 'INVESTIGATING BUG' : 'GENERATING PLAN'}
                 </span>
               </div>
               {/* Session output */}
@@ -186,31 +187,51 @@ export function TaskEditor({
                 />
               ) : (
                 <div className="flex-1 min-h-0 overflow-y-auto p-3">
-                  <SubtaskSection
-                    taskPath={path}
-                    subtasks={subtasks}
-                    version={taskVersion}
-                    onRefresh={onSubtasksChange ?? (() => {})}
-                  />
+                  <ErrorBoundary
+                    name="SubtaskSection"
+                    fallback={
+                      <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                        Failed to load subtasks
+                      </div>
+                    }
+                  >
+                    <SubtaskSection
+                      taskPath={path}
+                      subtasks={subtasks}
+                      version={taskVersion}
+                      onRefresh={onSubtasksChange ?? (() => {})}
+                    />
+                  </ErrorBoundary>
                 </div>
               )}
             </div>
           )
         ) : (
           <div className="h-full">
-            <TaskReviewPanel
-              taskPath={path}
-              taskTitle={title}
-              taskDescription={taskDescription}
-              isArchived={isArchived}
-              isArchiving={isArchiving}
-              isRestoring={isRestoring}
-              onArchive={onArchive}
-              onRestore={onRestore}
-              onCommitAndArchive={onCommitAndArchive}
-              reviewFile={reviewFile}
-              onReviewFileChange={onReviewFileChange}
-            />
+            <ErrorBoundary
+              name="TaskReviewPanel"
+              fallback={
+                <div className="flex items-center justify-center h-full">
+                  <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                    Failed to load review panel
+                  </div>
+                </div>
+              }
+            >
+              <TaskReviewPanel
+                taskPath={path}
+                taskTitle={title}
+                taskDescription={taskDescription}
+                isArchived={isArchived}
+                isArchiving={isArchiving}
+                isRestoring={isRestoring}
+                onArchive={onArchive}
+                onRestore={onRestore}
+                onCommitAndArchive={onCommitAndArchive}
+                reviewFile={reviewFile}
+                onReviewFileChange={onReviewFileChange}
+              />
+            </ErrorBoundary>
           </div>
         )}
       </div>

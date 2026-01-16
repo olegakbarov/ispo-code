@@ -10,7 +10,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Square, RotateCcw, Trash2, Image } from 'lucide-react'
-import { z } from 'zod'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
 import { PromptDisplay } from '@/components/agents/prompt-display'
 import { StatusDot } from '@/components/agents/session-primitives'
@@ -18,6 +17,7 @@ import { ThreadSidebar } from '@/components/agents/thread-sidebar'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
 import { Textarea } from '@/components/ui/textarea'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 import type { AgentOutputChunk, SessionStatus, ImageAttachment, AgentSession, AgentSessionMetadata } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
 import { useAudioNotification } from '@/lib/hooks/use-audio-notification'
@@ -27,16 +27,11 @@ import { computeSessionHash } from '@/lib/hooks/use-adaptive-polling'
 export type SessionWithMetadata = AgentSession & { metadata: AgentSessionMetadata | null }
 
 export const Route = createFileRoute('/agents/$sessionId')({
-  validateSearch: z.object({
-    taskPath: z.string().optional(),
-  }).parse,
   component: AgentSessionPage,
 })
 
 function AgentSessionPage() {
   const { sessionId } = Route.useParams()
-  const search = Route.useSearch()
-  const taskPath = search.taskPath
   const navigate = useNavigate()
   const utils = trpc.useUtils()
 
@@ -449,23 +444,6 @@ function AgentSessionPage() {
     <div className="flex h-full">
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* Task planning context banner */}
-        {taskPath && (
-          <div className="px-3 py-2 border-b border-border bg-accent/5 flex items-center gap-2">
-            <span className="font-vcr text-[10px] text-accent">PLANNING TASK</span>
-            <span className="text-xs text-muted-foreground flex-1">{taskPath}</span>
-            {isDone && (
-              <Link
-                to="/tasks"
-                search={{ path: taskPath, archiveFilter: 'active' }}
-                className="px-2 py-1 bg-accent text-background rounded text-xs font-vcr hover:opacity-90 cursor-pointer transition-opacity"
-              >
-                View Task
-              </Link>
-            )}
-          </div>
-        )}
-
         {/* Prompt display - collapsible with plan/task links */}
         <PromptDisplay
           prompt={session.prompt}
@@ -483,7 +461,16 @@ function AgentSessionPage() {
               {isBusy ? 'Waiting for output...' : 'No output'}
             </div>
           ) : (
-            <OutputRenderer chunks={allOutput} />
+            <ErrorBoundary
+              name="OutputRenderer"
+              fallback={
+                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded">
+                  Failed to render agent output
+                </div>
+              }
+            >
+              <OutputRenderer chunks={allOutput} />
+            </ErrorBoundary>
           )}
           <div ref={bottomRef} />
         </div>
@@ -671,7 +658,16 @@ function AgentSessionPage() {
       </div>
 
       {/* Sidebar - shows session metadata + git commit panel */}
-      <ThreadSidebar sessionId={sessionId} session={session} />
+      <ErrorBoundary
+        name="ThreadSidebar"
+        fallback={
+          <div className="w-72 border-l border-border bg-card p-4">
+            <div className="text-sm text-destructive">Sidebar failed to load</div>
+          </div>
+        }
+      >
+        <ThreadSidebar sessionId={sessionId} session={session} />
+      </ErrorBoundary>
     </div>
   )
 }
