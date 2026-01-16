@@ -1,9 +1,9 @@
 /**
- * Subtask section component for displaying and managing subtasks within a task
+ * Subtask section component - compact row layout with inline editing
  */
 
-import { useState, useCallback } from 'react'
-import { Layers, ChevronDown, ChevronRight, Check, Circle, Loader2, Trash2, Plus } from 'lucide-react'
+import { useState, useCallback, memo } from 'react'
+import { Plus, Check, Circle, Loader2, Trash2, ChevronDown, ChevronRight, X, Pencil } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,7 @@ interface SubtaskSectionProps {
   onRefresh: () => void
 }
 
-interface SubtaskCardProps {
+interface SubtaskRowProps {
   subtask: SubTask
   taskPath: string
   version: number
@@ -25,39 +25,57 @@ interface SubtaskCardProps {
   onRefresh: () => void
 }
 
-function StatusBadge({ status }: { status: SubTask['status'] }) {
-  const styles = {
-    pending: 'bg-border/30 text-muted-foreground',
-    in_progress: 'bg-yellow-500/20 text-yellow-600',
-    completed: 'bg-accent/20 text-accent',
-  }
-  const labels = {
-    pending: 'Pending',
-    in_progress: 'In Progress',
-    completed: 'Completed',
-  }
+const STATUS_CYCLE: SubTask['status'][] = ['pending', 'in_progress', 'completed']
+
+function getNextStatus(current: SubTask['status']): SubTask['status'] {
+  const idx = STATUS_CYCLE.indexOf(current)
+  return STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]
+}
+
+function StatusIcon({ status, onClick, disabled }: { status: SubTask['status']; onClick: () => void; disabled?: boolean }) {
   const icons = {
-    pending: <Circle className="w-2.5 h-2.5" />,
-    in_progress: <Loader2 className="w-2.5 h-2.5 animate-spin" />,
-    completed: <Check className="w-2.5 h-2.5" />,
+    pending: <Circle className="w-3.5 h-3.5" />,
+    in_progress: <Loader2 className="w-3.5 h-3.5 animate-spin" />,
+    completed: <Check className="w-3.5 h-3.5" />,
+  }
+  const colors = {
+    pending: 'text-muted-foreground hover:text-foreground',
+    in_progress: 'text-yellow-500 hover:text-yellow-400',
+    completed: 'text-accent hover:text-accent/80',
+  }
+  const titles = {
+    pending: 'Pending → In Progress',
+    in_progress: 'In Progress → Completed',
+    completed: 'Completed → Pending',
   }
 
   return (
-    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-vcr ${styles[status]}`}>
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        if (!disabled) onClick()
+      }}
+      disabled={disabled}
+      className={`p-1 rounded transition-colors ${colors[status]} disabled:opacity-50`}
+      title={titles[status]}
+    >
       {icons[status]}
-      <span>{labels[status]}</span>
-    </div>
+    </button>
   )
 }
 
-function SubtaskCard({
+const SubtaskRow = memo(function SubtaskRow({
   subtask,
   taskPath,
   version,
   isExpanded,
   onToggleExpand,
   onRefresh,
-}: SubtaskCardProps) {
+}: SubtaskRowProps) {
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [editedTitle, setEditedTitle] = useState(subtask.title)
+  const [newCheckboxText, setNewCheckboxText] = useState('')
+
   const utils = trpc.useUtils()
 
   const updateMutation = trpc.tasks.updateSubtask.useMutation({
@@ -74,18 +92,54 @@ function SubtaskCard({
     },
   })
 
-  const handleStatusChange = useCallback((newStatus: SubTask['status']) => {
+  const isUpdating = updateMutation.isPending || deleteMutation.isPending
+
+  const handleStatusCycle = useCallback(() => {
     updateMutation.mutate({
       taskPath,
       subtaskId: subtask.id,
-      updates: { status: newStatus },
+      updates: { status: getNextStatus(subtask.status) },
       expectedVersion: version,
     })
-  }, [updateMutation, taskPath, subtask.id, version])
+  }, [updateMutation, taskPath, subtask.id, subtask.status, version])
+
+  const handleTitleSave = useCallback(() => {
+    if (editedTitle.trim() && editedTitle !== subtask.title) {
+      updateMutation.mutate({
+        taskPath,
+        subtaskId: subtask.id,
+        updates: { title: editedTitle.trim() },
+        expectedVersion: version,
+      })
+    }
+    setIsEditingTitle(false)
+  }, [updateMutation, taskPath, subtask.id, editedTitle, subtask.title, version])
 
   const handleCheckboxChange = useCallback((index: number, checked: boolean) => {
     const newCheckboxes = [...subtask.checkboxes]
     newCheckboxes[index] = { ...newCheckboxes[index], checked }
+    updateMutation.mutate({
+      taskPath,
+      subtaskId: subtask.id,
+      updates: { checkboxes: newCheckboxes },
+      expectedVersion: version,
+    })
+  }, [updateMutation, taskPath, subtask.id, subtask.checkboxes, version])
+
+  const handleAddCheckbox = useCallback(() => {
+    if (!newCheckboxText.trim()) return
+    const newCheckboxes = [...subtask.checkboxes, { text: newCheckboxText.trim(), checked: false }]
+    updateMutation.mutate({
+      taskPath,
+      subtaskId: subtask.id,
+      updates: { checkboxes: newCheckboxes },
+      expectedVersion: version,
+    })
+    setNewCheckboxText('')
+  }, [updateMutation, taskPath, subtask.id, subtask.checkboxes, newCheckboxText, version])
+
+  const handleRemoveCheckbox = useCallback((index: number) => {
+    const newCheckboxes = subtask.checkboxes.filter((_, i) => i !== index)
     updateMutation.mutate({
       taskPath,
       subtaskId: subtask.id,
@@ -106,111 +160,131 @@ function SubtaskCard({
 
   const completedCount = subtask.checkboxes.filter((cb) => cb.checked).length
   const totalCount = subtask.checkboxes.length
-  const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
-
-  const isUpdating = updateMutation.isPending || deleteMutation.isPending
 
   return (
-    <div className="border border-border rounded bg-background">
-      {/* Header */}
-      <div
-        onClick={onToggleExpand}
-        className="flex items-center gap-2 p-3 cursor-pointer hover:bg-secondary/50 transition-colors"
-      >
-        <button className="shrink-0 p-0.5 rounded hover:bg-accent/20 text-muted-foreground hover:text-accent transition-colors">
-          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+    <div className="border-b border-border/50 last:border-b-0">
+      {/* Row header - dense layout */}
+      <div className="flex items-center gap-1.5 py-1.5 px-1 group">
+        {/* Expand toggle */}
+        <button
+          onClick={onToggleExpand}
+          className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         </button>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-text-primary truncate">{subtask.title}</span>
-            <StatusBadge status={subtask.status} />
-          </div>
-          {totalCount > 0 && (
-            <div className="flex items-center gap-2 mt-1">
-              <div className="flex-1 h-1 bg-border/30 rounded-full overflow-hidden max-w-[100px]">
-                <div
-                  className={`h-full rounded-full transition-all ${progress < 50 ? 'bg-yellow-500' : 'bg-accent'}`}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <span className="text-[10px] text-muted-foreground">
-                {completedCount}/{totalCount}
-              </span>
-            </div>
-          )}
-        </div>
+        {/* Status cycle button */}
+        <StatusIcon status={subtask.status} onClick={handleStatusCycle} disabled={isUpdating} />
 
-        {/* Actions */}
-        <div className="shrink-0 flex items-center gap-1">
+        {/* Title - inline edit */}
+        {isEditingTitle ? (
+          <Input
+            value={editedTitle}
+            onChange={(e) => setEditedTitle(e.target.value)}
+            onBlur={handleTitleSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleTitleSave()
+              if (e.key === 'Escape') {
+                setEditedTitle(subtask.title)
+                setIsEditingTitle(false)
+              }
+            }}
+            variant="sm"
+            className="flex-1 h-6 text-xs bg-secondary px-1.5"
+            autoFocus
+          />
+        ) : (
+          <span
+            onClick={() => {
+              setEditedTitle(subtask.title)
+              setIsEditingTitle(true)
+            }}
+            className={`flex-1 text-xs truncate cursor-text ${
+              subtask.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'
+            }`}
+            title="Click to edit"
+          >
+            {subtask.title}
+          </span>
+        )}
+
+        {/* Progress indicator */}
+        {totalCount > 0 && (
+          <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+            {completedCount}/{totalCount}
+          </span>
+        )}
+
+        {/* Actions - visible on hover */}
+        <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {isUpdating && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setEditedTitle(subtask.title)
+              setIsEditingTitle(true)
+            }}
+            className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+            title="Edit title"
+          >
+            <Pencil className="w-2.5 h-2.5" />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation()
               handleDelete()
             }}
-            className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+            className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
             title="Delete subtask"
           >
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-2.5 h-2.5" />
           </button>
         </div>
       </div>
 
-      {/* Expanded content */}
+      {/* Expanded: checkboxes */}
       {isExpanded && (
-        <div className="border-t border-border p-3 space-y-3">
-          {/* Status selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-vcr text-muted-foreground">Status:</span>
-            <div className="flex items-center gap-1">
-              {(['pending', 'in_progress', 'completed'] as const).map((status) => (
-                <button
-                  key={status}
-                  onClick={() => handleStatusChange(status)}
-                  disabled={isUpdating}
-                  className={`px-2 py-0.5 rounded text-[10px] font-vcr transition-colors disabled:opacity-50 ${
-                    subtask.status === status
-                      ? 'bg-accent text-accent-foreground'
-                      : 'bg-border/30 text-muted-foreground hover:bg-border/50'
-                  }`}
-                >
-                  {status.replace('_', ' ')}
-                </button>
-              ))}
+        <div className="pl-8 pr-2 pb-2 space-y-1">
+          {subtask.checkboxes.map((cb, index) => (
+            <div key={index} className="flex items-center gap-2 group/item">
+              <Checkbox
+                checked={cb.checked}
+                onChange={() => handleCheckboxChange(index, !cb.checked)}
+                disabled={isUpdating}
+                className="shrink-0"
+              />
+              <span className={`flex-1 text-xs ${cb.checked ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                {cb.text}
+              </span>
+              <button
+                onClick={() => handleRemoveCheckbox(index)}
+                className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-destructive opacity-0 group-hover/item:opacity-100 transition-opacity"
+                title="Remove item"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
+          ))}
+          {/* Add checkbox input */}
+          <div className="flex items-center gap-2 mt-1.5">
+            <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+            <Input
+              value={newCheckboxText}
+              onChange={(e) => setNewCheckboxText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddCheckbox()
+                if (e.key === 'Escape') setNewCheckboxText('')
+              }}
+              placeholder="Add item..."
+              variant="sm"
+              className="flex-1 h-5 text-xs bg-transparent border-0 border-b border-border/50 rounded-none px-0 focus:border-accent"
+            />
           </div>
-
-          {/* Checkboxes */}
-          {subtask.checkboxes.length > 0 && (
-            <div className="space-y-1.5">
-              {subtask.checkboxes.map((cb, index) => (
-                <label
-                  key={index}
-                  className="flex items-start gap-2 cursor-pointer group"
-                >
-                  <Checkbox
-                    checked={cb.checked}
-                    onChange={() => handleCheckboxChange(index, !cb.checked)}
-                    disabled={isUpdating}
-                    className="mt-0.5"
-                  />
-                  <span className={`text-xs ${cb.checked ? 'text-muted-foreground line-through' : 'text-text-secondary'}`}>
-                    {cb.text}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
-
-          {subtask.checkboxes.length === 0 && (
-            <div className="text-xs text-muted-foreground italic">No items</div>
-          )}
         </div>
       )}
     </div>
   )
-}
+})
 
 export function SubtaskSection({ taskPath, subtasks, version, onRefresh }: SubtaskSectionProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
@@ -253,21 +327,17 @@ export function SubtaskSection({ taskPath, subtasks, version, onRefresh }: Subta
     })
   }, [addSubtaskMutation, taskPath, newSubtaskTitle, version])
 
-  if (subtasks.length === 0 && !isAddingSubtask) {
-    return null
-  }
-
   return (
-    <div className="border-t border-border mt-4 pt-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Layers className="w-4 h-4 text-accent" />
-          <span className="font-vcr text-xs text-accent">Subtasks ({subtasks.length})</span>
-        </div>
+    <div className="h-full flex flex-col">
+      {/* Always-visible header */}
+      <div className="shrink-0 flex items-center justify-between pb-2 border-b border-border mb-2">
+        <span className="font-vcr text-xs text-muted-foreground">
+          {subtasks.length === 0 ? 'No subtasks' : `${subtasks.length} subtask${subtasks.length === 1 ? '' : 's'}`}
+        </span>
         {!isAddingSubtask && subtasks.length < 20 && (
           <button
             onClick={() => setIsAddingSubtask(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-vcr text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-vcr text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors"
           >
             <Plus className="w-3 h-3" />
             Add
@@ -275,28 +345,45 @@ export function SubtaskSection({ taskPath, subtasks, version, onRefresh }: Subta
         )}
       </div>
 
-      <div className="space-y-2">
-        {subtasks.map((subtask) => (
-          <SubtaskCard
-            key={subtask.id}
-            subtask={subtask}
-            taskPath={taskPath}
-            version={version}
-            isExpanded={expandedIds.has(subtask.id)}
-            onToggleExpand={() => toggleExpand(subtask.id)}
-            onRefresh={onRefresh}
-          />
-        ))}
+      {/* Subtask list */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {subtasks.length === 0 && !isAddingSubtask ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="text-muted-foreground text-xs mb-2">No subtasks yet</div>
+            <button
+              onClick={() => setIsAddingSubtask(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-vcr text-accent hover:bg-accent/10 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add first subtask
+            </button>
+          </div>
+        ) : (
+          <div>
+            {subtasks.map((subtask) => (
+              <SubtaskRow
+                key={subtask.id}
+                subtask={subtask}
+                taskPath={taskPath}
+                version={version}
+                isExpanded={expandedIds.has(subtask.id)}
+                onToggleExpand={() => toggleExpand(subtask.id)}
+                onRefresh={onRefresh}
+              />
+            ))}
+          </div>
+        )}
 
-        {/* Add subtask form */}
+        {/* Add subtask inline form */}
         {isAddingSubtask && (
-          <div className="border border-border rounded bg-background p-3 space-y-2">
+          <div className="flex items-center gap-2 py-1.5 px-1 border-b border-border/50">
+            <Circle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <Input
               value={newSubtaskTitle}
               onChange={(e) => setNewSubtaskTitle(e.target.value)}
-              placeholder="Subtask title..."
+              placeholder="New subtask title..."
               variant="sm"
-              className="bg-secondary"
+              className="flex-1 h-6 text-xs bg-secondary px-1.5"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleAddSubtask()
@@ -306,29 +393,22 @@ export function SubtaskSection({ taskPath, subtasks, version, onRefresh }: Subta
                 }
               }}
             />
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleAddSubtask}
-                disabled={!newSubtaskTitle.trim() || addSubtaskMutation.isPending}
-                className="px-2 py-1 rounded text-[10px] font-vcr bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              >
-                {addSubtaskMutation.isPending ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Plus className="w-3 h-3" />
-                )}
-                Add
-              </button>
-              <button
-                onClick={() => {
-                  setIsAddingSubtask(false)
-                  setNewSubtaskTitle('')
-                }}
-                className="px-2 py-1 rounded text-[10px] font-vcr text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-            </div>
+            <button
+              onClick={handleAddSubtask}
+              disabled={!newSubtaskTitle.trim() || addSubtaskMutation.isPending}
+              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-vcr bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {addSubtaskMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Add'}
+            </button>
+            <button
+              onClick={() => {
+                setIsAddingSubtask(false)
+                setNewSubtaskTitle('')
+              }}
+              className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3 h-3" />
+            </button>
           </div>
         )}
       </div>

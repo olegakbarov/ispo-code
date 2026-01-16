@@ -89,12 +89,12 @@ export function SplitTaskModal({
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="p-3 space-y-3">
           <div>
-            <div className="font-vcr text-xs text-text-muted mb-1">Adding subtasks to:</div>
-            <div className="text-sm text-text-primary truncate">{taskTitle}</div>
+            <div className="font-vcr text-[10px] text-text-muted mb-0.5">Adding subtasks to:</div>
+            <div className="text-xs text-text-primary truncate">{taskTitle}</div>
             {currentSubtaskCount > 0 && (
-              <div className="text-xs text-text-muted mt-1">
+              <div className="text-[10px] text-text-muted mt-0.5">
                 {currentSubtaskCount} existing subtask{currentSubtaskCount === 1 ? '' : 's'}
               </div>
             )}
@@ -102,9 +102,9 @@ export function SplitTaskModal({
 
           {/* Limit warning */}
           {remainingSlots < sections.length && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-3">
-              <div className="flex items-center gap-2 text-xs text-yellow-600">
-                <AlertCircle className="w-4 h-4" />
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded px-2 py-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-yellow-600">
+                <AlertCircle className="w-3 h-3 shrink-0" />
                 <span>
                   Can only add {remainingSlots} more subtask{remainingSlots === 1 ? '' : 's'} (max {maxSubtasks})
                 </span>
@@ -112,48 +112,48 @@ export function SplitTaskModal({
             </div>
           )}
 
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-vcr text-xs text-text-muted">Select sections to add as subtasks:</div>
+          <div className="border-t border-border pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-vcr text-[10px] text-text-muted">Select sections:</div>
               <button
                 onClick={toggleAll}
                 disabled={isSplitting || remainingSlots === 0}
-                className="text-xs text-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-[10px] text-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {selectedIndices.size === Math.min(sections.length, remainingSlots) ? 'Deselect All' : 'Select All'}
               </button>
             </div>
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            <div className="space-y-1 max-h-[280px] overflow-y-auto">
               {sections.map((section, index) => {
                 const isDisabled = isSplitting || (!selectedIndices.has(index) && selectedIndices.size >= remainingSlots)
                 return (
                   <label
                     key={index}
-                    className={`flex items-start gap-3 p-3 rounded border border-border hover:border-accent/50 cursor-pointer transition-colors bg-background ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`flex items-start gap-2 p-2 rounded border border-border hover:border-accent/50 cursor-pointer transition-colors bg-background ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <Checkbox
                       checked={selectedIndices.has(index)}
                       onChange={() => toggleSection(index)}
                       disabled={isDisabled}
-                      className="mt-0.5"
+                      className="mt-0.5 shrink-0"
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-text-primary truncate">
+                      <div className="text-xs font-medium text-text-primary truncate">
                         {section.title}
                       </div>
-                      <div className="text-xs text-text-muted mt-1">
+                      <div className="text-[10px] text-text-muted">
                         {section.checkboxes.length} item{section.checkboxes.length === 1 ? '' : 's'}
                       </div>
-                      <div className="mt-2 space-y-1">
-                        {section.checkboxes.slice(0, 3).map((cb, i) => (
-                          <div key={i} className="text-xs text-text-secondary truncate">
+                      <div className="mt-1 space-y-0.5">
+                        {section.checkboxes.slice(0, 2).map((cb, i) => (
+                          <div key={i} className="text-[10px] text-text-secondary truncate">
                             - {cb}
                           </div>
                         ))}
-                        {section.checkboxes.length > 3 && (
-                          <div className="text-xs text-text-muted italic">
-                            + {section.checkboxes.length - 3} more...
+                        {section.checkboxes.length > 2 && (
+                          <div className="text-[10px] text-text-muted italic">
+                            + {section.checkboxes.length - 2} more...
                           </div>
                         )}
                       </div>
@@ -166,9 +166,9 @@ export function SplitTaskModal({
 
           {/* Preview */}
           {previewCount > 0 && !wouldExceedLimit && (
-            <div className="bg-accent/10 border border-accent/30 rounded p-3">
-              <div className="flex items-center gap-2 text-sm text-accent">
-                <Layers className="w-4 h-4" />
+            <div className="bg-accent/10 border border-accent/30 rounded px-2 py-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-accent">
+                <Layers className="w-3 h-3" />
                 <span>
                   Will add <strong>{previewCount}</strong> subtask{previewCount === 1 ? '' : 's'}
                 </span>
@@ -177,18 +177,18 @@ export function SplitTaskModal({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 p-3 border-t border-border">
+        <div className="flex items-center justify-end gap-2 p-2 border-t border-border">
           <button
             onClick={handleClose}
             disabled={isSplitting}
-            className="px-3 py-1.5 rounded text-xs font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded text-[10px] font-vcr border border-border text-text-muted hover:text-text-secondary hover:bg-panel-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             onClick={handleSplit}
             disabled={isSplitting || previewCount === 0 || wouldExceedLimit}
-            className="px-3 py-1.5 rounded text-xs font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-2 py-1 rounded text-[10px] font-vcr bg-accent text-background cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
             {isSplitting ? (
               <>
@@ -198,7 +198,7 @@ export function SplitTaskModal({
             ) : (
               <>
                 <Layers className="w-3 h-3" />
-                Add {previewCount} Subtask{previewCount === 1 ? '' : 's'}
+                Add {previewCount}
               </>
             )}
           </button>

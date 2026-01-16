@@ -2,6 +2,7 @@
  * Task editor component with edit/review modes
  */
 
+import { useState } from 'react'
 import { TaskReviewPanel } from './task-review-panel'
 import { SubtaskSection } from './subtask-section'
 import { OutputRenderer } from '@/components/agents/output-renderer'
@@ -10,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime, formatTimeAgo } from '@/lib/utils/time'
 import type { AgentOutputChunk } from '@/lib/agent/types'
 import type { SubTask } from '@/lib/agent/task-service'
+
+type EditTab = 'draft' | 'subtasks'
 
 // Looser output type from agent-types.ts for compatibility
 type OutputChunk = { type: string; content: string; timestamp?: string }
@@ -74,6 +77,9 @@ export function TaskEditor({
   // Check if task content has the placeholder text (indicating plan is being generated)
   const hasPlaceholder = draft.includes('_Generating detailed task plan..._') ||
     draft.includes('_Investigating bug..._')
+
+  // Edit mode sub-tabs (Draft/Subtasks)
+  const [editTab, setEditTab] = useState<EditTab>('draft')
   return (
     <>
       <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur px-3 py-2">
@@ -138,16 +144,48 @@ export function TaskEditor({
             </div>
           ) : (
             <div className="h-full flex flex-col">
-              <Textarea
-                value={draft}
-                onChange={(e) => onDraftChange(e.target.value)}
-                variant="sm"
-                className="flex-1 min-h-0 p-3 bg-background font-mono border-0"
-                spellCheck={false}
-              />
-              {/* Subtasks section (below editor) */}
-              {subtasks.length > 0 && (
-                <div className="shrink-0 border-t border-border p-3 max-h-[300px] overflow-y-auto">
+              {/* Draft/Subtasks tabs */}
+              <div className="shrink-0 flex border-b border-border">
+                <button
+                  onClick={() => setEditTab('draft')}
+                  className={`px-3 py-1.5 text-xs font-vcr transition-colors border-b-2 -mb-px ${
+                    editTab === 'draft'
+                      ? 'text-accent border-accent'
+                      : 'text-muted-foreground border-transparent hover:text-foreground'
+                  }`}
+                >
+                  Draft
+                </button>
+                <button
+                  onClick={() => setEditTab('subtasks')}
+                  className={`px-3 py-1.5 text-xs font-vcr transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
+                    editTab === 'subtasks'
+                      ? 'text-accent border-accent'
+                      : 'text-muted-foreground border-transparent hover:text-foreground'
+                  }`}
+                >
+                  Subtasks
+                  {subtasks.length > 0 && (
+                    <span className={`px-1 min-w-[16px] text-center rounded text-[10px] ${
+                      editTab === 'subtasks' ? 'bg-accent/20' : 'bg-border/50'
+                    }`}>
+                      {subtasks.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Tab content */}
+              {editTab === 'draft' ? (
+                <Textarea
+                  value={draft}
+                  onChange={(e) => onDraftChange(e.target.value)}
+                  variant="sm"
+                  className="flex-1 min-h-0 p-3 bg-background font-mono border-0"
+                  spellCheck={false}
+                />
+              ) : (
+                <div className="flex-1 min-h-0 overflow-y-auto p-3">
                   <SubtaskSection
                     taskPath={path}
                     subtasks={subtasks}
