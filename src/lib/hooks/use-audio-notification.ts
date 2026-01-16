@@ -17,6 +17,7 @@ import { isTerminalStatus, ACTIVE_STATUSES } from "@/lib/agent/status"
 import type { SessionStatus } from "@/lib/agent/types"
 import { trpc } from "@/lib/trpc-client"
 import { audioUnlockedPromise, isAudioUnlocked } from "@/lib/audio/audio-unlock"
+import { enqueueNotificationAudio } from "@/lib/audio/notification-player"
 import { getPhaseFromSessionTitle } from "@/lib/utils/session-phase"
 
 interface UseAudioNotificationOptions {
@@ -52,9 +53,6 @@ export function useAudioNotification({
   // Track if we've already played for this session to prevent duplicates
   const hasPlayedRef = useRef(false)
 
-  // Audio element ref
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-
   // Generate notification mutation
   const generateNotification = trpc.audio.generateNotification.useMutation()
 
@@ -86,13 +84,8 @@ export function useAudioNotification({
           phase,
         })
 
-        // Create audio element if needed
-        if (!audioRef.current) {
-          audioRef.current = new Audio()
-        }
-
-        audioRef.current.src = result.audioDataUrl
-        await audioRef.current.play()
+        // Use shared queue instead of creating new Audio()
+        await enqueueNotificationAudio(result.audioDataUrl)
         console.debug("[AudioNotification] Successfully played", type, "notification", taskTitle ? `for: ${taskTitle}` : "")
         return true
       } catch (error) {
@@ -161,14 +154,4 @@ export function useAudioNotification({
     hasPlayedRef.current = false
     prevStatusRef.current = undefined
   }, [sessionId])
-
-  // Cleanup audio element on unmount
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current = null
-      }
-    }
-  }, [])
 }

@@ -15,6 +15,7 @@ import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSettingsStore } from '@/lib/stores/settings'
 import { trpc } from '@/lib/trpc-client'
 import { audioUnlockedPromise, isAudioUnlocked } from '@/lib/audio/audio-unlock'
+import { enqueueNotificationAudio } from '@/lib/audio/notification-player'
 import type { SessionStatus } from '@/lib/agent/types'
 import { getPhaseFromSessionTitle, type PhaseLabel } from '@/lib/utils/session-phase'
 
@@ -124,9 +125,8 @@ export function useGlobalAudioNotifications() {
           ...payload,
         })
 
-        const audio = new Audio()
-        audio.src = result.audioDataUrl
-        await audio.play()
+        // Use shared queue instead of creating new Audio()
+        await enqueueNotificationAudio(result.audioDataUrl)
         console.debug('[GlobalAudio] Successfully played notification', {
           type,
           taskTitle: options?.taskTitle,
