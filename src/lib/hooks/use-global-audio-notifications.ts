@@ -6,6 +6,9 @@
  *
  * This hook should be mounted once at a high level (e.g., __root.tsx or tasks layout)
  * to ensure notifications fire regardless of which task is currently selected.
+ *
+ * Features debounce logic: if multiple sessions complete within a short window,
+ * plays a single summary notification instead of overlapping audio.
  */
 
 import { useEffect, useRef, useCallback } from 'react'
@@ -13,6 +16,9 @@ import { useSettingsStore } from '@/lib/stores/settings'
 import { trpc } from '@/lib/trpc-client'
 import { audioUnlockedPromise, isAudioUnlocked } from '@/lib/audio/audio-unlock'
 import type { SessionStatus } from '@/lib/agent/types'
+
+/** How long to wait for additional completions before playing notification (ms) */
+const DEBOUNCE_DELAY_MS = 3000
 
 /** Session info needed for tracking transitions */
 interface TrackedSession {
@@ -23,10 +29,17 @@ interface TrackedSession {
 /** Map of sessionId -> TrackedSession */
 type SessionSnapshot = Record<string, TrackedSession>
 
+/** Queued notification waiting to be played */
+interface QueuedNotification {
+  type: 'completed' | 'failed'
+  sessionId: string
+}
+
 /**
  * Hook to play audio notifications when any session completes.
  *
  * Tracks all active sessions and detects transitions to terminal states.
+ * Uses debounce logic to batch multiple rapid completions into a single notification.
  */
 export function useGlobalAudioNotifications() {
   const { audioEnabled, selectedVoiceId } = useSettingsStore()
@@ -38,10 +51,14 @@ export function useGlobalAudioNotifications() {
   // Track sessions we've already notified for (prevents duplicates)
   const notifiedSessionsRef = useRef<Set<string>>(new Set())
 
+  // Debounce state: queue of pending notifications and timer
+  const pendingNotificationsRef = useRef<QueuedNotification[]>([])
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Generate notification mutation
   const generateNotification = trpc.audio.generateNotification.useMutation()
 
-  // Play audio notification
+  // Play audio notification (internal - called after debounce)
   const playNotification = useCallback(
     async (type: 'completed' | 'failed'): Promise<boolean> => {
       if (!selectedVoiceId) return false
@@ -78,6 +95,46 @@ export function useGlobalAudioNotifications() {
       }
     },
     [selectedVoiceId, generateNotification]
+  )
+
+  // Flush pending notifications - plays a single notification for batched completions
+  const flushPendingNotifications = useCallback(() => {
+    const pending = pendingNotificationsRef.current
+    if (pending.length === 0) return
+
+    // Count by type
+    const completed = pending.filter((n) => n.type === 'completed').length
+    const failed = pending.filter((n) => n.type === 'failed').length
+
+    // Clear the queue
+    pendingNotificationsRef.current = []
+    debounceTimerRef.current = null
+
+    console.debug('[GlobalAudio] Flushing notifications:', { completed, failed })
+
+    // Play notification for the dominant type (or completed if tied)
+    // If there are failures, prioritize reporting failures
+    if (failed > 0) {
+      playNotification('failed')
+    } else if (completed > 0) {
+      playNotification('completed')
+    }
+  }, [playNotification])
+
+  // Queue a notification with debounce
+  const queueNotification = useCallback(
+    (type: 'completed' | 'failed', sessionId: string) => {
+      pendingNotificationsRef.current.push({ type, sessionId })
+
+      // Reset the debounce timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+
+      debounceTimerRef.current = setTimeout(flushPendingNotifications, DEBOUNCE_DELAY_MS)
+      console.debug('[GlobalAudio] Queued notification:', { type, sessionId, queueSize: pendingNotificationsRef.current.length })
+    },
+    [flushPendingNotifications]
   )
 
   // Poll active sessions
@@ -118,7 +175,7 @@ export function useGlobalAudioNotifications() {
             if (session.status === 'completed' || session.status === 'failed') {
               notifiedSessionsRef.current.add(sessionId)
               const notificationType = session.status === 'completed' ? 'completed' : 'failed'
-              playNotification(notificationType)
+              queueNotification(notificationType, sessionId)
             }
           })
           .catch((error) => {
@@ -129,7 +186,16 @@ export function useGlobalAudioNotifications() {
 
     // Update snapshot for next comparison
     prevSessionsRef.current = currentSessions
-  }, [activeAgentSessions, audioEnabled, selectedVoiceId, playNotification, utils.client.agent.get])
+  }, [activeAgentSessions, audioEnabled, selectedVoiceId, queueNotification, utils.client.agent.get])
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [])
 
   // Clean up notified sessions periodically to prevent memory leak
   useEffect(() => {
