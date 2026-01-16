@@ -76,6 +76,7 @@ export function useAgentSessionTracking({
   const [audioSessionSnapshot, setAudioSessionSnapshot] = useState<{
     id: string
     status: SessionStatus
+    title?: string
   } | null>(null)
 
   useEffect(() => {
@@ -83,14 +84,15 @@ export function useAgentSessionTracking({
 
     const nextStatus = liveSession?.status ?? activeSessionInfo?.status
     const nextId = liveSession?.id ?? effectiveSessionId
+    const nextTitle = liveSession?.title
 
     if (!nextStatus) return
 
     setAudioSessionSnapshot((prev) => {
-      if (prev?.id === nextId && prev.status === nextStatus) return prev
-      return { id: nextId, status: nextStatus }
+      if (prev?.id === nextId && prev.status === nextStatus && prev.title === nextTitle) return prev
+      return { id: nextId, status: nextStatus, title: nextTitle }
     })
-  }, [effectiveSessionId, activeSessionInfo?.status, liveSession?.id, liveSession?.status])
+  }, [effectiveSessionId, activeSessionInfo?.status, liveSession?.id, liveSession?.status, liveSession?.title])
 
   const prevAudioSessionIdRef = useRef<string | null>(null)
 
@@ -109,8 +111,8 @@ export function useAgentSessionTracking({
       .then((session) => {
         if (!session) return
         setAudioSessionSnapshot((snapshot) => {
-          if (snapshot?.id === session.id && snapshot.status === session.status) return snapshot
-          return { id: session.id, status: session.status }
+          if (snapshot?.id === session.id && snapshot.status === session.status && snapshot.title === session.title) return snapshot
+          return { id: session.id, status: session.status, title: session.title }
         })
       })
       .catch((error) => {
@@ -151,6 +153,7 @@ export function useAgentSessionTracking({
     status: audioSessionSnapshot?.status,
     sessionId: audioSessionSnapshot?.id,
     taskTitle,
+    sessionTitle: audioSessionSnapshot?.title,
   })
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import { useSettingsStore } from '@/lib/stores/settings'
 import { trpc } from '@/lib/trpc-client'
 import { audioUnlockedPromise, isAudioUnlocked } from '@/lib/audio/audio-unlock'
 import type { SessionStatus } from '@/lib/agent/types'
+import { getPhaseFromSessionTitle, type PhaseLabel } from '@/lib/utils/session-phase'
 
 /** How long to wait for additional completions before playing notification (ms) */
 const DEBOUNCE_DELAY_MS = 3000
@@ -34,6 +35,7 @@ interface QueuedNotification {
   type: 'completed' | 'failed'
   sessionId: string
   taskTitle?: string
+  phase?: PhaseLabel
 }
 
 /**
@@ -78,7 +80,7 @@ export function useGlobalAudioNotifications() {
   const playNotification = useCallback(
     async (
       type: 'completed' | 'failed',
-      options?: { taskTitle?: string; count?: number }
+      options?: { taskTitle?: string; count?: number; phase?: PhaseLabel }
     ): Promise<boolean> => {
       if (!selectedVoiceId) return false
 
@@ -99,6 +101,7 @@ export function useGlobalAudioNotifications() {
           type: 'completed' | 'failed'
           taskTitle?: string
           count?: number
+          phase?: PhaseLabel
         } = {
           voiceId: selectedVoiceId,
           type,
@@ -112,6 +115,11 @@ export function useGlobalAudioNotifications() {
           payload.count = options.count
         }
 
+        // Only include phase for single notifications (not batch)
+        if (options?.phase && (!options?.count || options.count <= 1)) {
+          payload.phase = options.phase
+        }
+
         const result = await generateNotification.mutateAsync({
           ...payload,
         })
@@ -123,6 +131,7 @@ export function useGlobalAudioNotifications() {
           type,
           taskTitle: options?.taskTitle,
           count: options?.count,
+          phase: options?.phase,
         })
         return true
       } catch (error) {
@@ -154,20 +163,22 @@ export function useGlobalAudioNotifications() {
 
     // Play notification for the dominant type (or completed if tied)
     // If there are failures, prioritize reporting failures
-    // Use the first available taskTitle from the relevant type
+    // Use the first available taskTitle and phase from the relevant type for single notifications
     if (failedNotifs.length > 0) {
       const taskTitle = failedNotifs.length === 1 ? failedNotifs[0]?.taskTitle : undefined
-      playNotification('failed', { taskTitle, count: failedNotifs.length })
+      const phase = failedNotifs.length === 1 ? failedNotifs[0]?.phase : undefined
+      playNotification('failed', { taskTitle, count: failedNotifs.length, phase })
     } else if (completedNotifs.length > 0) {
       const taskTitle = completedNotifs.length === 1 ? completedNotifs[0]?.taskTitle : undefined
-      playNotification('completed', { taskTitle, count: completedNotifs.length })
+      const phase = completedNotifs.length === 1 ? completedNotifs[0]?.phase : undefined
+      playNotification('completed', { taskTitle, count: completedNotifs.length, phase })
     }
   }, [playNotification])
 
   // Queue a notification with debounce
   const queueNotification = useCallback(
-    (type: 'completed' | 'failed', sessionId: string, taskTitle?: string) => {
-      pendingNotificationsRef.current.push({ type, sessionId, taskTitle })
+    (type: 'completed' | 'failed', sessionId: string, taskTitle?: string, phase?: PhaseLabel) => {
+      pendingNotificationsRef.current.push({ type, sessionId, taskTitle, phase })
 
       // Reset the debounce timer
       if (debounceTimerRef.current) {
@@ -175,7 +186,7 @@ export function useGlobalAudioNotifications() {
       }
 
       debounceTimerRef.current = setTimeout(flushPendingNotifications, DEBOUNCE_DELAY_MS)
-      console.debug('[GlobalAudio] Queued notification:', { type, sessionId, taskTitle, queueSize: pendingNotificationsRef.current.length })
+      console.debug('[GlobalAudio] Queued notification:', { type, sessionId, taskTitle, phase, queueSize: pendingNotificationsRef.current.length })
     },
     [flushPendingNotifications]
   )
@@ -222,7 +233,10 @@ export function useGlobalAudioNotifications() {
               // Resolve task title from taskPath
               const taskTitle = session.taskPath ? taskTitleMap.get(session.taskPath) : undefined
 
-              queueNotification(notificationType, sessionId, taskTitle)
+              // Extract phase from session title (e.g., "Plan: Add feature" -> "Planning")
+              const phase = getPhaseFromSessionTitle(session.title)
+
+              queueNotification(notificationType, sessionId, taskTitle, phase)
             }
           })
           .catch((error) => {

@@ -17,6 +17,7 @@ import { isTerminalStatus, ACTIVE_STATUSES } from "@/lib/agent/status"
 import type { SessionStatus } from "@/lib/agent/types"
 import { trpc } from "@/lib/trpc-client"
 import { audioUnlockedPromise, isAudioUnlocked } from "@/lib/audio/audio-unlock"
+import { getPhaseFromSessionTitle } from "@/lib/utils/session-phase"
 
 interface UseAudioNotificationOptions {
   /** Current session status */
@@ -25,6 +26,8 @@ interface UseAudioNotificationOptions {
   sessionId?: string
   /** Task title for context in notification */
   taskTitle?: string
+  /** Session title for phase inference (e.g., "Plan: Add feature") */
+  sessionTitle?: string
 }
 
 /**
@@ -39,6 +42,7 @@ export function useAudioNotification({
   status,
   sessionId,
   taskTitle,
+  sessionTitle,
 }: UseAudioNotificationOptions) {
   const { audioEnabled, selectedVoiceId } = useSettingsStore()
 
@@ -72,10 +76,14 @@ export function useAudioNotification({
       }
 
       try {
+        // Extract phase from session title for more specific notification
+        const phase = getPhaseFromSessionTitle(sessionTitle)
+
         const result = await generateNotification.mutateAsync({
           voiceId: selectedVoiceId,
           type,
           taskTitle,
+          phase,
         })
 
         // Create audio element if needed
@@ -97,7 +105,7 @@ export function useAudioNotification({
         return false
       }
     },
-    [selectedVoiceId, generateNotification, taskTitle]
+    [selectedVoiceId, generateNotification, taskTitle, sessionTitle]
   )
 
   // Watch for status transitions

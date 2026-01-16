@@ -104,6 +104,7 @@ function SettingsPage() {
         voiceId: selectedVoiceId,
         type,
         taskTitle: "audio notification should specify which",
+        phase: "Implementation", // Sample phase for preview
       })
 
       // Create a new Audio element for each play to avoid ref issues

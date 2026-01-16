@@ -24,22 +24,40 @@ function cacheKey(voiceId: string, text: string): string {
   return `${voiceId}:${text}`
 }
 
-/** Default notification messages */
+/** Phase label type (matches session-phase.ts) */
+type PhaseLabel = 'Planning' | 'Implementation' | 'Verification' | 'Review' | 'Debugging'
+
+/** Default notification messages by type */
 const NOTIFICATION_MESSAGES = {
   completed: "Task completed successfully",
   failed: "Task failed",
 } as const
 
-function notificationText(type: "completed" | "failed", count?: number): string {
-  if (!count || count <= 1) {
-    return NOTIFICATION_MESSAGES[type]
+/** Phase-specific notification messages */
+const PHASE_NOTIFICATION_MESSAGES: Record<PhaseLabel, { completed: string; failed: string }> = {
+  Planning: { completed: "Planning completed", failed: "Planning failed" },
+  Implementation: { completed: "Implementation completed", failed: "Implementation failed" },
+  Verification: { completed: "Verification completed", failed: "Verification failed" },
+  Review: { completed: "Review completed", failed: "Review failed" },
+  Debugging: { completed: "Debugging completed", failed: "Debugging failed" },
+}
+
+function notificationText(type: "completed" | "failed", count?: number, phase?: PhaseLabel): string {
+  // For batch notifications (count > 1), use generic text
+  if (count && count > 1) {
+    if (type === "completed") {
+      return `${count} tasks completed successfully`
+    }
+    return `${count} tasks failed`
   }
 
-  if (type === "completed") {
-    return `${count} tasks completed successfully`
+  // For single notifications, use phase-specific text if available
+  if (phase) {
+    return PHASE_NOTIFICATION_MESSAGES[phase][type]
   }
 
-  return `${count} tasks failed`
+  // Fallback to generic text
+  return NOTIFICATION_MESSAGES[type]
 }
 
 export const audioRouter = router({
@@ -108,15 +126,16 @@ export const audioRouter = router({
         type: z.enum(["completed", "failed"]),
         taskTitle: z.string().optional(),
         count: z.number().int().positive().optional(),
+        phase: z.enum(['Planning', 'Implementation', 'Verification', 'Review', 'Debugging']).optional(),
       })
     )
     .mutation(async ({ input }) => {
-      // Build notification text with task context if available
-      let text = notificationText(input.type, input.count)
+      // Build notification text with phase and task context if available
+      let text = notificationText(input.type, input.count, input.phase)
       if (input.taskTitle && (!input.count || input.count <= 1)) {
         const snippet = getTaskSnippet(input.taskTitle)
         if (snippet) {
-          // Format: "Task completed successfully: first five words"
+          // Format: "Planning completed: first ten words" or "Task completed successfully: first ten words"
           text = `${text}: ${snippet}`
         }
       }
