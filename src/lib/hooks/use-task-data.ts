@@ -8,6 +8,7 @@
 import { useMemo } from 'react'
 import { trpc } from '@/lib/trpc-client'
 import type { PlannerAgentType } from '@/lib/agent/config'
+import { useCancellingSessionsStore } from '@/lib/stores/cancelling-sessions'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -31,11 +32,23 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
 
   const { data: availableTypes = [] } = trpc.agent.availableTypes.useQuery()
 
-  const { data: activeAgentSessions = {} } = trpc.tasks.getActiveAgentSessions.useQuery(undefined, {
+  const { data: rawActiveAgentSessions = {} } = trpc.tasks.getActiveAgentSessions.useQuery(undefined, {
     enabled: !!workingDir,
     // In review mode, agents are typically not running, reduce polling
     refetchInterval: mode === 'review' ? 10000 : 2000,
   })
+
+  // Filter out sessions that are currently being cancelled to prevent race condition
+  const cancellingIds = useCancellingSessionsStore((state: { cancellingIds: Set<string> }) => state.cancellingIds)
+  const activeAgentSessions = useMemo(() => {
+    const filtered: typeof rawActiveAgentSessions = {}
+    for (const [taskPath, session] of Object.entries(rawActiveAgentSessions)) {
+      if (!cancellingIds.has(session.sessionId)) {
+        filtered[taskPath] = session
+      }
+    }
+    return filtered
+  }, [rawActiveAgentSessions, cancellingIds])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Task-specific Queries (require selectedPath)

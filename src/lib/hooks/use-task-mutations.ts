@@ -11,6 +11,7 @@ import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { generateOptimisticTaskPath } from '@/lib/utils/slugify'
 import type { TasksAction, EditorState } from '@/lib/stores/tasks-reducer'
+import { useCancellingSessionsStore } from '@/lib/stores/cancelling-sessions'
 
 interface UseTaskMutationsParams {
   dispatch: React.Dispatch<TasksAction>
@@ -27,6 +28,7 @@ export function useTaskMutations({
 }: UseTaskMutationsParams) {
   const navigate = useNavigate()
   const utils = trpc.useUtils()
+  const { addCancelling, removeCancelling } = useCancellingSessionsStore()
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Save Mutation
@@ -128,16 +130,28 @@ export function useTaskMutations({
       // Cancel in-flight queries to avoid race conditions
       await utils.tasks.list.cancel()
       await utils.tasks.get.cancel()
+      await utils.tasks.getActiveAgentSessions.cancel()
 
       // Store previous list for potential rollback
       const previousList = utils.tasks.list.getData()
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
       const existingPaths = new Set(previousList?.map(t => t.path) ?? [])
 
       // Generate optimistic path using shared slugify logic
       // NOTE: handleCreate already seeded the cache and navigated
       const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
 
-      return { previousList, optimisticPath }
+      // Set optimistic active session so live-refresh and completion detection work
+      // This is critical for the plan update to show in the UI
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [optimisticPath]: {
+          sessionId: `pending-plan-${Date.now()}`,
+          status: 'pending',
+        },
+      }))
+
+      return { previousList, previousSessions, optimisticPath }
     },
     onSuccess: (data, _variables, context) => {
       const serverPath = data.path
@@ -146,7 +160,23 @@ export function useTaskMutations({
       // Clean up optimistic cache entry if path differs
       if (optimisticPath && serverPath !== optimisticPath) {
         utils.tasks.get.setData({ path: optimisticPath }, undefined)
+        // Remove optimistic session entry for old path
+        utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => {
+          if (!prev) return prev
+          const updated = { ...prev }
+          delete updated[optimisticPath]
+          return updated
+        })
       }
+
+      // Update active session with real session ID
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [serverPath]: {
+          sessionId: data.sessionId,
+          status: data.status,
+        },
+      }))
 
       // Invalidate to refresh with server data (non-urgent)
       startTransition(() => {
@@ -165,6 +195,10 @@ export function useTaskMutations({
       if (context?.optimisticPath) {
         utils.tasks.get.setData({ path: context.optimisticPath }, undefined)
       }
+      // Rollback active sessions
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
+      }
     },
   })
 
@@ -177,16 +211,28 @@ export function useTaskMutations({
       // Cancel in-flight queries to avoid race conditions
       await utils.tasks.list.cancel()
       await utils.tasks.get.cancel()
+      await utils.tasks.getActiveAgentSessions.cancel()
 
       // Store previous list for potential rollback
       const previousList = utils.tasks.list.getData()
+      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
       const existingPaths = new Set(previousList?.map(t => t.path) ?? [])
 
       // Generate optimistic path using shared slugify logic
       // NOTE: handleCreate already seeded the cache and navigated
       const optimisticPath = generateOptimisticTaskPath(title, existingPaths)
 
-      return { previousList, optimisticPath }
+      // Set optimistic active session so live-refresh and completion detection work
+      // This is critical for the plan update to show in the UI
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [optimisticPath]: {
+          sessionId: `pending-debug-${Date.now()}`,
+          status: 'pending',
+        },
+      }))
+
+      return { previousList, previousSessions, optimisticPath }
     },
     onSuccess: (data, _variables, context) => {
       const serverPath = data.path
@@ -195,6 +241,25 @@ export function useTaskMutations({
       // Clean up optimistic cache entry if path differs
       if (optimisticPath && serverPath !== optimisticPath) {
         utils.tasks.get.setData({ path: optimisticPath }, undefined)
+        // Remove optimistic session entry for old path
+        utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => {
+          if (!prev) return prev
+          const updated = { ...prev }
+          delete updated[optimisticPath]
+          return updated
+        })
+      }
+
+      // Update active session with first debug session ID
+      // Note: debug runs spawn multiple sessions, we track the first one for UI
+      if (data.sessionIds && data.sessionIds.length > 0) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+          ...(prev ?? {}),
+          [serverPath]: {
+            sessionId: data.sessionIds[0],
+            status: 'pending',
+          },
+        }))
       }
 
       // Invalidate to refresh with server data (non-urgent)
@@ -218,6 +283,10 @@ export function useTaskMutations({
       }
       if (context?.optimisticPath) {
         utils.tasks.get.setData({ path: context.optimisticPath }, undefined)
+      }
+      // Rollback active sessions
+      if (context?.previousSessions !== undefined) {
+        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
       }
     },
   })
@@ -402,33 +471,47 @@ export function useTaskMutations({
 
   const cancelAgentMutation = trpc.agent.cancel.useMutation({
     onMutate: async ({ id }) => {
+      console.log('[cancelAgentMutation] onMutate: Cancelling session', id)
+
+      // Add to cancelling store to prevent polling from re-adding this session
+      addCancelling(id)
+
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
+      console.log('[cancelAgentMutation] onMutate: Previous sessions count:', Object.keys(previousSessions ?? {}).length)
 
       if (previousSessions !== undefined) {
         const updatedSessions = { ...previousSessions }
         for (const [taskPath, session] of Object.entries(previousSessions)) {
           if (session.sessionId === id) {
+            console.log('[cancelAgentMutation] onMutate: Removing session from taskPath:', taskPath)
             delete updatedSessions[taskPath]
             break
           }
         }
         utils.tasks.getActiveAgentSessions.setData(undefined, updatedSessions)
+        console.log('[cancelAgentMutation] onMutate: Updated sessions count:', Object.keys(updatedSessions).length)
       }
 
       return { previousSessions }
     },
-    onSuccess: (data, _variables, _context) => {
-      console.log('[cancelAgentMutation] Success:', data)
+    onSuccess: (data, variables, _context) => {
+      console.log('[cancelAgentMutation] onSuccess:', data)
+      // Keep session in cancelling store until settled to prevent race condition
       utils.tasks.list.invalidate()
     },
-    onError: (error, _variables, context) => {
-      console.error('[cancelAgentMutation] Error:', error)
+    onError: (error, variables, context) => {
+      console.error('[cancelAgentMutation] onError:', error)
+      // Remove from cancelling store on error
+      removeCancelling(variables.id)
       if (context?.previousSessions !== undefined) {
         utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, variables) => {
+      console.log('[cancelAgentMutation] onSettled: Invalidating queries and removing from cancelling store')
+      // Remove from cancelling store after server confirms cancellation
+      removeCancelling(variables.id)
       utils.tasks.getActiveAgentSessions.invalidate()
       utils.tasks.getSessionsForTask.invalidate()
     },
