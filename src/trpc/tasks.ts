@@ -16,10 +16,11 @@ import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
 import { getGitStatus, getGitRoot } from "@/lib/agent/git-service"
 import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
-import type { SessionStatus, AgentType } from "@/lib/agent/types"
+import type { SessionStatus, AgentType, EditedFileInfo, AgentOutputChunk } from "@/lib/agent/types"
 import { checkCLIAvailable } from "@/lib/agent/cli-runner"
-import type { RegistryEvent } from "@/streams/schemas"
+import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent } from "@/streams/schemas"
 import { createRegistryEvent } from "@/streams/schemas"
+import { calculateRelativePaths } from "@/lib/utils/path-utils"
 
 /** CLI agent types that require the CLI to be installed */
 const CLI_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode"]
@@ -35,6 +36,104 @@ function validateCLIAvailability(agentType: AgentType): void {
       throw new Error(`${agentType} CLI is not installed. Please install it first.`)
     }
   }
+}
+
+/**
+ * Extract edited files from session stream events.
+ * This is an inlined/optimized version of agent.ts reconstructEditedFilesFromChunks
+ * that works directly with session stream events to avoid full session reconstruction.
+ */
+function extractEditedFilesFromSessionEvents(
+  sessionEvents: SessionStreamEvent[],
+  workingDir: string
+): EditedFileInfo[] {
+  const editedFiles: EditedFileInfo[] = []
+
+  for (const event of sessionEvents) {
+    if (event.type !== "output") continue
+    const chunk = (event as AgentOutputEvent).chunk
+    if (chunk.type !== "tool_use") continue
+
+    try {
+      const content = JSON.parse(chunk.content)
+      const toolName = content.name || content.tool_name
+      const input = content.input || {}
+
+      if (!toolName) continue
+
+      const path =
+        (input.path as string) ??
+        (input.file_path as string) ??
+        (input.file as string) ??
+        (input.notebook_path as string)
+
+      if (!path) continue
+
+      let operation: "create" | "edit" | "delete" | null = null
+      const lowerTool = toolName.toLowerCase()
+
+      if (lowerTool.includes("write") || lowerTool.includes("edit")) {
+        operation = "edit"
+      } else if (lowerTool.includes("create")) {
+        operation = "create"
+      } else if (lowerTool.includes("delete") || lowerTool.includes("remove")) {
+        operation = "delete"
+      }
+
+      if (operation) {
+        const { relativePath, repoRelativePath } = calculateRelativePaths(path, workingDir)
+        editedFiles.push({
+          path,
+          relativePath,
+          repoRelativePath: repoRelativePath || undefined,
+          operation,
+          timestamp: chunk.timestamp,
+          toolUsed: toolName,
+        })
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return editedFiles
+}
+
+/**
+ * Get edited files for a session from registry events and session stream.
+ * Prioritizes metadata.editedFiles for completed sessions (faster),
+ * falls back to parsing session stream for running sessions.
+ */
+async function getEditedFilesForSession(
+  sessionId: string,
+  registryEvents: RegistryEvent[],
+  streamAPI: ReturnType<typeof getStreamAPI>
+): Promise<{ files: EditedFileInfo[]; workingDir: string }> {
+  // Find session_created event for workingDir
+  const createdEvent = registryEvents.find(
+    (e) => e.type === "session_created" && e.sessionId === sessionId
+  )
+  if (!createdEvent || createdEvent.type !== "session_created") {
+    return { files: [], workingDir: "" }
+  }
+  const workingDir = createdEvent.workingDir
+
+  // Check for completed/failed events with metadata.editedFiles (fast path)
+  const sessionRegistryEvents = registryEvents.filter((e) => e.sessionId === sessionId)
+  for (const event of sessionRegistryEvents.reverse()) {
+    if (
+      (event.type === "session_completed" || event.type === "session_failed") &&
+      event.metadata?.editedFiles &&
+      event.metadata.editedFiles.length > 0
+    ) {
+      return { files: event.metadata.editedFiles, workingDir }
+    }
+  }
+
+  // Slow path: read session stream and parse tool_use events
+  const sessionEvents = await streamAPI.readSession(sessionId)
+  const files = extractEditedFilesFromSessionEvents(sessionEvents, workingDir)
+  return { files, workingDir }
 }
 
 /** Maximum characters per session output in orchestrator prompt */
@@ -1276,15 +1375,17 @@ export const tasksRouter = router({
       const repoRoot = getGitRoot(ctx.workingDir)
       const worktreeEnabled = isWorktreeIsolationEnabled()
 
-      // Import agent router to get changed files
-      const { agentRouter } = await import("./agent")
-      const caller = agentRouter.createCaller({ workingDir: "" })
-
-      // OPTIMIZATION: Fetch all sessions in parallel instead of sequentially
+      // OPTIMIZED: Fetch edited files directly using the pre-read registry events.
+      // This avoids N+1 registry reads that occurred when calling agentRouter.getChangedFiles
       const sessionResults = await Promise.all(
         taskSessionIds.map(async (sessionId) => {
           try {
-            const changedFiles = await caller.getChangedFiles({ sessionId })
+            // Use optimized helper that reuses the already-read registry events
+            const { files: changedFiles } = await getEditedFilesForSession(
+              sessionId,
+              registryEvents,
+              streamAPI
+            )
 
             // Get session's worktree path if it exists
             let sessionWorkingDir: string | undefined
@@ -1368,15 +1469,17 @@ export const tasksRouter = router({
       const repoRoot = getGitRoot(ctx.workingDir)
       const worktreeEnabled = isWorktreeIsolationEnabled()
 
-      // Import agent router to get changed files
-      const { agentRouter } = await import("./agent")
-      const caller = agentRouter.createCaller({ workingDir: "" })
-
-      // OPTIMIZATION: Fetch all sessions in parallel instead of sequentially
+      // OPTIMIZED: Fetch edited files directly using the pre-read registry events.
+      // This avoids N+1 registry reads that occurred when calling agentRouter.getChangedFiles
       const sessionResults = await Promise.all(
         taskSessionIds.map(async (sessionId) => {
           try {
-            const changedFiles = await caller.getChangedFiles({ sessionId })
+            // Use optimized helper that reuses the already-read registry events
+            const { files: changedFiles } = await getEditedFilesForSession(
+              sessionId,
+              registryEvents,
+              streamAPI
+            )
 
             // Determine working directory for this session
             let sessionWorkingDir = ctx.workingDir
@@ -1479,16 +1582,20 @@ export const tasksRouter = router({
       const repoRoot = getGitRoot(ctx.workingDir)
       const worktreeEnabled = isWorktreeIsolationEnabled()
 
-      // Import agent router
-      const { agentRouter } = await import("./agent")
-      const caller = agentRouter.createCaller({ workingDir: "" })
-
-      // Fetch all sessions in parallel (single pass, reused for both outputs)
+      // OPTIMIZED: Fetch edited files directly using the pre-read registry events.
+      // This avoids N+1 registry reads that occurred when calling agentRouter.getChangedFiles
+      // which re-reads the entire registry for each session.
       const sessionResults = await Promise.all(
         taskSessionIds.map(async (sessionId) => {
           try {
-            const changedFiles = await caller.getChangedFiles({ sessionId })
+            // Use optimized helper that reuses the already-read registry events
+            const { files: changedFiles } = await getEditedFilesForSession(
+              sessionId,
+              registryEvents,
+              streamAPI
+            )
 
+            // Determine session working directory (worktree or main repo)
             let sessionWorkingDir = ctx.workingDir
             if (repoRoot && worktreeEnabled) {
               const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
