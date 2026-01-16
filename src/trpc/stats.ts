@@ -121,7 +121,10 @@ interface ToolCallDetails {
 interface DailyStats {
   date: string // YYYY-MM-DD format
   sessionsCreated: number
+  sessionsCompleted: number
+  sessionsFailed: number
   tasksCreated: number
+  tasksCompleted: number // unique tasks that had a session complete that day
   toolCalls: number
   filesChanged: number
   tokensUsed: {
@@ -756,7 +759,10 @@ export const statsRouter = router({
     // Initialize daily buckets map
     const dailyBuckets = new Map<string, {
       sessionsCreated: number
+      sessionsCompleted: number
+      sessionsFailed: number
       tasksCreated: number
+      completedTaskPaths: Set<string> // track unique tasks completed
       toolCalls: number
       filesChanged: number
       tokensInput: number
@@ -768,7 +774,10 @@ export const statsRouter = router({
       if (!dailyBuckets.has(date)) {
         dailyBuckets.set(date, {
           sessionsCreated: 0,
+          sessionsCompleted: 0,
+          sessionsFailed: 0,
           tasksCreated: 0,
+          completedTaskPaths: new Set(),
           toolCalls: 0,
           filesChanged: 0,
           tokensInput: 0,
@@ -776,6 +785,14 @@ export const statsRouter = router({
         })
       }
       return dailyBuckets.get(date)!
+    }
+
+    // Build map of sessionId -> taskPath for completed task tracking
+    const sessionTaskMap = new Map<string, string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_created" && event.taskPath && !deletedSessionIds.has(event.sessionId)) {
+        sessionTaskMap.set(event.sessionId, event.taskPath)
+      }
     }
 
     // Aggregate sessions created per day
@@ -787,11 +804,23 @@ export const statsRouter = router({
       }
     }
 
-    // Aggregate tool calls, files, and tokens from completed/failed sessions
+    // Aggregate tool calls, files, tokens, and session outcomes from completed/failed sessions
     for (const event of registryEvents) {
       if ((event.type === "session_completed" || event.type === "session_failed") && !deletedSessionIds.has(event.sessionId)) {
         const date = toDateBucket(new Date(event.timestamp))
         const bucket = ensureBucket(date)
+
+        // Track session outcomes
+        if (event.type === "session_completed") {
+          bucket.sessionsCompleted++
+          // Track unique tasks completed on this day
+          const taskPath = sessionTaskMap.get(event.sessionId)
+          if (taskPath) {
+            bucket.completedTaskPaths.add(taskPath)
+          }
+        } else {
+          bucket.sessionsFailed++
+        }
 
         const metadata = event.metadata
         if (metadata) {
@@ -819,7 +848,10 @@ export const statsRouter = router({
       .map(([date, bucket]) => ({
         date,
         sessionsCreated: bucket.sessionsCreated,
+        sessionsCompleted: bucket.sessionsCompleted,
+        sessionsFailed: bucket.sessionsFailed,
         tasksCreated: bucket.tasksCreated,
+        tasksCompleted: bucket.completedTaskPaths.size,
         toolCalls: bucket.toolCalls,
         filesChanged: bucket.filesChanged,
         tokensUsed: {

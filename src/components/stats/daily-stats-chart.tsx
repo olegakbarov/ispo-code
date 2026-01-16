@@ -5,12 +5,15 @@
  * Shows trends over time in a table format.
  */
 
-import { Calendar, Activity, CheckSquare, Zap, FileCode, Coins } from 'lucide-react'
+import { Calendar, Activity, CheckSquare, Zap, FileCode, Coins, CheckCircle, XCircle } from 'lucide-react'
 
 interface DailyStats {
   date: string // YYYY-MM-DD format
   sessionsCreated: number
+  sessionsCompleted: number
+  sessionsFailed: number
   tasksCreated: number
+  tasksCompleted: number
   toolCalls: number
   filesChanged: number
   tokensUsed: {
@@ -54,14 +57,20 @@ export function DailyStatsChart({ data }: DailyStatsChartProps) {
   // Calculate totals for comparison
   const totals = data.reduce((acc, day) => ({
     sessionsCreated: acc.sessionsCreated + day.sessionsCreated,
+    sessionsCompleted: acc.sessionsCompleted + day.sessionsCompleted,
+    sessionsFailed: acc.sessionsFailed + day.sessionsFailed,
     tasksCreated: acc.tasksCreated + day.tasksCreated,
+    tasksCompleted: acc.tasksCompleted + day.tasksCompleted,
     toolCalls: acc.toolCalls + day.toolCalls,
     filesChanged: acc.filesChanged + day.filesChanged,
     tokensInput: acc.tokensInput + day.tokensUsed.input,
     tokensOutput: acc.tokensOutput + day.tokensUsed.output,
   }), {
     sessionsCreated: 0,
+    sessionsCompleted: 0,
+    sessionsFailed: 0,
     tasksCreated: 0,
+    tasksCompleted: 0,
     toolCalls: 0,
     filesChanged: 0,
     tokensInput: 0,
@@ -99,22 +108,28 @@ export function DailyStatsChart({ data }: DailyStatsChartProps) {
                   Date
                 </div>
               </th>
-              <th className="text-right py-3 px-2 font-medium text-muted-foreground">
-                <div className="flex items-center justify-end gap-1">
+              <th className="text-center py-3 px-2 font-medium text-muted-foreground">
+                <div className="flex items-center justify-center gap-1">
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  Tasks
+                </div>
+                <div className="text-[10px] font-normal">done / new</div>
+              </th>
+              <th className="text-center py-3 px-2 font-medium text-muted-foreground">
+                <div className="flex items-center justify-center gap-1">
                   <Activity className="h-3.5 w-3.5" />
                   Sessions
                 </div>
-              </th>
-              <th className="text-right py-3 px-2 font-medium text-muted-foreground">
-                <div className="flex items-center justify-end gap-1">
-                  <CheckSquare className="h-3.5 w-3.5" />
-                  Tasks
+                <div className="text-[10px] font-normal flex items-center justify-center gap-1">
+                  <CheckCircle className="h-2.5 w-2.5 text-emerald-500" />
+                  /
+                  <XCircle className="h-2.5 w-2.5 text-red-500" />
                 </div>
               </th>
               <th className="text-right py-3 px-2 font-medium text-muted-foreground">
                 <div className="flex items-center justify-end gap-1">
                   <Zap className="h-3.5 w-3.5" />
-                  Tool Calls
+                  Tools
                 </div>
               </th>
               <th className="text-right py-3 px-2 font-medium text-muted-foreground">
@@ -140,11 +155,23 @@ export function DailyStatsChart({ data }: DailyStatsChartProps) {
                 <td className="py-3 px-2 font-medium">
                   {formatDate(day.date)}
                 </td>
-                <td className="py-3 px-2 text-right tabular-nums">
-                  {day.sessionsCreated > 0 ? day.sessionsCreated : '-'}
+                <td className="py-3 px-2 text-center tabular-nums">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                    {day.tasksCompleted > 0 ? day.tasksCompleted : '-'}
+                  </span>
+                  <span className="text-muted-foreground mx-1">/</span>
+                  <span className="text-blue-600 dark:text-blue-400">
+                    {day.tasksCreated > 0 ? day.tasksCreated : '-'}
+                  </span>
                 </td>
-                <td className="py-3 px-2 text-right tabular-nums">
-                  {day.tasksCreated > 0 ? day.tasksCreated : '-'}
+                <td className="py-3 px-2 text-center tabular-nums">
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    {day.sessionsCompleted > 0 ? day.sessionsCompleted : '-'}
+                  </span>
+                  <span className="text-muted-foreground mx-1">/</span>
+                  <span className="text-red-600 dark:text-red-400">
+                    {day.sessionsFailed > 0 ? day.sessionsFailed : '-'}
+                  </span>
                 </td>
                 <td className="py-3 px-2 text-right tabular-nums">
                   {day.toolCalls > 0 ? day.toolCalls.toLocaleString() : '-'}
@@ -165,11 +192,23 @@ export function DailyStatsChart({ data }: DailyStatsChartProps) {
           <tfoot>
             <tr className="border-t-2 border-border font-semibold">
               <td className="py-3 px-2">Total</td>
-              <td className="py-3 px-2 text-right tabular-nums">
-                {totals.sessionsCreated.toLocaleString()}
+              <td className="py-3 px-2 text-center tabular-nums">
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {totals.tasksCompleted.toLocaleString()}
+                </span>
+                <span className="text-muted-foreground mx-1">/</span>
+                <span className="text-blue-600 dark:text-blue-400">
+                  {totals.tasksCreated.toLocaleString()}
+                </span>
               </td>
-              <td className="py-3 px-2 text-right tabular-nums">
-                {totals.tasksCreated.toLocaleString()}
+              <td className="py-3 px-2 text-center tabular-nums">
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {totals.sessionsCompleted.toLocaleString()}
+                </span>
+                <span className="text-muted-foreground mx-1">/</span>
+                <span className="text-red-600 dark:text-red-400">
+                  {totals.sessionsFailed.toLocaleString()}
+                </span>
               </td>
               <td className="py-3 px-2 text-right tabular-nums">
                 {totals.toolCalls.toLocaleString()}
