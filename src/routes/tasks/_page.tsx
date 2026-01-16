@@ -13,6 +13,7 @@ import { TaskEditor } from '@/components/tasks/task-editor'
 import { TaskFooter } from '@/components/tasks/task-footer'
 import { TaskSidebar } from '@/components/tasks/task-sidebar'
 import { CreateTaskForm, CreateTaskActions } from '@/components/tasks/create-task-form'
+import { Plus as PlusIcon } from 'lucide-react'
 import { ReviewModal } from '@/components/tasks/review-modal'
 import { ImplementModal } from '@/components/tasks/implement-modal'
 import { SplitTaskModal } from '@/components/tasks/split-task-modal'
@@ -364,13 +365,14 @@ export function TasksPage({
         <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-background overflow-hidden">
           {!selectedPath ? (
             showInlineCreateForm ? (
-              /* Inline create form centered in content area */
-              <div className="flex-1 flex items-center justify-center p-4">
-                <div className="w-full max-w-md bg-panel border border-border rounded shadow-lg">
-                  <div className="p-3 border-b border-border">
-                    <div className="font-vcr text-sm text-accent">New Task</div>
+              /* Inline create form centered in content area - cmdk style */
+              <div className="flex-1 flex items-start justify-center pt-[12%] p-4">
+                <div className="w-full max-w-lg bg-card/95 backdrop-blur-md border border-border/50 rounded-lg shadow-2xl overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-border/50">
+                    <PlusIcon className="w-4 h-4 text-accent shrink-0" />
+                    <span className="flex-1 text-sm font-vcr text-foreground">New Task</span>
                   </div>
-                  <div className="p-4">
+                  <div className="p-4 max-h-[60vh] overflow-y-auto">
                     <CreateTaskForm
                       isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
                       newTitle={create.title}
@@ -401,7 +403,7 @@ export function TasksPage({
                       autoFocus={true}
                     />
                   </div>
-                  <div className="p-3 border-t border-border">
+                  <div className="px-4 py-3 border-t border-border/50 bg-background/30">
                     <CreateTaskActions
                       isCreating={createMutation.isPending || createWithAgentMutation.isPending || debugWithAgentsMutation.isPending}
                       canCreate={

@@ -14,7 +14,7 @@ import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
 import { FileListPanel, type ChangedFile } from "./file-list-panel"
 import { CommitActionButton } from "./commit-action-button"
-import { AllCommittedState } from "./all-committed-state"
+import { AllCommittedState, ArchivedTaskActions } from "./all-committed-state"
 
 interface TaskReviewPanelProps {
   taskPath: string
@@ -207,6 +207,28 @@ export function TaskReviewPanel({
   }
 
   if (uncommittedFiles.length === 0 && !allCommitted) {
+    if (isArchived) {
+      return (
+        <div className="flex items-center justify-center p-8">
+          <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
+            <div className="w-full rounded-lg border border-border bg-card p-4">
+              <div className="text-base font-medium text-foreground">
+                This task is archived
+              </div>
+              <div className="text-sm text-muted-foreground">
+                No files changed yet. Unarchive to resume work.
+              </div>
+            </div>
+            <ArchivedTaskActions
+              isRestoring={isRestoring}
+              onRestore={onRestore}
+              onUnarchiveWithAgent={onUnarchiveWithAgent}
+            />
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="flex items-center justify-center p-8 text-muted-foreground text-sm">
         No files changed yet
