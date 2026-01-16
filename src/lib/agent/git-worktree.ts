@@ -210,6 +210,22 @@ export function deleteWorktree(
 }
 
 /**
+ * Detailed worktree information
+ */
+export interface WorktreeDetails {
+  /** Path to the worktree directory */
+  path: string
+  /** Branch name (null if detached HEAD) */
+  branch: string | null
+  /** HEAD commit hash */
+  head: string
+  /** Whether this is a bare repository */
+  bare: boolean
+  /** Whether this is the main worktree */
+  isMain: boolean
+}
+
+/**
  * List all worktrees
  *
  * @param repoRoot - Repository root directory
@@ -234,6 +250,73 @@ export function listWorktrees(repoRoot: string): string[] {
       const path = line.substring("worktree ".length).trim()
       worktrees.push(path)
     }
+  }
+
+  return worktrees
+}
+
+/**
+ * List all worktrees with detailed information
+ *
+ * @param repoRoot - Repository root directory
+ * @returns Array of detailed worktree info
+ */
+export function listWorktreesDetailed(repoRoot: string): WorktreeDetails[] {
+  if (!isGitRepo(repoRoot)) {
+    return []
+  }
+
+  const listResult = runGit(["worktree", "list", "--porcelain"], repoRoot)
+  if (!listResult.ok) {
+    console.error(`[git-worktree] Failed to list worktrees: ${listResult.stderr}`)
+    return []
+  }
+
+  const worktrees: WorktreeDetails[] = []
+  const lines = listResult.stdout.split("\n")
+
+  let current: Partial<WorktreeDetails> = {}
+  let isFirst = true
+
+  for (const line of lines) {
+    if (line.startsWith("worktree ")) {
+      // Save previous worktree if exists
+      if (current.path) {
+        worktrees.push({
+          path: current.path,
+          branch: current.branch ?? null,
+          head: current.head ?? "",
+          bare: current.bare ?? false,
+          isMain: current.isMain ?? false,
+        })
+      }
+      current = {
+        path: line.substring("worktree ".length).trim(),
+        isMain: isFirst,
+      }
+      isFirst = false
+    } else if (line.startsWith("HEAD ")) {
+      current.head = line.substring("HEAD ".length).trim()
+    } else if (line.startsWith("branch ")) {
+      // Branch format: refs/heads/branch-name
+      const ref = line.substring("branch ".length).trim()
+      current.branch = ref.replace(/^refs\/heads\//, "")
+    } else if (line === "bare") {
+      current.bare = true
+    } else if (line === "detached") {
+      current.branch = null
+    }
+  }
+
+  // Don't forget the last worktree
+  if (current.path) {
+    worktrees.push({
+      path: current.path,
+      branch: current.branch ?? null,
+      head: current.head ?? "",
+      bare: current.bare ?? false,
+      isMain: current.isMain ?? false,
+    })
   }
 
   return worktrees
