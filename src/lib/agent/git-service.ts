@@ -6,6 +6,7 @@ import { execSync, spawnSync } from "child_process"
 import { readFileSync, writeFileSync, unlinkSync } from "fs"
 import { join, resolve, relative } from "path"
 import { tmpdir } from "os"
+import { match } from 'ts-pattern'
 
 // === Types ===
 
@@ -123,20 +124,13 @@ export function isGitRepo(cwd: string): boolean {
  * Parse git status character into status type
  */
 function parseGitStatus(char: string): GitFileStatus["status"] {
-  switch (char) {
-    case "A":
-      return "added"
-    case "M":
-      return "modified"
-    case "D":
-      return "deleted"
-    case "R":
-      return "renamed"
-    case "C":
-      return "copied"
-    default:
-      return "modified"
-  }
+  return match(char)
+    .with("A", () => "added" as const)
+    .with("M", () => "modified" as const)
+    .with("D", () => "deleted" as const)
+    .with("R", () => "renamed" as const)
+    .with("C", () => "copied" as const)
+    .otherwise(() => "modified" as const)
 }
 
 /**

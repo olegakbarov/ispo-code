@@ -5,6 +5,7 @@
  */
 
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { match } from 'ts-pattern'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -104,30 +105,16 @@ function generateId() {
 
 function guessCodeBlockLanguage(file: string) {
   const ext = file.split('.').pop()?.toLowerCase()
-  switch (ext) {
-    case 'ts':
-    case 'tsx':
-      return 'ts'
-    case 'js':
-    case 'jsx':
-      return 'js'
-    case 'json':
-      return 'json'
-    case 'md':
-      return 'md'
-    case 'css':
-      return 'css'
-    case 'html':
-      return 'html'
-    case 'yml':
-    case 'yaml':
-      return 'yaml'
-    case 'sh':
-    case 'bash':
-      return 'bash'
-    default:
-      return ''
-  }
+  return match(ext)
+    .with('ts', 'tsx', () => 'ts')
+    .with('js', 'jsx', () => 'js')
+    .with('json', () => 'json')
+    .with('md', () => 'md')
+    .with('css', () => 'css')
+    .with('html', () => 'html')
+    .with('yml', 'yaml', () => 'yaml')
+    .with('sh', 'bash', () => 'bash')
+    .otherwise(() => '')
 }
 
 function splitLines(text: string) {

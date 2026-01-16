@@ -10,6 +10,7 @@
 
 import { z } from "zod"
 import { randomBytes } from "crypto"
+import { match } from 'ts-pattern'
 import { router, procedure } from "./trpc"
 import { getStreamAPI } from "@/streams/client"
 import { getProcessMonitor } from "@/daemon/process-monitor"
@@ -121,27 +122,43 @@ function reconstructSessionFromStreams(
   let tokensUsed: { input: number; output: number } | undefined
 
   if (latestEvent) {
-    switch (latestEvent.type) {
-      case "session_created":
-        status = "pending"
-        break
-      case "session_updated":
-        status = latestEvent.status
-        break
-      case "session_completed":
-        status = "completed"
-        metadata = latestEvent.metadata ?? null
-        tokensUsed = latestEvent.tokensUsed
-        break
-      case "session_failed":
-        status = "failed"
-        error = latestEvent.error
-        metadata = latestEvent.metadata ?? null
-        break
-      case "session_cancelled":
-        status = "cancelled"
-        break
-    }
+    const result = match(latestEvent.type)
+      .with("session_created", () => ({
+        status: "pending" as SessionStatus,
+        error: undefined,
+        metadata: null,
+        tokensUsed: undefined,
+      }))
+      .with("session_updated", () => ({
+        status: latestEvent.status,
+        error: undefined,
+        metadata: null,
+        tokensUsed: undefined,
+      }))
+      .with("session_completed", () => ({
+        status: "completed" as SessionStatus,
+        error: undefined,
+        metadata: latestEvent.metadata ?? null,
+        tokensUsed: latestEvent.tokensUsed,
+      }))
+      .with("session_failed", () => ({
+        status: "failed" as SessionStatus,
+        error: latestEvent.error,
+        metadata: latestEvent.metadata ?? null,
+        tokensUsed: undefined,
+      }))
+      .with("session_cancelled", () => ({
+        status: "cancelled" as SessionStatus,
+        error: undefined,
+        metadata: null,
+        tokensUsed: undefined,
+      }))
+      .exhaustive()
+
+    status = result.status
+    error = result.error
+    metadata = result.metadata
+    tokensUsed = result.tokensUsed
   }
 
   // Extract output chunks from session events

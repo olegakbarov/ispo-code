@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { match } from 'ts-pattern'
 import { ArrowUpDown, FileCode, Zap, Activity } from 'lucide-react'
 
 interface TaskMetrics {
@@ -43,28 +44,14 @@ export function TaskStatsTable({ data }: TaskStatsTableProps) {
   }
 
   const sortedData = [...data].sort((a, b) => {
-    let comparison = 0
-
-    switch (sortField) {
-      case 'title':
-        comparison = a.title.localeCompare(b.title)
-        break
-      case 'sessionCount':
-        comparison = a.sessionCount - b.sessionCount
-        break
-      case 'filesChanged':
-        comparison = a.filesChanged - b.filesChanged
-        break
-      case 'toolCalls':
-        comparison = a.toolCalls - b.toolCalls
-        break
-      case 'tokensUsed':
-        comparison = (a.tokensUsed.input + a.tokensUsed.output) - (b.tokensUsed.input + b.tokensUsed.output)
-        break
-      case 'lastActivity':
-        comparison = new Date(a.lastActivity).getTime() - new Date(b.lastActivity).getTime()
-        break
-    }
+    const comparison = match(sortField)
+      .with('title', () => a.title.localeCompare(b.title))
+      .with('sessionCount', () => a.sessionCount - b.sessionCount)
+      .with('filesChanged', () => a.filesChanged - b.filesChanged)
+      .with('toolCalls', () => a.toolCalls - b.toolCalls)
+      .with('tokensUsed', () => (a.tokensUsed.input + a.tokensUsed.output) - (b.tokensUsed.input + b.tokensUsed.output))
+      .with('lastActivity', () => new Date(a.lastActivity).getTime() - new Date(b.lastActivity).getTime())
+      .exhaustive()
 
     return sortDirection === 'asc' ? comparison : -comparison
   })

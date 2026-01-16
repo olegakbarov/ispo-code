@@ -11,6 +11,7 @@
 
 import { EventEmitter } from "events"
 import { randomBytes } from "crypto"
+import { match, P } from 'ts-pattern'
 import type { AgentSession, AgentOutputChunk, SpawnAgentParams, SessionStatus, AgentType, ResumeHistoryEntry } from "./types"
 import { getSessionStore } from "./session-store"
 import { CerebrasAgent } from "./cerebras"
@@ -324,51 +325,55 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
       this.emit("output", { sessionId, chunk: startChunk })
 
       // Create the appropriate agent
-      let agentEmitter: EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }
-      let sendApproval: ((approved: boolean) => boolean) | undefined
-      let getSessionUpdatesOnComplete: (() => Partial<AgentSession>) | undefined
-
-      switch (agentType) {
-        case "cerebras": {
+      const agentConfig = match(agentType)
+        .with("cerebras", () => {
           const agent = new CerebrasAgent({
             workingDir,
             model,
             messages: session?.cerebrasMessages ?? undefined,
           })
-          agentEmitter = agent
-          getSessionUpdatesOnComplete = () => ({ cerebrasMessages: agent.getMessages() })
-          break
-        }
-        case "gemini": {
+          return {
+            agentEmitter: agent as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> },
+            sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
+            getSessionUpdatesOnComplete: (() => ({ cerebrasMessages: agent.getMessages() })) as () => Partial<AgentSession>,
+          }
+        })
+        .with("gemini", () => {
           const agent = new GeminiAgent({
             workingDir,
             model,
             messages: session?.geminiMessages ?? undefined,
           })
-          agentEmitter = agent
-          getSessionUpdatesOnComplete = () => ({ geminiMessages: agent.getMessages() })
-          break
-        }
-        case "opencode": {
+          return {
+            agentEmitter: agent as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> },
+            sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
+            getSessionUpdatesOnComplete: (() => ({ geminiMessages: agent.getMessages() })) as () => Partial<AgentSession>,
+          }
+        })
+        .with("opencode", () => {
           const agent = new OpencodeAgent({ workingDir, model })
-          agentEmitter = agent
-          break
-        }
-        case "mcporter": {
+          return {
+            agentEmitter: agent as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> },
+            sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
+            getSessionUpdatesOnComplete: undefined as (() => Partial<AgentSession>) | undefined,
+          }
+        })
+        .with("mcporter", () => {
           const agent = new MCPorterAgent({
             workingDir,
             model,
             messages: session?.mcporterMessages ?? undefined,
           })
-          agentEmitter = agent
-          getSessionUpdatesOnComplete = () => ({ mcporterMessages: agent.getMessages() })
-          break
-        }
-        case "claude":
-        case "codex": {
+          return {
+            agentEmitter: agent as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> },
+            sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
+            getSessionUpdatesOnComplete: (() => ({ mcporterMessages: agent.getMessages() })) as () => Partial<AgentSession>,
+          }
+        })
+        .with(P.union("claude", "codex"), () => {
           // CLI-based agents using subprocess spawning
           const cliRunner = new CLIAgentRunner()
-          sendApproval = (approved: boolean) => cliRunner.sendApproval(approved)
+          const sendApproval = (approved: boolean) => cliRunner.sendApproval(approved)
 
           cliRunner.on("session_id", (cliSessionId: string) => {
             store.updateSession(sessionId, { cliSessionId })
@@ -412,10 +417,14 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
               })
             },
           }) as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }
-          agentEmitter = runnerWrapper
-          break
-        }
-        default: {
+
+          return {
+            agentEmitter: runnerWrapper,
+            sendApproval,
+            getSessionUpdatesOnComplete: undefined as (() => Partial<AgentSession>) | undefined,
+          }
+        })
+        .otherwise(() => {
           // Unknown agent type - error
           const errorEmitter = new EventEmitter() as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> }
           errorEmitter.abort = () => {}
@@ -427,9 +436,14 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
             })
             errorEmitter.emit("error", `Unknown agent type: ${agentType}`)
           }
-          agentEmitter = errorEmitter
-        }
-      }
+          return {
+            agentEmitter: errorEmitter,
+            sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
+            getSessionUpdatesOnComplete: undefined as (() => Partial<AgentSession>) | undefined,
+          }
+        })
+
+      const { agentEmitter, sendApproval, getSessionUpdatesOnComplete } = agentConfig
 
       // Register the running agent
       this.agents.set(sessionId, {

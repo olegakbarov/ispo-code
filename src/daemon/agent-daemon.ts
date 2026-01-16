@@ -14,6 +14,7 @@ import { config } from "dotenv"
 config()
 
 import { EventEmitter } from "events"
+import { match, P } from 'ts-pattern'
 import { StreamPublisher } from "./stream-publisher"
 import { createRegistryEvent, createSessionEvent, type AgentStateEvent } from "../streams/schemas"
 import { CerebrasAgent } from "../lib/agent/cerebras"
@@ -275,30 +276,29 @@ export class AgentDaemon {
     reconstructedMessages?: unknown[],
     attachments?: ImageAttachment[]
   ): Promise<SDKAgentLike> {
-    switch (agentType) {
-      case "cerebras": {
+    return match(agentType)
+      .with("cerebras", () => {
         return new CerebrasAgent({
           workingDir,
           model,
           messages: reconstructedMessages as CerebrasMessageData[] | undefined,
           attachments,
         }) as unknown as SDKAgentLike
-      }
-      case "gemini": {
+      })
+      .with("gemini", () => {
         return new GeminiAgent({
           workingDir,
           model,
           messages: reconstructedMessages as GeminiMessageData[] | undefined,
           attachments,
         }) as unknown as SDKAgentLike
-      }
-      case "opencode": {
+      })
+      .with("opencode", () => {
         // OpenCode SDK doesn't support message restoration or multimodal
         // Messages will be formatted as context in the prompt by the caller
         return new OpencodeAgent({ workingDir, model }) as unknown as SDKAgentLike
-      }
-      case "claude":
-      case "codex": {
+      })
+      .with(P.union("claude", "codex"), () => {
         const cliRunner = new CLIAgentRunner()
         // Store attachments for CLI runner to use
         let pendingAttachments = attachments
@@ -343,10 +343,10 @@ export class AgentDaemon {
           },
         }) as SDKAgentLike
         return runnerWrapper
-      }
-      default:
+      })
+      .otherwise(() => {
         throw new Error(`Unknown agent type: ${agentType}`)
-    }
+      })
   }
 
   /**

@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs"
 import { execSync } from "child_process"
 import { glob as globLib } from "glob"
+import { match } from 'ts-pattern'
 import { validatePath } from "./path-validator.js"
 import { SecurityConfig } from "./security-config.js"
 
@@ -355,22 +356,13 @@ export async function runTool(
   workingDir?: string
 ): Promise<ToolResult> {
   const cwd = workingDir ?? process.cwd()
-  switch (name) {
-    case "read":
-      return read(args as Parameters<typeof read>[0], cwd)
-    case "write":
-      return write(args as Parameters<typeof write>[0], cwd)
-    case "edit":
-      return edit(args as Parameters<typeof edit>[0], cwd)
-    case "glob":
-      return glob(args as Parameters<typeof glob>[0], cwd)
-    case "grep":
-      return grep(args as Parameters<typeof grep>[0], cwd)
-    case "bash":
-      return bash(args as Parameters<typeof bash>[0], cwd)
-    case "ls":
-      return ls(args as Parameters<typeof ls>[0], cwd)
-    default:
-      return { success: false, content: `error: unknown tool: ${name}` }
-  }
+  return match(name)
+    .with("read", () => read(args as Parameters<typeof read>[0], cwd))
+    .with("write", () => write(args as Parameters<typeof write>[0], cwd))
+    .with("edit", () => edit(args as Parameters<typeof edit>[0], cwd))
+    .with("glob", () => glob(args as Parameters<typeof glob>[0], cwd))
+    .with("grep", () => grep(args as Parameters<typeof grep>[0], cwd))
+    .with("bash", () => bash(args as Parameters<typeof bash>[0], cwd))
+    .with("ls", () => ls(args as Parameters<typeof ls>[0], cwd))
+    .otherwise(() => ({ success: false, content: `error: unknown tool: ${name}` }))
 }

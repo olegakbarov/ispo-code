@@ -13,6 +13,7 @@ import Cerebras from "@cerebras/cerebras_cloud_sdk"
 import { execSync } from "child_process"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { resolve } from "path"
+import { match } from 'ts-pattern'
 import type { AgentOutputChunk, CerebrasMessageData, ImageAttachment } from "./types"
 import { SecurityConfig } from "./security-config.js"
 import { validatePath } from "./path-validator.js"
@@ -299,8 +300,8 @@ export class CerebrasAgent extends EventEmitter {
    */
   private executeTool(name: string, args: Record<string, unknown>): string {
     try {
-      switch (name) {
-        case "read_file": {
+      return match(name)
+        .with("read_file", () => {
           // Validate path to prevent path traversal
           const path = validatePath(args.path as string, this.workingDir)
           if (!existsSync(path)) {
@@ -310,17 +311,15 @@ export class CerebrasAgent extends EventEmitter {
           return content.length > 50000
             ? content.slice(0, 50000) + "\n... (truncated)"
             : content
-        }
-
-        case "write_file": {
+        })
+        .with("write_file", () => {
           // Validate path to prevent path traversal
           const path = validatePath(args.path as string, this.workingDir)
           const content = args.content as string
           writeFileSync(path, content, "utf-8")
           return `Successfully wrote ${content.length} bytes to ${args.path}`
-        }
-
-        case "exec_command": {
+        })
+        .with("exec_command", () => {
           const command = args.command as string
           // Safety: don't allow dangerous commands
           const dangerous = ["rm -rf /", "rm -rf ~", "mkfs", "dd if="]
@@ -341,11 +340,8 @@ export class CerebrasAgent extends EventEmitter {
             const execErr = err as { stderr?: string; message?: string }
             return `Error: ${execErr.stderr || execErr.message}`
           }
-        }
-
-        default:
-          return `Error: Unknown tool: ${name}`
-      }
+        })
+        .otherwise(() => `Error: Unknown tool: ${name}`)
     } catch (err) {
       return `Error executing tool: ${(err as Error).message}`
     }

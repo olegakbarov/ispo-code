@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { match, P } from 'ts-pattern'
 import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -98,18 +99,16 @@ function getFileName(path: string): string {
 
 /** Get label for session status */
 function getStatusLabel(status: SessionStatus): string {
-  switch (status) {
-    case 'waiting_approval': return 'Needs approval'
-    case 'waiting_input': return 'Waiting for input'
-    case 'running':
-    case 'working': return 'Running'
-    case 'pending': return 'Pending'
-    case 'idle': return 'Idle'
-    case 'completed': return 'Completed'
-    case 'failed': return 'Failed'
-    case 'cancelled': return 'Cancelled'
-    default: return status
-  }
+  return match(status)
+    .with('waiting_approval', () => 'Needs approval')
+    .with('waiting_input', () => 'Waiting for input')
+    .with(P.union('running', 'working'), () => 'Running')
+    .with('pending', () => 'Pending')
+    .with('idle', () => 'Idle')
+    .with('completed', () => 'Completed')
+    .with('failed', () => 'Failed')
+    .with('cancelled', () => 'Cancelled')
+    .otherwise(() => status)
 }
 
 /** Active Session Card - prominent display for running sessions */

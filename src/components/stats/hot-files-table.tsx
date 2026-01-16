@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { match } from 'ts-pattern'
 import { FileCode, ChevronDown, ChevronRight, ArrowUpDown } from 'lucide-react'
 
 interface HotFile {
@@ -57,19 +58,11 @@ export function HotFilesTable({ data }: HotFilesTableProps) {
   }
 
   const sortedData = [...data].sort((a, b) => {
-    let comparison = 0
-
-    switch (sortField) {
-      case 'path':
-        comparison = a.path.localeCompare(b.path)
-        break
-      case 'editCount':
-        comparison = a.editCount - b.editCount
-        break
-      case 'lastModified':
-        comparison = new Date(a.lastModified).getTime() - new Date(b.lastModified).getTime()
-        break
-    }
+    const comparison = match(sortField)
+      .with('path', () => a.path.localeCompare(b.path))
+      .with('editCount', () => a.editCount - b.editCount)
+      .with('lastModified', () => new Date(a.lastModified).getTime() - new Date(b.lastModified).getTime())
+      .exhaustive()
 
     return sortDirection === 'asc' ? comparison : -comparison
   })

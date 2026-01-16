@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { match } from 'ts-pattern'
 import { Checkbox } from '@/components/ui/checkbox'
 
 // Local type definition - matches git service types
@@ -49,14 +50,11 @@ export function FileList({
   }, [staged.length, modified.length, untracked.length])
 
   const getCurrentFiles = (): string[] => {
-    switch (activeTab) {
-      case 'staged':
-        return staged.map((f) => f.file)
-      case 'modified':
-        return modified.map((f) => f.file)
-      case 'untracked':
-        return untracked
-    }
+    return match(activeTab)
+      .with('staged', () => staged.map((f) => f.file))
+      .with('modified', () => modified.map((f) => f.file))
+      .with('untracked', () => untracked)
+      .exhaustive()
   }
 
   const tabs: { id: Tab; label: string; count: number }[] = [

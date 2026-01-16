@@ -7,6 +7,7 @@ import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { Play, Plus, ChevronRight, ChevronDown, Layers } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { match } from 'ts-pattern'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
@@ -253,23 +254,20 @@ export function TaskListSidebar() {
 
     // Sort tasks
     const sorted = [...result].sort((a, b) => {
-      let cmp = 0
-      switch (sortBy) {
-        case 'updated':
+      const cmp = match(sortBy)
+        .with('updated', () => {
           // Tasks may have updatedAt from server - fall back to path comparison
           const aTime = (a as TaskSummary & { updatedAt?: string }).updatedAt ?? ''
           const bTime = (b as TaskSummary & { updatedAt?: string }).updatedAt ?? ''
-          cmp = bTime.localeCompare(aTime) // desc by default (newest first)
-          break
-        case 'title':
-          cmp = a.title.localeCompare(b.title)
-          break
-        case 'progress':
+          return bTime.localeCompare(aTime) // desc by default (newest first)
+        })
+        .with('title', () => a.title.localeCompare(b.title))
+        .with('progress', () => {
           const aRatio = a.progress.total > 0 ? a.progress.done / a.progress.total : 0
           const bRatio = b.progress.total > 0 ? b.progress.done / b.progress.total : 0
-          cmp = bRatio - aRatio // desc by default (highest progress first)
-          break
-      }
+          return bRatio - aRatio // desc by default (highest progress first)
+        })
+        .exhaustive()
       return sortDir === 'asc' ? -cmp : cmp
     })
 

@@ -7,6 +7,7 @@
  */
 
 import { DurableStream } from "@durable-streams/client"
+import { match } from 'ts-pattern'
 import type { RegistryEvent, SessionStreamEvent } from "./schemas"
 import { REGISTRY_STREAM, getSessionStreamPath } from "./schemas"
 import { readServerInfo } from "./server"
@@ -319,25 +320,13 @@ export class StreamAPI {
     }
 
     const latestEvent = events[events.length - 1]
-    let status = "unknown"
-
-    switch (latestEvent.type) {
-      case "session_created":
-        status = "pending"
-        break
-      case "session_updated":
-        status = latestEvent.status
-        break
-      case "session_completed":
-        status = "completed"
-        break
-      case "session_failed":
-        status = "failed"
-        break
-      case "session_cancelled":
-        status = "cancelled"
-        break
-    }
+    const status = match(latestEvent.type)
+      .with("session_created", () => "pending")
+      .with("session_updated", () => latestEvent.status)
+      .with("session_completed", () => "completed")
+      .with("session_failed", () => "failed")
+      .with("session_cancelled", () => "cancelled")
+      .otherwise(() => "unknown")
 
     return { status, latestEvent }
   }

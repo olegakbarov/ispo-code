@@ -3,6 +3,7 @@
  * Merges critique issues into a refined specification
  */
 
+import { match } from 'ts-pattern'
 import type { Critique, CritiqueIssue, DebateRound } from './types'
 
 /**
@@ -124,20 +125,12 @@ export function aggregateIssues(critiques: Critique[]): {
 
   for (const critique of critiques) {
     for (const issue of critique.issues) {
-      switch (issue.severity) {
-        case 'critical':
-          result.critical.push(issue)
-          break
-        case 'major':
-          result.major.push(issue)
-          break
-        case 'minor':
-          result.minor.push(issue)
-          break
-        case 'suggestion':
-          result.suggestions.push(issue)
-          break
-      }
+      match(issue.severity)
+        .with('critical', () => result.critical.push(issue))
+        .with('major', () => result.major.push(issue))
+        .with('minor', () => result.minor.push(issue))
+        .with('suggestion', () => result.suggestions.push(issue))
+        .exhaustive()
     }
   }
 

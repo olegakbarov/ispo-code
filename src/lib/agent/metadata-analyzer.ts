@@ -10,6 +10,7 @@
  * Design: Observer pattern - passively watches chunk events without side effects
  */
 
+import { match } from 'ts-pattern'
 import type {
   AgentOutputChunk,
   AgentSessionMetadata,
@@ -100,29 +101,15 @@ export class MetadataAnalyzer {
    * Process a single output chunk and update metadata
    */
   processChunk(chunk: AgentOutputChunk): void {
-    switch (chunk.type) {
-      case "user_message":
-        this.processUserMessage(chunk)
-        break
-      case "tool_use":
-        this.processToolUse(chunk)
-        break
-      case "tool_result":
-        this.processToolResult(chunk)
-        break
-      case "text":
-        this.processText(chunk)
-        break
-      case "thinking":
-        this.processThinking(chunk)
-        break
-      case "error":
-        this.metadata.outputMetrics.errorChunks++
-        break
-      case "system":
-        this.metadata.outputMetrics.systemChunks++
-        break
-    }
+    match(chunk.type)
+      .with("user_message", () => this.processUserMessage(chunk))
+      .with("tool_use", () => this.processToolUse(chunk))
+      .with("tool_result", () => this.processToolResult(chunk))
+      .with("text", () => this.processText(chunk))
+      .with("thinking", () => this.processThinking(chunk))
+      .with("error", () => { this.metadata.outputMetrics.errorChunks++ })
+      .with("system", () => { this.metadata.outputMetrics.systemChunks++ })
+      .otherwise(() => {})
 
     // Update duration based on session start time
     this.metadata.duration = Date.now() - this.sessionStartTime

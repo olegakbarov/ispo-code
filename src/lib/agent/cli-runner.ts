@@ -7,6 +7,7 @@ import { spawn, execSync, type ChildProcess } from "child_process"
 import { existsSync, mkdirSync, accessSync, constants, writeFileSync, rmSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
+import { match } from 'ts-pattern'
 import type { AgentOutputChunk, AgentType, ImageAttachment } from "./types"
 
 export interface CLIRunnerConfig {
@@ -616,8 +617,8 @@ export class CLIAgentRunner extends EventEmitter {
       tempFiles = writeImagesTempFiles(attachments)
     }
 
-    switch (agentType) {
-      case "claude": {
+    return match(agentType)
+      .with("claude", () => {
         // Claude Code supports reading the prompt from stdin (when no positional prompt
         // argument is provided). Prefer stdin to avoid shell escaping issues and OS
         // argv size limits for large task prompts.
@@ -654,9 +655,8 @@ export class CLIAgentRunner extends EventEmitter {
           stdinPrompt: prompt,
           tempFiles,
         }
-      }
-
-      case "codex": {
+      })
+      .with("codex", () => {
         if (isResume && cliSessionId) {
           const args = ["resume", cliSessionId, "--json"]
           if (promptTransport === "args") {
@@ -675,9 +675,8 @@ export class CLIAgentRunner extends EventEmitter {
           promptTransport,
           stdinPrompt: promptTransport === "stdin" ? prompt : undefined,
         }
-      }
-
-      case "opencode": {
+      })
+      .with("opencode", () => {
         const args = ["run", "--format", "json"]
 
         if (model) {
@@ -698,11 +697,8 @@ export class CLIAgentRunner extends EventEmitter {
           promptTransport,
           stdinPrompt: promptTransport === "stdin" ? prompt : undefined,
         }
-      }
-
-      default:
-        throw new Error(`Unknown agent type: ${agentType}`)
-    }
+      })
+      .exhaustive()
   }
 
   /**
@@ -765,10 +761,10 @@ export class CLIAgentRunner extends EventEmitter {
   private parseClaudeOutput(json: Record<string, unknown>) {
     const type = json.type as string
 
-    switch (type) {
-      case "stream_event": {
+    match(type)
+      .with("stream_event", () => {
         const event = json.event as Record<string, unknown> | undefined
-        if (!event) break
+        if (!event) return
         const eventType = event.type as string
         if (eventType === "content_block_delta") {
           const delta = event.delta as Record<string, unknown> | undefined
@@ -778,10 +774,8 @@ export class CLIAgentRunner extends EventEmitter {
             this.emitChunk("thinking", String(delta.thinking))
           }
         }
-        break
-      }
-
-      case "system": {
+      })
+      .with("system", () => {
         const subtype = json.subtype as string | undefined
         if (subtype === "init") {
           const sessionId = json.session_id as string | undefined
@@ -790,10 +784,8 @@ export class CLIAgentRunner extends EventEmitter {
             this.emit("session_id", sessionId)
           }
         }
-        break
-      }
-
-      case "assistant": {
+      })
+      .with("assistant", () => {
         const errorCode = typeof json.error === "string" ? json.error : undefined
         let firstText: string | null = null
         // Handle assistant message with content array
@@ -824,10 +816,8 @@ export class CLIAgentRunner extends EventEmitter {
         if (errorCode) {
           this.reportedError ??= firstText ?? errorCode
         }
-        break
-      }
-
-      case "result": {
+      })
+      .with("result", () => {
         // Handle final result - session complete
         const isError = json.is_error === true
         if (isError) {
@@ -841,10 +831,8 @@ export class CLIAgentRunner extends EventEmitter {
           this.cliSessionId = sessionId
           this.emit("session_id", sessionId)
         }
-        break
-      }
-
-      case "tool_use": {
+      })
+      .with("tool_use", () => {
         const toolName = json.name as string
         this.emitChunk("tool_use", JSON.stringify({
           name: toolName,
@@ -854,18 +842,15 @@ export class CLIAgentRunner extends EventEmitter {
         if (toolName === "AskUserQuestion") {
           this.emitWaitingInput()
         }
-        break
-      }
-
-      case "tool_result":
+      })
+      .with("tool_result", () => {
         this.emitChunk("tool_result", String(json.content ?? json.output ?? ""))
-        break
-
-      case "error":
+      })
+      .with("error", () => {
         this.reportedError ??= String(json.message ?? json.error ?? "Unknown error")
         this.emitChunk("error", this.reportedError)
-        break
-    }
+      })
+      .otherwise(() => {})
   }
 
   /**
@@ -1015,39 +1000,27 @@ export class CLIAgentRunner extends EventEmitter {
 
     const type = typeof json.type === "string" ? json.type : undefined
 
-    switch (type) {
-      case "message":
-      case "text":
-      case "output":
-      case "response": {
+    match(type)
+      .with("message", "text", "output", "response", () => {
         const text = (json.content ?? json.text ?? json.message) as string | undefined
         if (text) this.emitChunk("text", text)
-        break
-      }
-
-      case "tool_call":
-      case "tool_use": {
+      })
+      .with("tool_call", "tool_use", () => {
         this.emitChunk("tool_use", JSON.stringify({
           name: json.name ?? json.tool,
           input: json.input ?? json.args,
         }), { tool: (json.name ?? json.tool) as string })
-        break
-      }
-
-      case "tool_result":
-      case "tool_output": {
+      })
+      .with("tool_result", "tool_output", () => {
         const result = (json.output ?? json.result ?? json.content) as string | undefined
         if (result) this.emitChunk("tool_result", result)
-        break
-      }
-
-      case "error": {
+      })
+      .with("error", () => {
         const errorMsg = (json.message ?? json.error ?? "Unknown error") as string
         this.reportedError ??= errorMsg
         this.emitChunk("error", errorMsg)
-        break
-      }
-    }
+      })
+      .otherwise(() => {})
   }
 
   /**

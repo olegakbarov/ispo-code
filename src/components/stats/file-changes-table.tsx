@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { match } from 'ts-pattern'
 import { FileCode, FilePlus, FileX, ArrowUpDown } from 'lucide-react'
 
 interface FileChangeRecord {
@@ -39,22 +40,12 @@ export function FileChangesTable({ data }: FileChangesTableProps) {
   }
 
   const sortedData = [...data].sort((a, b) => {
-    let comparison = 0
-
-    switch (sortField) {
-      case 'path':
-        comparison = a.path.localeCompare(b.path)
-        break
-      case 'operation':
-        comparison = a.operation.localeCompare(b.operation)
-        break
-      case 'timestamp':
-        comparison = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        break
-      case 'tool':
-        comparison = a.toolUsed.localeCompare(b.toolUsed)
-        break
-    }
+    const comparison = match(sortField)
+      .with('path', () => a.path.localeCompare(b.path))
+      .with('operation', () => a.operation.localeCompare(b.operation))
+      .with('timestamp', () => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .with('tool', () => a.toolUsed.localeCompare(b.toolUsed))
+      .exhaustive()
 
     return sortDirection === 'asc' ? comparison : -comparison
   })
@@ -63,14 +54,10 @@ export function FileChangesTable({ data }: FileChangesTableProps) {
   const hasMore = sortedData.length > limit
 
   const getOperationIcon = (operation: string) => {
-    switch (operation) {
-      case 'create':
-        return <FilePlus className="h-4 w-4 text-green-500" />
-      case 'delete':
-        return <FileX className="h-4 w-4 text-red-500" />
-      default:
-        return <FileCode className="h-4 w-4 text-blue-500" />
-    }
+    return match(operation)
+      .with('create', () => <FilePlus className="h-4 w-4 text-green-500" />)
+      .with('delete', () => <FileX className="h-4 w-4 text-red-500" />)
+      .otherwise(() => <FileCode className="h-4 w-4 text-blue-500" />)
   }
 
   const getOperationBadge = (operation: string) => {

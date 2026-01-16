@@ -5,6 +5,7 @@
 
 import { EventEmitter } from "events"
 import { createOpencode } from "@opencode-ai/sdk"
+import { match, P } from 'ts-pattern'
 import type { AgentOutputChunk } from "./types"
 
 // === Types ===
@@ -179,12 +180,11 @@ export class OpencodeAgent extends EventEmitter {
         const eventType = event.type ?? ""
         const props = event.properties
 
-        switch (eventType) {
-          // OpenCode SDK: message.updated contains message info with finish status
-          case "message.updated": {
+        match(eventType)
+          .with("message.updated", () => {
             const info = props?.info as { sessionID?: string; finish?: string; role?: string; time?: { completed?: number }; tokens?: { input?: number; output?: number } } | undefined
             // Only process events for our session
-            if (info?.sessionID !== this.sessionId) break
+            if (info?.sessionID !== this.sessionId) return
 
             // Track token usage
             if (info.tokens) {
@@ -194,29 +194,26 @@ export class OpencodeAgent extends EventEmitter {
 
             // Check if message finished (finish field set or time.completed exists)
             if (info.role === "assistant" && (info.finish || info.time?.completed)) {
-              return // Session complete
+              return // Session complete - need to exit the for loop
             }
-            break
-          }
-
-          // OpenCode SDK: message.part.updated contains the actual content
-          case "message.part.updated": {
+          })
+          .with("message.part.updated", () => {
             const part = props as { id?: string; sessionID?: string; type?: string; text?: string; tool?: string; state?: { status?: string; input?: unknown; output?: string } }
             // Only process events for our session
-            if (part?.sessionID !== this.sessionId) break
+            if (part?.sessionID !== this.sessionId) return
 
             // Skip already processed parts
-            if (part.id && seenParts.has(part.id)) break
+            if (part.id && seenParts.has(part.id)) return
             if (part.id) seenParts.add(part.id)
 
-            switch (part.type) {
-              case "text":
+            match(part.type)
+              .with("text", () => {
                 if (part.text) this.emitOutput("text", part.text)
-                break
-              case "reasoning":
+              })
+              .with("reasoning", () => {
                 if (part.text) this.emitOutput("thinking", part.text)
-                break
-              case "tool":
+              })
+              .with("tool", () => {
                 if (part.tool && part.state) {
                   if (part.state.status === "running" || !part.state.output) {
                     this.emitOutput("tool_use", JSON.stringify({ name: part.tool, input: part.state.input }), { toolName: part.tool, tool: part.tool })
@@ -225,45 +222,29 @@ export class OpencodeAgent extends EventEmitter {
                     this.emitOutput("tool_result", part.state.output)
                   }
                 }
-                break
-              case "step-start":
-              case "step-finish":
+              })
+              .with(P.union("step-start", "step-finish"), () => {
                 // Ignore step markers
-                break
-            }
-            break
-          }
-
-          // Legacy event types (for backwards compatibility)
-          case "message.part.text":
-          case "message.text":
-          case "assistant.text": {
+              })
+              .otherwise(() => {})
+          })
+          .with(P.union("message.part.text", "message.text", "assistant.text"), () => {
             const text = (props?.text as string) ?? (props?.content as string)
             if (text) this.emitOutput("text", text)
-            break
-          }
-
-          case "message.part.tool_call":
-          case "tool.call":
-          case "assistant.tool": {
+          })
+          .with(P.union("message.part.tool_call", "tool.call", "assistant.tool"), () => {
             const toolName = (props?.name as string) ?? "unknown"
             this.emitOutput("tool_use", JSON.stringify({ name: toolName, input: props?.input ?? props?.args }), { toolName, tool: toolName })
-            break
-          }
-
-          case "tool.result":
-          case "message.part.tool_result": {
+          })
+          .with(P.union("tool.result", "message.part.tool_result"), () => {
             const result = (props?.output as string) ?? (props?.result as string) ?? ""
             this.emitOutput("tool_result", result)
-            break
-          }
-
-          case "error": {
+          })
+          .with("error", () => {
             const error = (props?.message as string) ?? (props?.error as string) ?? "Unknown error"
             this.emitOutput("error", error)
-            break
-          }
-        }
+          })
+          .otherwise(() => {})
       }
     } catch (err) {
       // Stream may close on completion, not an error
