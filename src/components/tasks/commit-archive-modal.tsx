@@ -8,7 +8,8 @@ import { useState, useEffect } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
-import { Loader2, GitCommit, Archive, FileText, RefreshCw, GitMerge, AlertTriangle } from 'lucide-react'
+import { GitCommit, Archive, FileText, RefreshCw, GitMerge, AlertTriangle } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 
 type CommitMode = 'commit-only' | 'commit-merge'
 
@@ -273,7 +274,7 @@ export function CommitArchiveModal({
 
             {filesLoading ? (
               <div className="flex items-center gap-2 text-sm text-text-muted p-3 border border-border rounded">
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" />
                 Loading files...
               </div>
             ) : gitRelativeFiles.length === 0 ? (
@@ -381,7 +382,7 @@ export function CommitArchiveModal({
           {/* Processing status */}
           {isProcessing && (
             <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/30 rounded text-sm text-accent">
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" />
               {commitMutation.isPending ? 'Committing changes...' :
                mergeMutation.isPending ? 'Merging to main...' :
                'Processing...'}
@@ -405,7 +406,7 @@ export function CommitArchiveModal({
           >
             {isProcessing ? (
               <>
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Spinner size="xs" />
                 Processing...
               </>
             ) : commitMode === 'commit-merge' && canMerge ? (

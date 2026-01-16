@@ -11,7 +11,8 @@
 
 import { useState, useMemo, lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router'
-import { GitCommit, Loader2, Check, X, Sparkles, FileCode, ExternalLink } from 'lucide-react'
+import { GitCommit, Check, X, Sparkles, FileCode, ExternalLink } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { trpc } from '@/lib/trpc-client'
 import { sessionTrpcOptions } from '@/lib/trpc-session'
@@ -317,7 +318,7 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
       {/* Loading state */}
       {!gitStatus && (
         <div className="flex items-center gap-2 text-[10px] font-vcr text-muted-foreground">
-          <Loader2 className="w-3 h-3 animate-spin" />
+          <Spinner size="xs" />
           loading git status...
         </div>
       )}
@@ -421,7 +422,7 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
                   title="Generate commit message with AI"
                 >
                   {generateCommitMutation.isPending ? (
-                    <Loader2 className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />
+                    <Spinner size="xs" />
                   ) : (
                     <>
                       <Sparkles className="w-2.5 h-2.5" aria-hidden="true" />
@@ -449,7 +450,7 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
               >
                 {commitMutation.isPending ? (
                   <>
-                    <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                    <Spinner size="xs" />
                     committing...
                   </>
                 ) : (
@@ -506,7 +507,7 @@ function GitSection({ sessionId, session }: { sessionId: string; session: Sessio
           <div className="flex-1 min-h-0 overflow-auto mx-4 mb-4 border border-border rounded bg-background">
             {diffLoading ? (
               <div className="flex items-center justify-center p-8 text-muted-foreground">
-                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                <Spinner size="md" className="mr-2" />
                 Loading diff...
               </div>
             ) : diffError ? (

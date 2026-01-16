@@ -17,6 +17,7 @@ import { getProcessMonitor } from "@/daemon/process-monitor"
 import { killDaemon, isDaemonRunning } from "@/daemon/spawn-daemon"
 import { getStreamServerUrl } from "@/streams/server"
 import { getAvailableAgentTypes } from "@/lib/agent/cli-runner"
+import { getAgentManager } from "@/lib/agent/manager"
 import type { AgentSession, AgentOutputChunk, SessionStatus, EditedFileInfo, ImageAttachment } from "@/lib/agent/types"
 import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdEvent, AgentStateEvent } from "@/streams/schemas"
 import { createControlEvent, createRegistryEvent, getControlStreamPath } from "@/streams/schemas"
@@ -193,6 +194,7 @@ function reconstructSessionFromStreams(
     sourceFile: createdEvent.sourceFile,
     sourceLine: createdEvent.sourceLine,
     debugRunId: createdEvent.debugRunId,
+    githubRepo: createdEvent.githubRepo,
     resumable: status !== "cancelled",
   }
 }
@@ -311,6 +313,11 @@ export const agentRouter = router({
       sourceLine: z.number().int().positive().optional(),
       /** Image attachments for multimodal input */
       attachments: z.array(imageAttachmentSchema).optional(),
+      /** GitHub repository info if working in a cloned repo */
+      githubRepo: z.object({
+        owner: z.string(),
+        repo: z.string(),
+      }).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const sessionId = randomBytes(6).toString("hex")
@@ -332,6 +339,7 @@ export const agentRouter = router({
         streamServerUrl,
         daemonNonce,
         attachments: input.attachments,
+        githubRepo: input.githubRepo,
       })
 
       return {
@@ -383,11 +391,15 @@ export const agentRouter = router({
   delete: procedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
-      // For durable streams, we soft-delete by appending a session_deleted event
+      // Kill any running daemon
       const monitor = getProcessMonitor()
       monitor.killDaemon(input.id)
 
-      // Write deletion event to registry (soft delete)
+      // Delete from manager (cleans up worktree if it exists)
+      const manager = getAgentManager()
+      manager.delete(input.id)
+
+      // Write deletion event to registry (soft delete for durable streams)
       const streamAPI = getStreamAPI()
       await streamAPI.appendToRegistry(
         createRegistryEvent.deleted({ sessionId: input.id })

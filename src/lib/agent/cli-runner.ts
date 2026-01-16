@@ -5,10 +5,11 @@
 import { EventEmitter } from "events"
 import { spawn, execSync, type ChildProcess } from "child_process"
 import { existsSync, mkdirSync, accessSync, constants, writeFileSync, rmSync } from "fs"
-import { join } from "path"
+import { join, dirname } from "path"
 import { tmpdir } from "os"
 import { match } from 'ts-pattern'
 import type { AgentOutputChunk, AgentType, ImageAttachment } from "./types"
+import { getConfigPaths } from "./mcp-server-validator"
 
 export interface CLIRunnerConfig {
   agentType: AgentType
@@ -30,16 +31,21 @@ export interface CLIRunnerConfig {
 function getCLIPath(cli: "claude" | "codex" | "opencode"): string | null {
   const home = process.env.HOME || ""
 
+  // Detect nvm-managed node bin directory
+  const nvmBin = process.execPath ? dirname(process.execPath) : null
+
   const locations: Record<string, string[]> = {
     claude: [
       `${home}/.claude/local/claude`,
       "/usr/local/bin/claude",
       "/opt/homebrew/bin/claude",
+      ...(nvmBin ? [`${nvmBin}/claude`] : []),
     ],
     codex: [
       "/usr/local/bin/codex",
       "/opt/homebrew/bin/codex",
       `${home}/.local/bin/codex`,
+      ...(nvmBin ? [`${nvmBin}/codex`] : []),
     ],
     opencode: [
       `${home}/.opencode/bin/opencode`,
@@ -47,6 +53,7 @@ function getCLIPath(cli: "claude" | "codex" | "opencode"): string | null {
       "/opt/homebrew/bin/opencode",
       `${home}/.local/bin/opencode`,
       `${home}/go/bin/opencode`,
+      ...(nvmBin ? [`${nvmBin}/opencode`] : []),
     ],
   }
 
@@ -84,13 +91,10 @@ export function checkCLIAvailable(cli: "claude" | "codex" | "opencode"): boolean
  * Check if MCPorter is available (has configuration)
  */
 function checkMCPorterConfig(): boolean {
-  const home = process.env.HOME || ""
-
-  // Check common MCPorter config locations
-  const configPaths = [
-    join(home, ".mcporter", "mcporter.json"),
-    join(home, ".config", "mcporter", "mcporter.json"),
-  ]
+  const explicitPath = process.env.MCPORTER_CONFIG_PATH?.trim()
+  const configPaths = explicitPath
+    ? [explicitPath]
+    : getConfigPaths()
 
   for (const configPath of configPaths) {
     if (existsSync(configPath)) {
@@ -108,22 +112,6 @@ function checkMCPorterConfig(): boolean {
       }
     }
   }
-
-  // Also check for Claude Desktop config (MCPorter can read it)
-  const claudeConfig = join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
-  if (existsSync(claudeConfig)) {
-    try {
-      const { readFileSync } = require("fs")
-      const content = readFileSync(claudeConfig, "utf-8")
-      const config = JSON.parse(content)
-      if (config?.mcpServers && Object.keys(config.mcpServers).length > 0) {
-        return true
-      }
-    } catch {
-      // Invalid - ignore
-    }
-  }
-
   return false
 }
 

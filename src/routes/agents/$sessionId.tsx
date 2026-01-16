@@ -473,6 +473,7 @@ function AgentSessionPage() {
           taskPath={session.taskPath}
           isResumable={isResumable}
           instructions={session.instructions}
+          githubRepo={session.githubRepo}
         />
 
         {/* Output area */}

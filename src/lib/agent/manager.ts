@@ -20,7 +20,7 @@ import { OpencodeAgent } from "./opencode"
 import { MCPorterAgent } from "./mcporter"
 import { CLIAgentRunner, getAvailableAgentTypes } from "./cli-runner"
 import { MetadataAnalyzer } from "./metadata-analyzer"
-import { createWorktree, deleteWorktree, isWorktreeIsolationEnabled } from "./git-worktree"
+import { createWorktree, deleteWorktree, isWorktreeIsolationEnabled, cleanupOrphanedWorktrees } from "./git-worktree"
 import { getGitRoot } from "./git-service"
 import { getContextLimit } from "./model-registry"
 import { getRateLimiter, initRateLimiter } from "./rate-limiter"
@@ -660,6 +660,19 @@ export function getAgentManager(): AgentManager {
 
       // Initialize abuse detector (starts monitoring automatically)
       getAbuseDetector()
+    }
+
+    // Cleanup orphaned worktrees on startup
+    if (isWorktreeIsolationEnabled()) {
+      const repoRoot = getGitRoot(process.cwd())
+      if (repoRoot) {
+        const store = getSessionStore()
+        const activeSessionIds = new Set(store.getAllSessions().map((s) => s.id))
+        const cleanedCount = cleanupOrphanedWorktrees(repoRoot, activeSessionIds)
+        if (cleanedCount > 0) {
+          console.log(`[AgentManager] Cleaned up ${cleanedCount} orphaned worktrees on startup`)
+        }
+      }
     }
   }
   return managerInstance

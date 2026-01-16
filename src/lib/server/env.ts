@@ -65,3 +65,11 @@ export function ensureServerEnv(options?: { cwd?: string; filename?: string }): 
   }
 }
 
+/**
+ * GitHub OAuth configuration
+ * Required for GitHub integration features
+ */
+export const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || ""
+export const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || ""
+export const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || "http://localhost:4200/api/auth/github-callback"
+

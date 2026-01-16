@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import { Play, Terminal, Cpu, Sparkles, ChevronDown, X } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -262,7 +263,7 @@ export function ImplementModal({
             >
               {isStarting ? (
                 <span className="flex items-center gap-2">
-                  <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  <Spinner size="xs" />
                   Starting...
                 </span>
               ) : (

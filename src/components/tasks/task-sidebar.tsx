@@ -244,10 +244,67 @@ export function TaskSidebar({
               </button>
             )}
 
-            {/* Merge Info */}
-            {latestActiveMerge && (
+            {/* Merge History */}
+            {hasHistory && (
+              <div className="space-y-2">
+                <button
+                  onClick={() => setShowMergeHistory(!showMergeHistory)}
+                  className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary cursor-pointer"
+                >
+                  {showMergeHistory ? (
+                    <ChevronDown className="w-3 h-3" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3" />
+                  )}
+                  <History className="w-3 h-3" />
+                  <span>Merge History ({mergeHistory.length})</span>
+                </button>
+
+                {showMergeHistory && (
+                  <div className="space-y-1 pl-4 border-l border-border/30">
+                    {mergeHistory.map((entry, idx) => (
+                      <div
+                        key={entry.commitHash}
+                        className={`text-[10px] p-1.5 rounded ${
+                          entry.revertedAt
+                            ? 'bg-error/5 text-text-muted'
+                            : idx === mergeHistory.length - 1 && !entry.revertedAt
+                              ? 'bg-accent/5 text-text-secondary'
+                              : 'text-text-muted'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1">
+                          {entry.revertedAt ? (
+                            <RotateCcw className="w-2.5 h-2.5 text-error" />
+                          ) : (
+                            <GitMerge className="w-2.5 h-2.5 text-accent" />
+                          )}
+                          <span className="font-mono">{entry.commitHash.slice(0, 7)}</span>
+                          <span className="text-text-muted">
+                            {new Date(entry.mergedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        {entry.revertedAt && (
+                          <div className="text-error ml-3.5 mt-0.5">
+                            Reverted {new Date(entry.revertedAt).toLocaleDateString()}
+                            {entry.revertCommitHash && (
+                              <span className="font-mono ml-1">
+                                ({entry.revertCommitHash.slice(0, 7)})
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Current merge info (quick view when history collapsed) */}
+            {latestActiveMerge && !showMergeHistory && (
               <div className="text-[10px] text-text-muted">
-                Merged: {latestActiveMerge.commitHash.slice(0, 7)} ({new Date(latestActiveMerge.mergedAt).toLocaleDateString()})
+                Latest: {latestActiveMerge.commitHash.slice(0, 7)} ({new Date(latestActiveMerge.mergedAt).toLocaleDateString()})
                 {latestActiveMerge.revertedAt && (
                   <span className="text-error"> - Reverted</span>
                 )}

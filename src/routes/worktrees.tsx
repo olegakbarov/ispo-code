@@ -3,7 +3,8 @@
  */
 
 import { createFileRoute } from "@tanstack/react-router"
-import { GitBranch, Folder, Check, Loader2 } from "lucide-react"
+import { GitBranch, Folder, Check } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { trpc } from "@/lib/trpc-client"
 import { useWorkingDirStore } from "@/lib/stores/working-dir"
 
@@ -40,7 +41,7 @@ function WorktreesPage() {
 
         {isLoading && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <Spinner size="xs" />
             Loading worktrees...
           </div>
         )}

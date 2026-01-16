@@ -6,8 +6,8 @@
  */
 
 import { createFileRoute } from '@tanstack/react-router'
-import { ToolCall } from '@/components/agents/tool-call'
-import { ToolResult } from '@/components/agents/tool-result'
+import { ToolCallV2 } from '@/components/agents/tool-call-v2'
+import { ToolResultV2 } from '@/components/agents/tool-result-v2'
 import { AskUserQuestionDisplay } from '@/components/agents/ask-user-question-display'
 
 export const Route = createFileRoute('/tool-calls')({
@@ -17,22 +17,44 @@ export const Route = createFileRoute('/tool-calls')({
 function ToolCallsPage() {
   return (
     <div className="h-full overflow-auto">
-      <div className="container mx-auto p-6 space-y-6 max-w-4xl">
+      <div className="container mx-auto p-6 space-y-8 max-w-4xl">
         {/* Header */}
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Tool Calls Gallery</h1>
           <p className="text-muted-foreground">
-            Visual reference for all tool-call components and states
+            Industrial/CRT aesthetic with scanlines, typewriter effects, and mechanical animations
           </p>
         </div>
 
+        {/* Execution States */}
+        <Section title="Execution States">
+          <div className="grid gap-4">
+            <div>
+              <Label>Executing (with CRT flicker + progress bar)</Label>
+              <ToolCallV2
+                toolName="Read"
+                toolInput={{ file_path: "/src/lib/agent/manager.ts" }}
+                state="executing"
+              />
+            </div>
+            <div>
+              <Label>Complete (default state)</Label>
+              <ToolCallV2
+                toolName="Read"
+                toolInput={{ file_path: "/src/lib/agent/manager.ts" }}
+                state="complete"
+              />
+            </div>
+          </div>
+        </Section>
+
         {/* Read Tool - Simple */}
         <Section title="Read Tool - Simple">
-          <ToolCall
+          <ToolCallV2
             toolName="Read"
             toolInput={{ file_path: "/src/components/ui/button.tsx" }}
           />
-          <ToolResult
+          <ToolResultV2
             content={'    1→import { cn } from "@/lib/utils"\n    2→\n    3→export function Button({ children, className, ...props }) {\n    4→  return (\n    5→    <button className={cn("px-4 py-2 rounded", className)} {...props}>\n    6→      {children}\n    7→    </button>\n    8→  )\n    9→}'}
             success={true}
             toolName="Read"
@@ -42,14 +64,14 @@ function ToolCallsPage() {
 
         {/* Write Tool - With Content */}
         <Section title="Write Tool - With Content">
-          <ToolCall
+          <ToolCallV2
             toolName="Write"
             toolInput={{
               file_path: "/src/lib/utils/format.ts",
               content: "export function formatDate(date: Date): string {\n  return date.toISOString().split('T')[0]\n}"
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content="File written successfully: /src/lib/utils/format.ts (89 bytes)"
             success={true}
             toolName="Write"
@@ -58,7 +80,7 @@ function ToolCallsPage() {
 
         {/* Edit Tool - Collapsed by Default */}
         <Section title="Edit Tool - Large Content (Collapsed)">
-          <ToolCall
+          <ToolCallV2
             toolName="Edit"
             toolInput={{
               file_path: "/src/components/dashboard.tsx",
@@ -66,7 +88,7 @@ function ToolCallsPage() {
               new_string: "const { mutate, isPending } = useMutation({\n  mutationFn: submitData,\n  onSuccess: () => toast.success('Saved!'),\n  onError: (err) => toast.error(err.message)\n})"
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content="Edit applied successfully: /src/components/dashboard.tsx"
             success={true}
             toolName="Edit"
@@ -75,11 +97,11 @@ function ToolCallsPage() {
 
         {/* Bash Tool - Success */}
         <Section title="Bash Tool - Success">
-          <ToolCall
+          <ToolCallV2
             toolName="Bash"
             toolInput={{ command: "npm test -- --watch=false" }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`$ npm test -- --watch=false
 
 > test
@@ -101,11 +123,11 @@ function ToolCallsPage() {
 
         {/* Bash Tool - Error */}
         <Section title="Bash Tool - Error">
-          <ToolCall
+          <ToolCallV2
             toolName="Bash"
             toolInput={{ command: "npm run build:production" }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`error: Script "build:production" not found.
 
 Available scripts:
@@ -118,13 +140,30 @@ Available scripts:
           />
         </Section>
 
+        {/* Streaming Result */}
+        <Section title="Streaming Result (with pulse animation)">
+          <ToolCallV2
+            toolName="Bash"
+            toolInput={{ command: "npm run build" }}
+            state="executing"
+          />
+          <ToolResultV2
+            content={`Building for production...
+vite v5.0.0 building for production...
+✓ 142 modules transformed.`}
+            success={true}
+            toolName="Bash"
+            state="streaming"
+          />
+        </Section>
+
         {/* Glob Tool */}
         <Section title="Glob Tool - Pattern Matching">
-          <ToolCall
+          <ToolCallV2
             toolName="Glob"
             toolInput={{ pattern: "**/*.test.ts" }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`src/lib/utils.test.ts
 src/lib/agent/manager.test.ts
 src/components/ui/button.test.ts
@@ -136,7 +175,7 @@ src/hooks/use-debounce.test.ts`}
 
         {/* Grep Tool */}
         <Section title="Grep Tool - Search Results">
-          <ToolCall
+          <ToolCallV2
             toolName="Grep"
             toolInput={{
               pattern: "useState",
@@ -144,7 +183,7 @@ src/hooks/use-debounce.test.ts`}
               output_mode: "content"
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`src/components/dashboard.tsx:12:  const [count, setCount] = useState(0)
 src/components/settings.tsx:8:  const [theme, setTheme] = useState('dark')
 src/components/modal.tsx:15:  const [open, setOpen] = useState(false)`}
@@ -155,7 +194,7 @@ src/components/modal.tsx:15:  const [open, setOpen] = useState(false)`}
 
         {/* Task Tool */}
         <Section title="Task Tool - Agent Spawn">
-          <ToolCall
+          <ToolCallV2
             toolName="Task"
             toolInput={{
               description: "Refactor auth system",
@@ -163,7 +202,7 @@ src/components/modal.tsx:15:  const [open, setOpen] = useState(false)`}
               subagent_type: "general-purpose"
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content="Agent spawned successfully (session: abc123)\nTask started: Refactor auth system"
             success={true}
             toolName="Task"
@@ -245,14 +284,14 @@ src/components/modal.tsx:15:  const [open, setOpen] = useState(false)`}
 
         {/* WebFetch Tool */}
         <Section title="WebFetch Tool">
-          <ToolCall
+          <ToolCallV2
             toolName="WebFetch"
             toolInput={{
               url: "https://api.github.com/repos/facebook/react",
               prompt: "Get the repository description and star count"
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`Repository: facebook/react
 Description: A declarative, efficient, and flexible JavaScript library for building user interfaces.
 Stars: 234,567
@@ -265,13 +304,13 @@ License: MIT`}
 
         {/* WebSearch Tool */}
         <Section title="WebSearch Tool">
-          <ToolCall
+          <ToolCallV2
             toolName="WebSearch"
             toolInput={{
               query: "react server components best practices 2026"
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`Found 8 results:
 
 1. React Server Components: Patterns and Best Practices
@@ -289,7 +328,7 @@ License: MIT`}
 
         {/* TodoWrite Tool */}
         <Section title="TodoWrite Tool">
-          <ToolCall
+          <ToolCallV2
             toolName="TodoWrite"
             toolInput={{
               todos: [
@@ -311,7 +350,7 @@ License: MIT`}
               ]
             }}
           />
-          <ToolResult
+          <ToolResultV2
             content="Todo list updated: 3 items (1 completed, 1 in progress, 1 pending)"
             success={true}
             toolName="TodoWrite"
@@ -320,11 +359,11 @@ License: MIT`}
 
         {/* Long Content - Truncated */}
         <Section title="Read Tool - Long Content (Truncated)">
-          <ToolCall
+          <ToolCallV2
             toolName="Read"
             toolInput={{ file_path: "/src/lib/agent/manager.ts", limit: 100 }}
           />
-          <ToolResult
+          <ToolResultV2
             content={`    1→/**
     2→ * AgentManager - Orchestrates agent lifecycle and session management
     3→ *
@@ -377,11 +416,11 @@ ${'    '.repeat(10)}
 
         {/* Error States */}
         <Section title="Error States">
-          <ToolCall
+          <ToolCallV2
             toolName="Read"
             toolInput={{ file_path: "/nonexistent/file.ts" }}
           />
-          <ToolResult
+          <ToolResultV2
             content="error: ENOENT: no such file or directory, open '/nonexistent/file.ts'"
             success={false}
             toolName="Read"
@@ -389,11 +428,11 @@ ${'    '.repeat(10)}
         </Section>
 
         <Section title="Tool with No Input">
-          <ToolCall
+          <ToolCallV2
             toolName="GetStatus"
             toolInput={null}
           />
-          <ToolResult
+          <ToolResultV2
             content='{"status": "running", "uptime": 3600, "activeSessions": 2}'
             success={true}
             toolName="GetStatus"
@@ -417,5 +456,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {children}
       </div>
     </section>
+  )
+}
+
+/**
+ * Label for describing sub-examples
+ */
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-xs text-text-muted mb-1 font-mono">{children}</div>
   )
 }

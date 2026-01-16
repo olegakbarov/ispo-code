@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react"
 import { getCookie, setCookie } from "@/lib/cookies"
+import { useSettingsStore } from "@/lib/stores/settings"
+import { applyThemeVariables } from "@/lib/theme-variables"
 
 type Theme = "light" | "dark" | "system"
 
@@ -50,9 +52,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Track if we've initialized from cookie to avoid applying default theme
   const initialized = useRef(false)
 
+  // Get theme preset from settings store
+  const themeId = useSettingsStore((state) => state.themeId)
+
   // Load stored theme on mount - this is the source of truth
   useEffect(() => {
     const stored = getStoredTheme()
+    const activeTheme = stored ?? "dark"
+
     if (stored) {
       setThemeState(stored)
       applyThemeToDOM(stored)
@@ -61,8 +68,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       persistTheme("dark")
       // DOM already has dark from SSR/inline script, no need to reapply
     }
+
+    // Apply theme preset CSS variables on initial load
+    const isDark =
+      activeTheme === "dark" ||
+      (activeTheme === "system" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches)
+    applyThemeVariables(themeId, isDark)
+
     initialized.current = true
-  }, [])
+  }, [themeId])
 
   // Apply theme to DOM when it changes AFTER initialization
   // Skip the initial render to avoid race with the init effect
@@ -71,16 +86,32 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     applyThemeToDOM(theme)
   }, [theme])
 
+  // Apply theme preset CSS variables when theme or themeId changes
+  useEffect(() => {
+    if (!initialized.current) return
+    // Determine if dark mode is active
+    const isDark =
+      theme === "dark" ||
+      (theme === "system" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches)
+    applyThemeVariables(themeId, isDark)
+  }, [theme, themeId])
+
   // Listen for system theme changes
   useEffect(() => {
     if (theme !== "system") return
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
-    const handleChange = () => applyThemeToDOM("system")
+    const handleChange = () => {
+      applyThemeToDOM("system")
+      // Also update theme variables for the new mode
+      const isDark = mediaQuery.matches
+      applyThemeVariables(themeId, isDark)
+    }
 
     mediaQuery.addEventListener("change", handleChange)
     return () => mediaQuery.removeEventListener("change", handleChange)
-  }, [theme])
+  }, [theme, themeId])
 
   // Wrapper that persists theme changes
   const setTheme = (newTheme: Theme) => {

@@ -13,6 +13,10 @@ interface WorkingDirState {
   workingDir: string | null
   /** Update the working directory */
   setWorkingDir: (path: string | null) => void
+  /** Currently selected GitHub repo (owner/repo), if working in a cloned repo */
+  selectedRepo: { owner: string; repo: string } | null
+  /** Update the selected repo */
+  setSelectedRepo: (repo: { owner: string; repo: string } | null) => void
 }
 
 export const useWorkingDirStore = create<WorkingDirState>()(
@@ -20,6 +24,8 @@ export const useWorkingDirStore = create<WorkingDirState>()(
     (set) => ({
       workingDir: null,
       setWorkingDir: (path) => set({ workingDir: path }),
+      selectedRepo: null,
+      setSelectedRepo: (repo) => set({ selectedRepo: repo }),
     }),
     { name: "agentz-working-dir" }
   )

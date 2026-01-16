@@ -12,7 +12,7 @@ interface CommitActionButtonProps {
 
 export function CommitActionButton({ fileCount, onCommitAndArchive }: CommitActionButtonProps) {
   return (
-    <div className="border-t border-border p-4">
+    <div className="shrink-0 border-t border-border p-4 bg-card">
       <button
         onClick={onCommitAndArchive}
         disabled={fileCount === 0}

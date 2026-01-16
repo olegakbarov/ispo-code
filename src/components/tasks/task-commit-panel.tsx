@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
-import { GitCommit, Check, X, Loader2, FileCheck } from "lucide-react"
+import { GitCommit, Check, X, FileCheck } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 
 interface TaskCommitPanelProps {
   sessionId: string | undefined
@@ -50,7 +51,7 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
     return (
       <div className="border rounded-lg p-4 bg-card">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" />
+          <Spinner size="sm" />
           <span className="text-sm">Loading files...</span>
         </div>
       </div>
@@ -175,7 +176,7 @@ export function TaskCommitPanel({ sessionId, taskTitle }: TaskCommitPanelProps) 
         >
           {commitMutation.isPending ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" />
               Committing...
             </>
           ) : (

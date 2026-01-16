@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
-import { GitCommit, Check, X, Loader2, GitBranch, ChevronDown, ChevronRight } from "lucide-react"
+import { GitCommit, Check, X, GitBranch, ChevronDown, ChevronRight } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 
 interface SidebarCommitPanelProps {
   sessionId: string
@@ -163,7 +164,7 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
           {/* Loading state */}
           {!gitStatus && (
             <div className="flex items-center gap-2 text-[10px] font-vcr text-muted-foreground">
-              <Loader2 className="w-3 h-3 animate-spin" />
+              <Spinner size="xs" />
               loading git status...
             </div>
           )}
@@ -277,7 +278,7 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
                   >
                     {commitMutation.isPending ? (
                       <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <Spinner size="xs" />
                         committing...
                       </>
                     ) : (

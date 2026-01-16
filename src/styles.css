@@ -412,3 +412,239 @@ input[type="range"].hue-slider::-moz-range-thumb {
   font: inherit;
   grid-area: 1 / 1 / 2 / 2;
 }
+
+/* ============================================
+   Tool Call V2 - Industrial/CRT Aesthetic
+   ============================================ */
+
+/* Scanline overlay for CRT effect */
+.tool-scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    oklch(0 0 0 / 0.03) 2px,
+    oklch(0 0 0 / 0.03) 4px
+  );
+  pointer-events: none;
+}
+
+.light .tool-scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    oklch(0 0 0 / 0.02) 2px,
+    oklch(0 0 0 / 0.02) 4px
+  );
+}
+
+/* Tool call container */
+.tool-call-v2 {
+  background: oklch(0.06 0 0);
+  border: 1px solid oklch(0.15 0 0);
+}
+
+.light .tool-call-v2 {
+  background: oklch(0.97 0 0);
+  border: 1px solid oklch(0.9 0 0);
+}
+
+/* Tool result container */
+.tool-result-v2 {
+  background: oklch(0.04 0 0);
+  border: 1px solid oklch(0.12 0 0);
+}
+
+.light .tool-result-v2 {
+  background: oklch(0.98 0 0);
+  border: 1px solid oklch(0.92 0 0);
+}
+
+/* CRT flicker for executing state */
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  93% { opacity: 0.85; }
+  94% { opacity: 1; }
+  97% { opacity: 0.9; }
+  98% { opacity: 1; }
+}
+
+.tool-executing {
+  animation: crt-flicker 3s infinite;
+}
+
+/* Typewriter cursor blink */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.tool-cursor {
+  animation: cursor-blink 0.8s step-end infinite;
+}
+
+/* Icon pulse for executing state */
+@keyframes icon-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px var(--tool-color));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 8px var(--tool-color));
+    transform: scale(1.1);
+  }
+}
+
+.tool-icon-pulse {
+  animation: icon-pulse 1.5s ease-in-out infinite;
+}
+
+/* Data pulse animation for new data */
+@keyframes data-pulse {
+  0% {
+    box-shadow: inset 0 0 0 1px var(--result-color);
+  }
+  50% {
+    box-shadow: inset 0 0 12px 1px var(--result-color);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px var(--result-color);
+  }
+}
+
+.tool-result-pulse {
+  animation: data-pulse 0.3s ease-out;
+}
+
+/* Progress bar animation for tool execution */
+@keyframes tool-progress {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0.5;
+  }
+}
+
+.animate-tool-progress {
+  animation: tool-progress 1.5s ease-in-out infinite;
+}
+
+/* Streaming indicator animation */
+@keyframes tool-stream {
+  0% {
+    width: 0;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    width: 100%;
+    opacity: 0;
+  }
+}
+
+.animate-tool-stream {
+  animation: tool-stream 2s ease-in-out infinite;
+}
+
+/* Parameter value type colors */
+.tool-value-path {
+  color: oklch(0.75 0.15 180); /* Cyan for paths */
+}
+
+.tool-value-command {
+  color: oklch(0.8 0.15 85); /* Amber for commands */
+}
+
+.tool-value-pattern {
+  color: oklch(0.75 0.18 280); /* Purple for patterns */
+}
+
+.tool-value-content {
+  color: oklch(0.7 0 0); /* Neutral for content */
+}
+
+.tool-value-number {
+  color: oklch(0.75 0.15 140); /* Green for numbers */
+}
+
+.tool-value-boolean {
+  color: oklch(0.75 0.18 35); /* Orange for booleans */
+}
+
+.light .tool-value-path {
+  color: oklch(0.45 0.15 180);
+}
+
+.light .tool-value-command {
+  color: oklch(0.5 0.15 85);
+}
+
+.light .tool-value-pattern {
+  color: oklch(0.45 0.18 280);
+}
+
+.light .tool-value-content {
+  color: oklch(0.4 0 0);
+}
+
+.light .tool-value-number {
+  color: oklch(0.45 0.15 140);
+}
+
+.light .tool-value-boolean {
+  color: oklch(0.5 0.18 35);
+}
+
+/* Compact line height for Read tool file content */
+.syntax-highlighted-with-lines .shiki code > .line {
+  line-height: 1.2;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .tool-scanlines {
+    background: none;
+  }
+
+  .tool-executing {
+    animation: none;
+  }
+
+  .tool-cursor {
+    animation: none;
+    opacity: 1;
+  }
+
+  .tool-icon-pulse {
+    animation: none;
+  }
+
+  .tool-result-pulse {
+    animation: none;
+  }
+
+  .animate-tool-progress {
+    animation: none;
+  }
+
+  .animate-tool-stream {
+    animation: none;
+  }
+
+  .tool-param-row {
+    transition: none !important;
+  }
+}

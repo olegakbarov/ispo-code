@@ -3,6 +3,7 @@
  */
 
 import { useMemo } from 'react'
+import { Spinner } from '@/components/ui/spinner'
 import type { AgentSession, AgentOutputChunk } from '@/lib/agent/types'
 
 interface AgentProgressBannerProps {
@@ -48,7 +49,7 @@ export function AgentProgressBanner({ session, onCancel }: AgentProgressBannerPr
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {isWorking && (
-            <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
+            <Spinner size="xs" className="shrink-0" />
           )}
           {isCompleted && <span className="shrink-0">✓</span>}
           {isFailed && <span className="shrink-0">✗</span>}

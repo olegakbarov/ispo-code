@@ -3,7 +3,8 @@
  */
 
 import { useState, useCallback, memo } from 'react'
-import { Plus, Check, Circle, Loader2, Trash2, ChevronDown, ChevronRight, X, Pencil } from 'lucide-react'
+import { Plus, Check, Circle, Trash2, ChevronDown, ChevronRight, X, Pencil } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { trpc } from '@/lib/trpc-client'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -35,7 +36,7 @@ function getNextStatus(current: SubTask['status']): SubTask['status'] {
 function StatusIcon({ status, onClick, disabled }: { status: SubTask['status']; onClick: () => void; disabled?: boolean }) {
   const icons = {
     pending: <Circle className="w-3.5 h-3.5" />,
-    in_progress: <Loader2 className="w-3.5 h-3.5 animate-spin" />,
+    in_progress: <Spinner size="xs" />,
     completed: <Check className="w-3.5 h-3.5" />,
   }
   const colors = {
@@ -217,7 +218,7 @@ const SubtaskRow = memo(function SubtaskRow({
 
         {/* Actions - visible on hover */}
         <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {isUpdating && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+          {isUpdating && <Spinner size="xs" className="text-muted-foreground" />}
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -398,7 +399,7 @@ export function SubtaskSection({ taskPath, subtasks, version, onRefresh }: Subta
               disabled={!newSubtaskTitle.trim() || addSubtaskMutation.isPending}
               className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-vcr bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
-              {addSubtaskMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Add'}
+              {addSubtaskMutation.isPending ? <Spinner size="xs" /> : 'Add'}
             </button>
             <button
               onClick={() => {

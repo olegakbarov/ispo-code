@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, RefreshCw, Image } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, RefreshCw, Image, Github } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { ImageAttachmentPreview } from '@/components/agents/image-attachment-input'
 import type { ImageAttachment } from '@/lib/agent/types'
@@ -17,9 +17,14 @@ interface PromptDisplayProps {
   instructions?: string
   /** Image attachments for the initial prompt */
   attachments?: ImageAttachment[]
+  /** GitHub repository info if working in a cloned repo */
+  githubRepo?: {
+    owner: string
+    repo: string
+  }
 }
 
-export function PromptDisplay({ prompt, planPath, taskPath, isResumable, instructions, attachments }: PromptDisplayProps) {
+export function PromptDisplay({ prompt, planPath, taskPath, isResumable, instructions, attachments, githubRepo }: PromptDisplayProps) {
   // Auto-expand if custom instructions are present or attachments exist
   const [expanded, setExpanded] = useState(!!instructions || (attachments && attachments.length > 0))
 
@@ -75,6 +80,20 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable, instruc
           <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/30 rounded text-[10px] font-vcr text-blue-400 flex-shrink-0">
             <span>Custom Instructions</span>
           </div>
+        )}
+
+        {/* GitHub repo badge */}
+        {githubRepo && (
+          <a
+            href={`https://github.com/${githubRepo.owner}/${githubRepo.repo}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 border border-purple-500/30 rounded text-[10px] font-vcr text-purple-400 hover:bg-purple-500/20 transition-colors flex-shrink-0 cursor-pointer"
+            title="Working in GitHub repository"
+          >
+            <Github className="w-3 h-3" />
+            <span>{githubRepo.owner}/{githubRepo.repo}</span>
+          </a>
         )}
 
         {/* Resumable badge */}

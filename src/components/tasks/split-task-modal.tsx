@@ -4,7 +4,8 @@
 
 import { useState } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Loader2, Layers, AlertCircle } from 'lucide-react'
+import { Layers, AlertCircle } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import type { TaskSection } from '@/lib/agent/task-service'
 
 interface SplitTaskModalProps {
@@ -192,7 +193,7 @@ export function SplitTaskModal({
           >
             {isSplitting ? (
               <>
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Spinner size="xs" />
                 Adding...
               </>
             ) : (

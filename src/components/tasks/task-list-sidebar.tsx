@@ -6,6 +6,7 @@
 import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { Play, Plus, ChevronRight, ChevronDown, Layers } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { Link } from '@tanstack/react-router'
 import { match } from 'ts-pattern'
 import { Input } from '@/components/ui/input'
@@ -156,7 +157,7 @@ const TaskItem = memo(function TaskItem({
       <div className="shrink-0">
         {hasActiveAgent ? (
           <div className="p-1">
-            <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            <Spinner size="sm" className="text-accent" />
           </div>
         ) : (
           <button

@@ -6,7 +6,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
-import { Loader2 } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
 import { type GitDiffView } from "@/components/git/file-list"
 import { useTheme } from "@/components/theme"
@@ -324,7 +324,7 @@ export function TaskReviewPanel({
   if (filesLoading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <Spinner size="md" className="text-muted-foreground" />
       </div>
     )
   }
@@ -357,7 +357,7 @@ export function TaskReviewPanel({
   return (
     <div className="h-full flex">
       {/* Left panel - File list and commit controls */}
-      <div className="w-96 shrink-0 flex flex-col border-r border-border bg-card">
+      <div className="w-96 shrink-0 flex flex-col h-full border-r border-border bg-card">
         <FileListPanel
           files={typedFiles}
           filesBySession={filesBySession}

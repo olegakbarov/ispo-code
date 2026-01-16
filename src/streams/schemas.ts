@@ -37,6 +37,11 @@ export interface SessionCreatedEvent {
   sourceLine?: number
   /** Debug run ID for grouping multi-agent debug sessions */
   debugRunId?: string
+  /** GitHub repository info if working in a cloned repo */
+  githubRepo?: {
+    owner: string
+    repo: string
+  }
   timestamp: string
 }
 

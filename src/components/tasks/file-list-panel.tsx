@@ -42,9 +42,9 @@ export function FileListPanel({
   const someSelected = selectedFiles.size > 0 && selectedFiles.size < files.length
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border/50">
+      <div className="shrink-0 px-4 py-3 border-b border-border/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Checkbox

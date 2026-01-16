@@ -26,6 +26,10 @@ A full-stack multi-agent control panel for spawning and managing AI coding agent
 - `src/lib/agent/tools.ts` - Tool framework (read, write, edit, bash, glob, grep)
 - `src/routes/__root.tsx` - Root layout with sidebar navigation
 
+## UI Components
+
+**Spinner**: Always use `<Spinner size="xs|sm|md" />` from `@/components/ui/spinner`. Never use `Loader2` from lucide-react or inline CSS border spinners.
+
 ## Quick Commands
 
 ```bash

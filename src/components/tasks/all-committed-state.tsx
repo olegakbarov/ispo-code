@@ -3,7 +3,8 @@
  * Success UI shown when all task changes have been committed
  */
 
-import { Loader2, Check, Archive, RotateCcw } from "lucide-react"
+import { Check, Archive, RotateCcw } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 
 interface AllCommittedStateProps {
   isArchived: boolean
@@ -47,7 +48,7 @@ export function AllCommittedState({
           >
             {isRestoring ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                <Spinner size="sm" />
                 Restoring...
               </>
             ) : (
@@ -68,7 +69,7 @@ export function AllCommittedState({
           >
             {isArchiving ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                <Spinner size="sm" />
                 Archiving...
               </>
             ) : (

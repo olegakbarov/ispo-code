@@ -75,11 +75,11 @@ export const SyntaxHighlightedCode = memo(function SyntaxHighlightedCode({
   // Render fallback while loading or if highlighting failed
   if (!highlightedHtml) {
     return (
-      <pre className={`font-mono text-xs overflow-x-auto ${className}`}>
+      <pre className={`font-mono text-xs overflow-x-auto ${className}`} style={{ lineHeight: "1.2" }}>
         <code>
           {shouldShowLineNumbers
             ? code.split("\n").map((line, i) => (
-                <div key={i} className="flex">
+                <div key={i} className="flex" style={{ lineHeight: "1.2" }}>
                   <span className="text-text-muted select-none pr-3 text-right min-w-[3ch]">
                     {effectiveStartLine + i}
                   </span>

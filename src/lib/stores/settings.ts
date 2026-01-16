@@ -9,8 +9,14 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { AgentType } from "@/lib/agent/types"
 import type { PlannerAgentType } from "@/lib/agent/config"
+import { DEFAULT_THEME_ID } from "@/lib/theme-presets"
 
 interface SettingsState {
+  /** Selected theme preset ID */
+  themeId: string
+  /** Update the theme preset */
+  setThemeId: (themeId: string) => void
+
   /** Brand color hue (0-360 in OKLch color space) */
   brandHue: number
   /** Update the brand hue */
@@ -46,6 +52,9 @@ const DEFAULT_HUE = 220
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      themeId: DEFAULT_THEME_ID,
+      setThemeId: (themeId) => set({ themeId }),
+
       brandHue: DEFAULT_HUE,
       setBrandHue: (hue) => set({ brandHue: hue }),
 

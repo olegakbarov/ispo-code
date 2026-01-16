@@ -4,8 +4,10 @@
 
 import { createFileRoute } from "@tanstack/react-router"
 import { useState, useRef, useMemo } from "react"
-import { Settings, Palette, Check, Volume2, Play, Loader2, Bot, Moon, Sun, User, LogOut } from "lucide-react"
+import { Settings, Palette, Check, Volume2, Play, Bot, Moon, Sun, User, LogOut, Sparkles } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { useSettingsStore, applyBrandHue } from "@/lib/stores/settings"
+import { themePresets } from "@/lib/theme-presets"
 import { trpc } from "@/lib/trpc-client"
 import { agentTypeLabel, getModelsForAgentType, getDefaultModelId } from "@/lib/agent/config"
 import type { AgentType } from "@/lib/agent/types"
@@ -38,6 +40,8 @@ const COLOR_PRESETS = [
 
 function SettingsPage() {
   const {
+    themeId,
+    setThemeId,
     brandHue,
     setBrandHue,
     audioEnabled,
@@ -153,6 +157,65 @@ function SettingsPage() {
               <Sun className="w-4 h-4" />
               <span className="text-sm">Light</span>
             </button>
+          </div>
+        </section>
+
+        {/* Theme Preset Section */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold">Theme Preset</h2>
+          </div>
+
+          <p className="text-xs text-muted-foreground mb-4">
+            Choose a color scheme for the interface. Each preset adjusts background and surface colors.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            {themePresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => setThemeId(preset.id)}
+                className={`flex flex-col gap-1 p-3 rounded-lg border transition-all text-left ${
+                  themeId === preset.id
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border bg-card hover:border-foreground/30'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-4 h-4 rounded-full border border-border/50"
+                    style={{
+                      background: theme === 'dark'
+                        ? preset.dark['--background']
+                        : preset.light['--background'],
+                    }}
+                  />
+                  <div
+                    className="w-4 h-4 rounded-full border border-border/50"
+                    style={{
+                      background: theme === 'dark'
+                        ? preset.dark['--card']
+                        : preset.light['--card'],
+                    }}
+                  />
+                  <div
+                    className="w-4 h-4 rounded-full border border-border/50"
+                    style={{
+                      background: theme === 'dark'
+                        ? preset.dark['--secondary']
+                        : preset.light['--secondary'],
+                    }}
+                  />
+                  {themeId === preset.id && (
+                    <Check className="w-3 h-3 text-primary ml-auto" />
+                  )}
+                </div>
+                <span className="text-xs font-medium">{preset.name}</span>
+                <span className="text-[10px] text-muted-foreground">{preset.description}</span>
+              </button>
+            ))}
           </div>
         </section>
 
@@ -358,7 +421,7 @@ function SettingsPage() {
               </label>
               {voicesLoading ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <Spinner size="xs" />
                   Loading voices...
                 </div>
               ) : (
@@ -393,7 +456,7 @@ function SettingsPage() {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted transition-colors disabled:opacity-50"
                 >
                   {isGenerating === "completed" ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Spinner size="xs" />
                   ) : (
                     <Play className="w-3 h-3" />
                   )}
@@ -406,7 +469,7 @@ function SettingsPage() {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted transition-colors disabled:opacity-50"
                 >
                   {isGenerating === "failed" ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Spinner size="xs" />
                   ) : (
                     <Play className="w-3 h-3" />
                   )}
@@ -502,7 +565,7 @@ function AgentDefaultsSection({
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="w-3 h-3 animate-spin" />
+          <Spinner size="xs" />
           Loading available agents...
         </div>
       ) : (

@@ -6,7 +6,8 @@
 
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { Send, Loader2 } from "lucide-react"
+import { Send } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { trpc } from "@/lib/trpc-client"
 import { ImageAttachmentInput } from "@/components/agents/image-attachment-input"
@@ -157,7 +158,7 @@ export function FileCommentInput({
         >
           {isSubmitting ? (
             <>
-              <Loader2 className="w-3 h-3 animate-spin" />
+              <Spinner size="xs" />
               Sending...
             </>
           ) : (

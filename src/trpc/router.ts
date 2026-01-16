@@ -11,6 +11,7 @@ import { debateRouter } from "./debate"
 import { audioRouter } from "./audio"
 import { rateLimitRouter } from "./rate-limit"
 import { statsRouter } from "./stats"
+import { githubRouter } from "./github"
 
 export const appRouter = router({
   git: gitRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   audio: audioRouter,
   rateLimit: rateLimitRouter,
   stats: statsRouter,
+  github: githubRouter,
 })
 
 export type AppRouter = typeof appRouter

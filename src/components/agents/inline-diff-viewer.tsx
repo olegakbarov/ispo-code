@@ -6,7 +6,8 @@
 import { useState } from "react"
 import type { FileDiff } from "@/lib/agent/git-service"
 import { parseDiff, Diff, Hunk } from "react-diff-view"
-import { ExternalLink, GitBranch, Loader2 } from "lucide-react"
+import { ExternalLink, GitBranch } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import "react-diff-view/style/index.css"
 
 interface InlineDiffViewerProps {
@@ -31,7 +32,7 @@ export function InlineDiffViewer({
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+        <Spinner size="md" className="mr-2" />
         Loading diff...
       </div>
     )

@@ -31,7 +31,8 @@ import {
   getLastMergeCommit,
   revertMerge,
 } from "@/lib/agent/git-service"
-import { listWorktreesDetailed } from "@/lib/agent/git-worktree"
+import { listWorktreesDetailed, cleanupOrphanedWorktrees } from "@/lib/agent/git-worktree"
+import { getSessionStore } from "@/lib/agent/session-store"
 import { generateCommitMessage } from "@/lib/agent/commit-message-generator"
 
 export const gitRouter = router({
@@ -270,4 +271,18 @@ export const gitRouter = router({
     .mutation(({ ctx, input }) => {
       return revertMerge(ctx.workingDir, input.mergeCommitHash)
     }),
+
+  /** Cleanup orphaned worktrees that don't have active sessions */
+  cleanupWorktrees: procedure.mutation(({ ctx }) => {
+    const repoRoot = getGitRoot(ctx.workingDir)
+    if (!repoRoot) {
+      return { cleanedCount: 0, error: "Not a git repository" }
+    }
+
+    const store = getSessionStore()
+    const activeSessionIds = new Set(store.getAllSessions().map((s) => s.id))
+    const cleanedCount = cleanupOrphanedWorktrees(repoRoot, activeSessionIds)
+
+    return { cleanedCount }
+  }),
 })
