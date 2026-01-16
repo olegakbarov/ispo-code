@@ -1,14 +1,20 @@
 /**
  * Task Command Palette
  * Provides a command palette interface for task-related actions
+ *
+ * Supports two modes:
+ * - 'commands': Show task commands and search
+ * - 'create': Show inline task creation form
  */
 
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Command } from 'cmdk'
-import { Plus, Play, CheckCircle, Archive, ArchiveRestore, FileText } from 'lucide-react'
+import { Plus, Play, CheckCircle, Archive, ArchiveRestore, FileText, ArrowLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useHotkey } from '@/lib/hooks/use-hotkeys'
+import { useCreateTaskForm } from '@/lib/hooks/use-create-task-form'
+import { CreateTaskForm, CreateTaskActions } from '@/components/tasks/create-task-form'
 
 interface TaskSummary {
   path: string
@@ -24,6 +30,8 @@ interface TaskSummary {
   subtaskCount: number
   hasSubtasks: boolean
 }
+
+type PaletteMode = 'commands' | 'create'
 
 interface TaskCommandPaletteProps {
   trigger?: React.ReactNode
@@ -54,6 +62,7 @@ export function TaskCommandPalette({
   onRestore,
 }: TaskCommandPaletteProps) {
   const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<PaletteMode>('commands')
   const navigate = useNavigate()
 
   // Handle keyboard shortcut (Cmd+K or Ctrl+K) using useHotkey
@@ -63,10 +72,31 @@ export function TaskCommandPalette({
     preventDefault: true,
   })
 
-  const handleNewTask = () => {
-    navigate({ to: '/tasks/new' })
-    setOpen(false)
-  }
+  // Reset mode when dialog closes
+  useEffect(() => {
+    if (!open) {
+      // Small delay to avoid visual flash
+      const timer = setTimeout(() => setMode('commands'), 150)
+      return () => clearTimeout(timer)
+    }
+  }, [open])
+
+  // Create task form hook
+  const createForm = useCreateTaskForm({
+    tasks,
+    onCreated: () => {
+      setOpen(false)
+    },
+    navigateOnCreate: true,
+  })
+
+  const handleNewTask = useCallback(() => {
+    setMode('create')
+  }, [])
+
+  const handleBackToCommands = useCallback(() => {
+    setMode('commands')
+  }, [])
 
   const handleTaskSelect = (path: string) => {
     navigate({
@@ -130,28 +160,74 @@ export function TaskCommandPalette({
     )
   }
 
-  return (
-    <>
-      {/* Trigger */}
-      {renderTrigger()}
+  // Render palette content - unified container with mode-based content
+  const renderPaletteContent = () => (
+    <div className="fixed left-1/2 top-[12%] -translate-x-1/2 w-full max-w-2xl px-4">
+      <div className="relative z-50 bg-card/95 backdrop-blur-md border border-border/50 rounded-lg shadow-2xl overflow-hidden min-h-[200px]">
+        {mode === 'create' ? (
+          <>
+            {/* Create mode header */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border/50">
+              <button
+                onClick={handleBackToCommands}
+                className="p-1 -ml-1 rounded hover:bg-accent/10 transition-colors"
+                title="Back to commands (Esc)"
+              >
+                <ArrowLeft className="w-4 h-4 text-muted-foreground" />
+              </button>
+              <Plus className="w-4 h-4 text-accent shrink-0" />
+              <span className="flex-1 text-sm font-vcr text-foreground">New Task</span>
+              <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-border/30 rounded font-vcr text-muted-foreground">
+                ESC
+              </kbd>
+            </div>
 
-      {/* Command palette dialog */}
-      <Command.Dialog
-        open={open}
-        onOpenChange={setOpen}
-        label="Task Commands"
-        className="fixed inset-0 z-50"
-      >
-        {/* Enhanced backdrop with blur */}
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
-        />
+            {/* Create form content */}
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              <CreateTaskForm
+                isCreating={createForm.isCreating}
+                newTitle={createForm.title}
+                taskType={createForm.taskType}
+                useAgent={createForm.useAgent}
+                createAgentType={createForm.agentType}
+                createModel={createForm.model}
+                availableTypes={createForm.availableTypes}
+                availablePlannerTypes={createForm.availablePlannerTypes}
+                debugAgents={createForm.debugAgents}
+                autoRun={createForm.autoRun}
+                includeQuestions={createForm.includeQuestions}
+                runAgentType={createForm.runAgentType}
+                runModel={createForm.runModel}
+                onCreate={createForm.onCreate}
+                onTitleChange={createForm.onTitleChange}
+                onTaskTypeChange={createForm.onTaskTypeChange}
+                onUseAgentChange={createForm.onUseAgentChange}
+                onAgentTypeChange={createForm.onAgentTypeChange}
+                onModelChange={createForm.onModelChange}
+                onAutoRunChange={createForm.onAutoRunChange}
+                onIncludeQuestionsChange={createForm.onIncludeQuestionsChange}
+                onToggleDebugAgent={createForm.onToggleDebugAgent}
+                onDebugAgentModelChange={createForm.onDebugAgentModelChange}
+                onRunAgentTypeChange={createForm.onRunAgentTypeChange}
+                onRunModelChange={createForm.onRunModelChange}
+                onCancel={handleBackToCommands}
+                autoFocus={true}
+              />
+            </div>
 
-        {/* Enhanced command palette */}
-        <div className="fixed left-1/2 top-[15%] -translate-x-1/2 w-full max-w-2xl px-4">
-          <div className="relative z-50 bg-card/95 backdrop-blur-md border border-border/50 rounded-lg shadow-2xl overflow-hidden">
-            {/* Enhanced input with icon */}
+            {/* Create actions footer */}
+            <div className="px-4 py-3 border-t border-border/50 bg-background/30">
+              <CreateTaskActions
+                isCreating={createForm.isCreating}
+                canCreate={createForm.canCreate}
+                onCreate={createForm.onCreate}
+                onCancel={handleBackToCommands}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Commands mode header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border/50">
               <Plus className="w-4 h-4 text-muted-foreground shrink-0" />
               <Command.Input
@@ -345,8 +421,45 @@ export function TaskCommandPalette({
                 </Command.Group>
               )}
             </Command.List>
-          </div>
-        </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      {/* Trigger */}
+      {renderTrigger()}
+
+      {/* Command palette dialog */}
+      <Command.Dialog
+        open={open}
+        onOpenChange={(newOpen) => {
+          if (!newOpen && mode === 'create') {
+            // In create mode, Escape goes back to commands first
+            setMode('commands')
+          } else {
+            setOpen(newOpen)
+          }
+        }}
+        label="Task Commands"
+        className="fixed inset-0 z-50"
+      >
+        {/* Enhanced backdrop with blur */}
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm"
+          onClick={() => {
+            if (mode === 'create') {
+              setMode('commands')
+            } else {
+              setOpen(false)
+            }
+          }}
+        />
+
+        {/* Render unified palette content */}
+        {renderPaletteContent()}
       </Command.Dialog>
     </>
   )
