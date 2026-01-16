@@ -5,9 +5,8 @@
 
 import { useMemo, useState, useCallback, memo } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { Play, Plus, ChevronRight, ChevronDown, Layers } from 'lucide-react'
+import { Play, ChevronRight, ChevronDown, Layers } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
-import { Link } from '@tanstack/react-router'
 import { match } from 'ts-pattern'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
@@ -15,6 +14,7 @@ import { encodeTaskPath, decodeTaskPath, stripModeSuffix } from '@/lib/utils/tas
 import { useSettingsStore } from '@/lib/stores/settings'
 import { useTaskListPreferences } from '@/lib/stores/task-list-preferences'
 import { getTaskListAction, getTaskListActionTitle } from '@/components/tasks/task-list-action'
+import { TaskCommandPalette } from '@/components/tasks/task-command-palette'
 
 interface TaskSummary {
   path: string
@@ -269,15 +269,24 @@ export function TaskListSidebar() {
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
 
-      utils.tasks.getActiveAgentSessions.setData(undefined, {
-        ...(previousSessions ?? {}),
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
         [path]: {
           sessionId: `pending-${Date.now()}`,
           status: 'pending',
         },
-      })
+      }))
 
       return { previousSessions, path }
+    },
+    onSuccess: (data) => {
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [data.path]: {
+          sessionId: data.sessionId,
+          status: data.status,
+        },
+      }))
     },
     onError: (_err, _variables, context) => {
       if (context?.previousSessions !== undefined) {
@@ -285,9 +294,6 @@ export function TaskListSidebar() {
       } else {
         utils.tasks.getActiveAgentSessions.setData(undefined, {})
       }
-    },
-    onSettled: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
@@ -296,15 +302,24 @@ export function TaskListSidebar() {
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
 
-      utils.tasks.getActiveAgentSessions.setData(undefined, {
-        ...(previousSessions ?? {}),
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
         [path]: {
           sessionId: `pending-verify-${Date.now()}`,
           status: 'pending',
         },
-      })
+      }))
 
       return { previousSessions, path }
+    },
+    onSuccess: (data) => {
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [data.path]: {
+          sessionId: data.sessionId,
+          status: data.status,
+        },
+      }))
     },
     onError: (_err, _variables, context) => {
       if (context?.previousSessions !== undefined) {
@@ -312,9 +327,6 @@ export function TaskListSidebar() {
       } else {
         utils.tasks.getActiveAgentSessions.setData(undefined, {})
       }
-    },
-    onSettled: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
@@ -363,15 +375,9 @@ export function TaskListSidebar() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      {/* New task button - full row */}
+      {/* Command palette trigger - full row */}
       <div className="px-3 py-2 border-b border-border">
-        <Link
-          to="/tasks/"
-          className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-accent text-accent-foreground hover:opacity-90 transition-opacity text-xs font-vcr"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Task</span>
-        </Link>
+        <TaskCommandPalette />
       </div>
 
       {/* Filters row */}
