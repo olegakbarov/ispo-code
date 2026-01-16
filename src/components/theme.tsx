@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react"
 import { getCookie, setCookie } from "@/lib/cookies"
 import { useSettingsStore } from "@/lib/stores/settings"
 import { applyThemeVariables } from "@/lib/theme-variables"
+import { themePresets, DEFAULT_THEME_ID } from "@/lib/theme-presets"
 
 type Theme = "light" | "dark" | "system"
 
@@ -51,14 +52,29 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>("dark")
   // Track if we've initialized from cookie to avoid applying default theme
   const initialized = useRef(false)
+  // Track if settings store has hydrated from localStorage
+  const [storeHydrated, setStoreHydrated] = useState(false)
+  // Track the previous themeId to detect actual changes vs hydration
+  const prevThemeId = useRef<string | null>(null)
 
   // Get theme preset from settings store
   const themeId = useSettingsStore((state) => state.themeId)
 
+  // Listen for Zustand persist hydration
+  useEffect(() => {
+    const unsubscribe = useSettingsStore.persist.onFinishHydration(() => {
+      setStoreHydrated(true)
+    })
+    // Check if already hydrated (in case hydration finished before effect ran)
+    if (useSettingsStore.persist.hasHydrated()) {
+      setStoreHydrated(true)
+    }
+    return unsubscribe
+  }, [])
+
   // Load stored theme on mount - this is the source of truth
   useEffect(() => {
     const stored = getStoredTheme()
-    const activeTheme = stored ?? "dark"
 
     if (stored) {
       setThemeState(stored)
@@ -69,15 +85,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       // DOM already has dark from SSR/inline script, no need to reapply
     }
 
-    // Apply theme preset CSS variables on initial load
-    const isDark =
-      activeTheme === "dark" ||
-      (activeTheme === "system" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches)
-    applyThemeVariables(themeId, isDark)
-
+    // Theme preset CSS variables are already applied by inline ThemeScript
+    // No need to reapply here - just mark as initialized
     initialized.current = true
-  }, [themeId])
+  }, [])
 
   // Apply theme to DOM when it changes AFTER initialization
   // Skip the initial render to avoid race with the init effect
@@ -87,15 +98,39 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme])
 
   // Apply theme preset CSS variables when theme or themeId changes
+  // Only after store has hydrated to avoid flash from default -> hydrated value
   useEffect(() => {
-    if (!initialized.current) return
-    // Determine if dark mode is active
+    if (!initialized.current || !storeHydrated) return
+
+    // Skip if this is the first time we're seeing the hydrated value
+    // (the inline script already applied it)
+    if (prevThemeId.current === null) {
+      prevThemeId.current = themeId
+      return
+    }
+
+    // Only apply if themeId actually changed (user action)
+    if (prevThemeId.current !== themeId) {
+      prevThemeId.current = themeId
+      const isDark =
+        theme === "dark" ||
+        (theme === "system" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches)
+      applyThemeVariables(themeId, isDark)
+    }
+  }, [theme, themeId, storeHydrated])
+
+  // Re-apply theme variables when theme mode changes (not themeId)
+  useEffect(() => {
+    if (!initialized.current || !storeHydrated) return
+    // This handles light/dark mode toggle - need to reapply with current themeId
     const isDark =
       theme === "dark" ||
       (theme === "system" &&
         window.matchMedia("(prefers-color-scheme: dark)").matches)
     applyThemeVariables(themeId, isDark)
-  }, [theme, themeId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme]) // Only depend on theme, not themeId
 
   // Listen for system theme changes
   useEffect(() => {
@@ -140,23 +175,74 @@ export function useTheme() {
 }
 
 /**
+ * Generate minimal preset map for inline script
+ * Only includes data needed for early theme application
+ */
+function generatePresetMapScript(): string {
+  const presetMap: Record<string, { brandHue: number; dark: Record<string, string>; light: Record<string, string> }> = {}
+  for (const preset of themePresets) {
+    presetMap[preset.id] = {
+      brandHue: preset.brandHue,
+      dark: preset.dark,
+      light: preset.light,
+    }
+  }
+  return JSON.stringify(presetMap)
+}
+
+/**
  * Script to be injected in head to prevent flash of wrong theme
+ * Applies both dark/light mode AND theme preset CSS variables early
  */
 export function ThemeScript() {
+  const presetMap = generatePresetMapScript()
+  const defaultThemeId = DEFAULT_THEME_ID
+
   return (
     <script
       dangerouslySetInnerHTML={{
         __html: `
           (function() {
             try {
+              var root = document.documentElement;
+
+              // 1. Apply dark/light mode from cookie
               var theme = document.cookie.match(/theme=([^;]+)/)?.[1];
+              var isDark;
               if (theme === 'light') {
-                document.documentElement.classList.add('light');
+                root.classList.add('light');
+                isDark = false;
               } else if (theme === 'system') {
                 var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                document.documentElement.classList.add(prefersDark ? 'dark' : 'light');
+                root.classList.add(prefersDark ? 'dark' : 'light');
+                isDark = prefersDark;
               } else {
-                document.documentElement.classList.add('dark');
+                root.classList.add('dark');
+                isDark = true;
+              }
+
+              // 2. Apply theme preset CSS variables from localStorage
+              var presets = ${presetMap};
+              var defaultId = "${defaultThemeId}";
+              var themeId = defaultId;
+
+              try {
+                var settings = localStorage.getItem('ispo-code-settings');
+                if (settings) {
+                  var parsed = JSON.parse(settings);
+                  if (parsed.state && parsed.state.themeId) {
+                    themeId = parsed.state.themeId;
+                  }
+                }
+              } catch (e) {}
+
+              var preset = presets[themeId] || presets[defaultId];
+              if (preset) {
+                var vars = isDark ? preset.dark : preset.light;
+                for (var prop in vars) {
+                  root.style.setProperty(prop, vars[prop]);
+                }
+                root.style.setProperty('--brand-hue', String(preset.brandHue));
               }
             } catch (e) {
               document.documentElement.classList.add('dark');
