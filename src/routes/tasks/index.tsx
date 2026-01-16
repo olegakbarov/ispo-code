@@ -16,10 +16,6 @@ export const Route = createFileRoute('/tasks/')({
       // Legacy search params (for redirect)
       path: z.string().optional(),
       create: z.string().optional(),
-      // Preserved search params
-      archiveFilter: z.enum(['all', 'active', 'archived']).optional().default('active'),
-      sortBy: z.enum(['updated', 'title', 'progress']).optional(),
-      sortDir: z.enum(['asc', 'desc']).optional(),
     })
     .parse,
   beforeLoad: ({ search }) => {
@@ -28,11 +24,6 @@ export const Route = createFileRoute('/tasks/')({
       throw redirect({
         to: '/tasks/$',
         params: { _splat: encodeTaskPath(search.path) },
-        search: {
-          archiveFilter: search.archiveFilter,
-          sortBy: search.sortBy,
-          sortDir: search.sortDir,
-        },
         replace: true,
       })
     }
@@ -40,11 +31,6 @@ export const Route = createFileRoute('/tasks/')({
     if (search.create === '1') {
       throw redirect({
         to: '/tasks/new',
-        search: {
-          archiveFilter: search.archiveFilter,
-          sortBy: search.sortBy,
-          sortDir: search.sortDir,
-        },
         replace: true,
       })
     }
@@ -53,15 +39,10 @@ export const Route = createFileRoute('/tasks/')({
 })
 
 function TasksIndex() {
-  const search = Route.useSearch()
-
   return (
     <TasksPage
       selectedPath={null}
       createModalOpen={false}
-      archiveFilter={search.archiveFilter}
-      sortBy={search.sortBy}
-      sortDir={search.sortDir}
     />
   )
 }

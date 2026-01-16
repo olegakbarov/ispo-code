@@ -22,6 +22,8 @@ interface CreateTaskModalProps {
   availablePlannerTypes: PlannerAgentType[]
   /** Debug agent selections for multi-agent debugging (bug type only) */
   debugAgents: DebugAgentSelection[]
+  /** Auto-run phases: planning→impl→verify */
+  autoRun: boolean
   onClose: () => void
   onCreate: () => void
   onTitleChange: (title: string) => void
@@ -29,6 +31,7 @@ interface CreateTaskModalProps {
   onUseAgentChange: (useAgent: boolean) => void
   onAgentTypeChange: (agentType: PlannerAgentType) => void
   onModelChange: (model: string) => void
+  onAutoRunChange: (autoRun: boolean) => void
   onToggleDebugAgent: (agentType: PlannerAgentType) => void
   onDebugAgentModelChange: (agentType: PlannerAgentType, model: string) => void
 }
@@ -44,6 +47,7 @@ export function CreateTaskModal({
   availableTypes,
   availablePlannerTypes,
   debugAgents,
+  autoRun,
   onClose,
   onCreate,
   onTitleChange,
@@ -51,6 +55,7 @@ export function CreateTaskModal({
   onUseAgentChange,
   onAgentTypeChange,
   onModelChange,
+  onAutoRunChange,
   onToggleDebugAgent,
   onDebugAgentModelChange,
 }: CreateTaskModalProps) {
@@ -86,12 +91,14 @@ export function CreateTaskModal({
             availableTypes={availableTypes}
             availablePlannerTypes={availablePlannerTypes}
             debugAgents={debugAgents}
+            autoRun={autoRun}
             onCreate={onCreate}
             onTitleChange={onTitleChange}
             onTaskTypeChange={onTaskTypeChange}
             onUseAgentChange={onUseAgentChange}
             onAgentTypeChange={onAgentTypeChange}
             onModelChange={onModelChange}
+            onAutoRunChange={onAutoRunChange}
             onToggleDebugAgent={onToggleDebugAgent}
             onDebugAgentModelChange={onDebugAgentModelChange}
             onCancel={onClose}

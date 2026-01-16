@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath, decodeTaskPath } from '@/lib/utils/task-routing'
 import { useSettingsStore } from '@/lib/stores/settings'
+import { useTaskListPreferences } from '@/lib/stores/task-list-preferences'
 import { getTaskListAction, getTaskListActionTitle } from '@/components/tasks/task-list-action'
 
 interface TaskSummary {
@@ -34,10 +35,6 @@ interface ActiveAgentSession {
   sessionId: string
   status: string
 }
-
-type ArchiveFilter = 'all' | 'active' | 'archived'
-type SortOption = 'updated' | 'title' | 'progress'
-type SortDirection = 'asc' | 'desc'
 
 interface TaskItemProps {
   task: TaskSummary
@@ -189,15 +186,8 @@ export function TaskListSidebar() {
     return null
   }, [pathname])
 
-  // Get search params for filter/sort state
-  const searchParams = routerState.location.search as {
-    archiveFilter?: ArchiveFilter
-    sortBy?: SortOption
-    sortDir?: SortDirection
-  }
-  const archiveFilter = searchParams.archiveFilter ?? 'active'
-  const sortBy = searchParams.sortBy ?? 'updated'
-  const sortDir = searchParams.sortDir ?? 'desc'
+  // Get filter/sort preferences from store
+  const { archiveFilter, sortBy, sortDir, setArchiveFilter } = useTaskListPreferences()
 
   // Track expanded tasks for subtask visibility
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
@@ -259,30 +249,17 @@ export function TaskListSidebar() {
     return sorted
   }, [filter, tasks, archiveFilter, sortBy, sortDir])
 
-  const handleArchiveFilterChange = useCallback((newFilter: ArchiveFilter) => {
-    // Navigate to the same task (if any) but with new filter
-    if (selectedPath) {
-      navigate({
-        to: '/tasks/$',
-        params: { _splat: encodeTaskPath(selectedPath) },
-        search: { archiveFilter: newFilter, sortBy, sortDir },
-      })
-    } else {
-      navigate({
-        to: '/tasks',
-        search: { archiveFilter: newFilter, sortBy, sortDir },
-      })
-    }
-  }, [navigate, selectedPath, sortBy, sortDir])
+  const handleArchiveFilterChange = useCallback((newFilter: typeof archiveFilter) => {
+    setArchiveFilter(newFilter)
+  }, [setArchiveFilter])
 
   const handleTaskSelect = useCallback((path: string) => {
-    // Navigate to /tasks/<encoded-path> with search params
+    // Navigate to /tasks/<encoded-path>
     navigate({
       to: '/tasks/$',
       params: { _splat: encodeTaskPath(path) },
-      search: { archiveFilter, sortBy, sortDir },
     })
-  }, [navigate, archiveFilter, sortBy, sortDir])
+  }, [navigate])
 
   // Mutations for running implementation and verification with optimistic updates
   const assignToAgentMutation = trpc.tasks.assignToAgent.useMutation({
@@ -359,9 +336,8 @@ export function TaskListSidebar() {
     // Navigate to task review page for commit & archive
     navigate({
       to: `/tasks/${encodeTaskPath(path)}/review` as '/tasks/$',
-      search: { archiveFilter, sortBy, sortDir },
     })
-  }, [navigate, archiveFilter, sortBy, sortDir])
+  }, [navigate])
 
   const handleToggleExpand = useCallback((path: string) => {
     setExpandedTasks((prev) => {
@@ -389,7 +365,6 @@ export function TaskListSidebar() {
       <div className="px-3 py-2 border-b border-border">
         <Link
           to="/tasks/new"
-          search={{ archiveFilter }}
           className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded bg-accent text-accent-foreground hover:opacity-90 transition-opacity text-xs font-vcr"
         >
           <Plus className="w-3.5 h-3.5" />

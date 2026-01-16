@@ -401,7 +401,7 @@ function AgentSessionPage() {
           to="/"
           className="text-sm text-accent hover:underline"
         >
-          Return to dashboard
+          Return to tasks
         </Link>
       </div>
     )
@@ -431,7 +431,7 @@ function AgentSessionPage() {
           to="/"
           className="text-sm text-accent hover:underline"
         >
-          Return to dashboard
+          Return to tasks
         </Link>
       </div>
     )

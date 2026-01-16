@@ -196,6 +196,49 @@ function parseQAStatus(content: string): QAStatus | undefined {
 }
 
 /**
+ * Extract autoRun flag from markdown content.
+ * Looks for: <!-- autoRun: true|false -->
+ * Returns undefined if not found.
+ */
+export function parseAutoRun(content: string): boolean | undefined {
+  const match = content.match(/<!--\s*autoRun:\s*(true|false)\s*-->/)
+  return match ? match[1] === 'true' : undefined
+}
+
+/**
+ * Update or add autoRun comment in content.
+ */
+export function updateAutoRunInContent(content: string, autoRun: boolean): string {
+  const autoRunComment = `<!-- autoRun: ${autoRun} -->`
+
+  if (content.match(/<!--\s*autoRun:\s*(true|false)\s*-->/)) {
+    // Replace existing
+    return content.replace(/<!--\s*autoRun:\s*(true|false)\s*-->/, autoRunComment)
+  }
+
+  // Add after version comment (or after title if no version)
+  const versionMatch = content.match(/<!--\s*version:\s*\d+\s*-->/)
+  if (versionMatch) {
+    return content.replace(
+      /<!--\s*version:\s*\d+\s*-->/,
+      `${versionMatch[0]}\n${autoRunComment}`
+    )
+  }
+
+  // Add after title
+  const lines = content.split("\n")
+  const titleIndex = lines.findIndex((line) => line.match(/^#\s+/))
+
+  if (titleIndex >= 0) {
+    lines.splice(titleIndex + 1, 0, "", autoRunComment)
+    return lines.join("\n")
+  }
+
+  // Add at start
+  return autoRunComment + "\n\n" + content
+}
+
+/**
  * Extract merge history from markdown content.
  * Looks for: <!-- mergeHistory: JSON array -->
  * Returns empty array if not found.

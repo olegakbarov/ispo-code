@@ -75,9 +75,13 @@ export const gitRouter = router({
     .input(z.object({
       file: z.string().min(1),
       view: z.enum(["auto", "staged", "working"]).optional().default("auto"),
+      /** Optional override for working directory (for worktree support) */
+      workingDir: z.string().optional(),
     }))
     .query(({ ctx, input }) => {
-      return getFileDiff(ctx.workingDir, input.file, input.view)
+      // Use explicit workingDir if provided, otherwise fall back to context
+      const effectiveWorkingDir = input.workingDir || ctx.workingDir
+      return getFileDiff(effectiveWorkingDir, input.file, input.view)
     }),
 
   /** Get diffs for multiple files */

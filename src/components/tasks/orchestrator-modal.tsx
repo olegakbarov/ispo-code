@@ -53,7 +53,6 @@ export function OrchestratorModal({
       navigate({
         to: '/agents/$sessionId',
         params: { sessionId },
-        search: taskPath ? { taskPath } : undefined,
       })
       onClose()
     }

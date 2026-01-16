@@ -15,9 +15,26 @@ import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
 import { getGitStatus, getGitRoot } from "@/lib/agent/git-service"
 import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
-import type { SessionStatus } from "@/lib/agent/types"
+import type { SessionStatus, AgentType } from "@/lib/agent/types"
+import { checkCLIAvailable } from "@/lib/agent/cli-runner"
 import type { RegistryEvent } from "@/streams/schemas"
 import { createRegistryEvent } from "@/streams/schemas"
+
+/** CLI agent types that require the CLI to be installed */
+const CLI_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode"]
+
+/**
+ * Validate that CLI is available for CLI-based agent types.
+ * Throws an error if the CLI is not installed.
+ */
+function validateCLIAvailability(agentType: AgentType): void {
+  if (CLI_AGENT_TYPES.includes(agentType)) {
+    const cliName = agentType as "claude" | "codex" | "opencode"
+    if (!checkCLIAvailable(cliName)) {
+      throw new Error(`${agentType} CLI is not installed. Please install it first.`)
+    }
+  }
+}
 
 /** Maximum characters per session output in orchestrator prompt */
 const MAX_SESSION_OUTPUT_CHARS = 30000
@@ -689,12 +706,20 @@ export const tasksRouter = router({
       taskType: z.enum(["bug", "feature"]).default("feature"),
       agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]).default("claude"),
       model: z.string().optional(),
+      autoRun: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Create the task file first with placeholder content
+      // Validate CLI availability before creating task
+      validateCLIAvailability(input.agentType)
+
+      // Create the task file first with placeholder content, including autoRun metadata
+      const { updateAutoRunInContent } = await import("@/lib/agent/task-service")
+      let initialContent = `# ${input.title}\n\n_${input.taskType === 'bug' ? 'Investigating bug...' : 'Generating detailed task plan...'}_\n`
+      initialContent = updateAutoRunInContent(initialContent, input.autoRun)
+
       const { path: taskPath } = createTask(ctx.workingDir, {
         title: input.title,
-        content: `# ${input.title}\n\n_${input.taskType === 'bug' ? 'Investigating bug...' : 'Generating detailed task plan...'}_\n`,
+        content: initialContent,
       })
 
       // Build the appropriate prompt based on task type
@@ -1313,6 +1338,7 @@ export const tasksRouter = router({
   /**
    * Get all files changed across all sessions for a task.
    * Aggregates changed files from all task sessions (planning, review, verify, execution).
+   * Includes session worktree path for proper git operations.
    */
   getChangedFilesForTask: procedure
     .input(z.object({
@@ -1326,6 +1352,9 @@ export const tasksRouter = router({
       // Find all active (non-deleted) session IDs for this task (fallback to splitFrom when needed)
       const taskSessionIds = getActiveSessionIdsForTask(registryEvents, input.path, task.splitFrom)
 
+      // Get repo root for worktree lookups
+      const repoRoot = getGitRoot(ctx.workingDir)
+
       // Aggregate changed files from all sessions
       const allFiles = new Map<string, {
         path: string
@@ -1335,6 +1364,7 @@ export const tasksRouter = router({
         timestamp: string
         toolUsed: string
         sessionId: string
+        sessionWorkingDir?: string
       }>()
 
       // Import agent router to get changed files
@@ -1345,6 +1375,15 @@ export const tasksRouter = router({
         try {
           // Use agent.getChangedFiles to get files for this session
           const changedFiles = await caller.getChangedFiles({ sessionId })
+
+          // Get session's worktree path if it exists
+          let sessionWorkingDir: string | undefined
+          if (repoRoot && isWorktreeIsolationEnabled()) {
+            const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
+            if (worktreeInfo) {
+              sessionWorkingDir = worktreeInfo.path
+            }
+          }
 
           // Add files to map (using path as key to deduplicate)
           for (const file of changedFiles) {
@@ -1359,6 +1398,7 @@ export const tasksRouter = router({
                 timestamp: file.timestamp,
                 toolUsed: file.toolUsed,
                 sessionId,
+                sessionWorkingDir,
               })
             }
           }
@@ -1375,7 +1415,8 @@ export const tasksRouter = router({
 
   /**
    * Check if a task has uncommitted changes.
-   * Aggregates changed files from all task sessions and checks git status.
+   * Aggregates changed files from all task sessions and checks git status
+   * from each session's worktree (or main repo if no worktree).
    */
   hasUncommittedChanges: procedure
     .input(z.object({
@@ -1393,18 +1434,37 @@ export const tasksRouter = router({
         return { hasUncommitted: false, uncommittedCount: 0, uncommittedFiles: [] }
       }
 
-      // Get changed files from all sessions
-      const changedFilePaths = new Set<string>()
+      // Get repo root for worktree lookups
+      const repoRoot = getGitRoot(ctx.workingDir)
+      const worktreeEnabled = isWorktreeIsolationEnabled()
+
+      // Collect changed files per session with their working directories
+      const sessionFiles = new Map<string, { files: Set<string>; workingDir: string }>()
       const { agentRouter } = await import("./agent")
       const caller = agentRouter.createCaller({ workingDir: "" })
 
       for (const sessionId of taskSessionIds) {
         try {
           const changedFiles = await caller.getChangedFiles({ sessionId })
+
+          // Determine working directory for this session
+          let sessionWorkingDir = ctx.workingDir
+          if (repoRoot && worktreeEnabled) {
+            const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
+            if (worktreeInfo) {
+              sessionWorkingDir = worktreeInfo.path
+            }
+          }
+
+          // Track files for this session
+          const filePaths = new Set<string>()
           for (const file of changedFiles) {
-            // Use repoRelativePath if available, otherwise relativePath
             const pathToCheck = file.repoRelativePath || file.relativePath || file.path
-            changedFilePaths.add(pathToCheck)
+            filePaths.add(pathToCheck)
+          }
+
+          if (filePaths.size > 0) {
+            sessionFiles.set(sessionId, { files: filePaths, workingDir: sessionWorkingDir })
           }
         } catch {
           // Skip sessions that can't be read
@@ -1412,31 +1472,40 @@ export const tasksRouter = router({
         }
       }
 
-      if (changedFilePaths.size === 0) {
+      if (sessionFiles.size === 0) {
         return { hasUncommitted: false, uncommittedCount: 0, uncommittedFiles: [] }
       }
 
-      // Get current git status
-      const gitStatus = getGitStatus(ctx.workingDir)
+      // Query git status from each unique working directory and aggregate uncommitted files
+      const uncommittedFiles = new Set<string>()
+      const queriedWorkingDirs = new Set<string>()
 
-      // Build set of all uncommitted files (staged, modified, untracked)
-      const uncommittedInGit = new Set<string>()
-      for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
-      for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
-      for (const f of gitStatus.untracked) uncommittedInGit.add(f)
+      for (const [, { files, workingDir }] of sessionFiles) {
+        // Get git status from this working directory (cache per workingDir to avoid redundant queries)
+        if (!queriedWorkingDirs.has(workingDir)) {
+          queriedWorkingDirs.add(workingDir)
+        }
 
-      // Find task files that are uncommitted
-      const uncommittedFiles: string[] = []
-      for (const taskFile of changedFilePaths) {
-        if (uncommittedInGit.has(taskFile)) {
-          uncommittedFiles.push(taskFile)
+        const gitStatus = getGitStatus(workingDir)
+
+        // Build set of uncommitted files for this worktree
+        const uncommittedInGit = new Set<string>()
+        for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
+        for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
+        for (const f of gitStatus.untracked) uncommittedInGit.add(f)
+
+        // Check which of this session's files are uncommitted
+        for (const filePath of files) {
+          if (uncommittedInGit.has(filePath)) {
+            uncommittedFiles.add(filePath)
+          }
         }
       }
 
       return {
-        hasUncommitted: uncommittedFiles.length > 0,
-        uncommittedCount: uncommittedFiles.length,
-        uncommittedFiles,
+        hasUncommitted: uncommittedFiles.size > 0,
+        uncommittedCount: uncommittedFiles.size,
+        uncommittedFiles: Array.from(uncommittedFiles),
       }
     }),
 
@@ -1484,12 +1553,22 @@ export const tasksRouter = router({
         agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]),
         model: z.string().optional(),
       })).min(1).max(5),
+      autoRun: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Create the task file first with placeholder content
+      // Validate CLI availability for all agents before creating task
+      for (const agent of input.agents) {
+        validateCLIAvailability(agent.agentType)
+      }
+
+      // Create the task file first with placeholder content, including autoRun metadata
+      const { updateAutoRunInContent } = await import("@/lib/agent/task-service")
+      let initialContent = `# ${input.title}\n\n_Investigating bug with ${input.agents.length} agent(s)..._\n`
+      initialContent = updateAutoRunInContent(initialContent, input.autoRun)
+
       const { path: taskPath } = createTask(ctx.workingDir, {
         title: input.title,
-        content: `# ${input.title}\n\n_Investigating bug with ${input.agents.length} agent(s)..._\n`,
+        content: initialContent,
       })
 
       // Build the debug prompt (same for all agents)

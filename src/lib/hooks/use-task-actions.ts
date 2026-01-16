@@ -24,6 +24,8 @@ import type {
   TasksAction,
   EditorState,
   CreateModalState,
+  RunAgentState,
+  VerifyAgentState,
   RewriteState,
   OrchestratorState,
   PendingCommitState,
@@ -39,14 +41,23 @@ interface TaskSessionsData {
   all: Array<{ sessionId: string }>
 }
 
+/** Extract autoRun flag from markdown content: <!-- autoRun: true|false --> */
+function parseAutoRun(content: string): boolean | undefined {
+  const match = content.match(/<!--\s*autoRun:\s*(true|false)\s*-->/)
+  return match ? match[1] === 'true' : undefined
+}
+
 interface UseTaskActionsParams {
   selectedPath: string | null
   workingDir: string | null
   activeSessionId: string | null | undefined
   latestActiveMerge: MergeHistoryEntry | null | undefined
+  mode?: 'edit' | 'review' | 'debate'
   dispatch: React.Dispatch<TasksAction>
   editor: EditorState
   create: CreateModalState
+  run: RunAgentState
+  verify: VerifyAgentState
   rewrite: RewriteState
   orchestrator: OrchestratorState
   pendingCommit: PendingCommitState
@@ -90,9 +101,12 @@ export function useTaskActions({
   workingDir,
   activeSessionId,
   latestActiveMerge,
+  mode,
   dispatch,
   editor,
   create,
+  run,
+  verify,
   rewrite,
   orchestrator,
   pendingCommit,
@@ -202,7 +216,7 @@ export function useTaskActions({
 
         if (selectedAgents.length > 0) {
           debugWithAgentsMutation.mutate(
-            { title, agents: selectedAgents },
+            { title, agents: selectedAgents, autoRun: create.autoRun },
             { onError: (err) => console.error('Failed to create debug task:', err) }
           )
         }
@@ -213,6 +227,7 @@ export function useTaskActions({
             taskType: create.taskType,
             agentType: create.agentType,
             model: create.model || undefined,
+            autoRun: create.autoRun,
           },
           { onError: (err) => console.error('Failed to create task with agent:', err) }
         )
@@ -656,7 +671,66 @@ export function useTaskActions({
   ])
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Pre-generate Commit Message Effect
+  // Pre-generate Commit Message - Shared Helper
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const triggerCommitMessageGeneration = useCallback(() => {
+    if (!selectedPath) return
+    if (pendingCommitGenerating || pendingCommitMessage) return
+
+    dispatch({
+      type: 'SET_PENDING_COMMIT_GENERATING',
+      payload: { path: selectedPath, isGenerating: true },
+    })
+
+    utils.client.tasks.getChangedFilesForTask
+      .query({ path: selectedPath })
+      .then((files) => {
+        if (files.length === 0) {
+          dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
+          return
+        }
+
+        const gitRelativeFiles = files.map(
+          (f) => f.repoRelativePath || f.relativePath || f.path
+        )
+        const taskTitle = selectedSummary?.title ?? 'Task'
+
+        return utils.client.git.generateCommitMessage
+          .mutate({
+            taskTitle,
+            taskDescription: editor.draft,
+            files: gitRelativeFiles,
+          })
+          .then((result) => {
+            dispatch({
+              type: 'SET_PENDING_COMMIT_MESSAGE',
+              payload: { path: selectedPath, message: result.message },
+            })
+          })
+      })
+      .catch((err) => {
+        console.error('Failed to pre-generate commit message:', err)
+      })
+      .finally(() => {
+        dispatch({
+          type: 'SET_PENDING_COMMIT_GENERATING',
+          payload: { path: selectedPath, isGenerating: false },
+        })
+      })
+  }, [
+    selectedPath,
+    pendingCommitGenerating,
+    pendingCommitMessage,
+    selectedSummary?.title,
+    editor.draft,
+    utils.client.tasks.getChangedFilesForTask,
+    utils.client.git.generateCommitMessage,
+    dispatch,
+  ])
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Pre-generate on Agent Completion
   // ─────────────────────────────────────────────────────────────────────────────
 
   const prevAgentStatusRef = useRef<Record<string, string | undefined>>({})
@@ -668,64 +742,123 @@ export function useTaskActions({
     const currentStatus = agentSession?.status
     prevAgentStatusRef.current[selectedPath] = currentStatus
 
-    if (pendingCommitGenerating || pendingCommitMessage) return
     if (prevStatus === undefined) return
 
     const wasActive = prevStatus === 'running' || prevStatus === 'pending'
     const isNowCompleted = currentStatus === 'completed'
 
     if (wasActive && isNowCompleted) {
-      dispatch({
-        type: 'SET_PENDING_COMMIT_GENERATING',
-        payload: { path: selectedPath, isGenerating: true },
-      })
+      triggerCommitMessageGeneration()
+    }
+  }, [selectedPath, agentSession?.status, triggerCommitMessageGeneration])
 
-      utils.client.tasks.getChangedFilesForTask
-        .query({ path: selectedPath })
-        .then((files) => {
-          if (files.length === 0) {
-            dispatch({ type: 'RESET_PENDING_COMMIT', payload: { path: selectedPath } })
-            return
-          }
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Pre-generate on Review Mode Entry
+  // ─────────────────────────────────────────────────────────────────────────────
 
-          const gitRelativeFiles = files.map(
-            (f) => f.repoRelativePath || f.relativePath || f.path
-          )
-          const taskTitle = selectedSummary?.title ?? 'Task'
+  const prevModeRef = useRef<string | undefined>(undefined)
 
-          return utils.client.git.generateCommitMessage
-            .mutate({
-              taskTitle,
-              taskDescription: editor.draft,
-              files: gitRelativeFiles,
-            })
-            .then((result) => {
-              dispatch({
-                type: 'SET_PENDING_COMMIT_MESSAGE',
-                payload: { path: selectedPath, message: result.message },
-              })
-            })
-        })
-        .catch((err) => {
-          console.error('Failed to pre-generate commit message:', err)
-        })
-        .finally(() => {
-          dispatch({
-            type: 'SET_PENDING_COMMIT_GENERATING',
-            payload: { path: selectedPath, isGenerating: false },
+  useEffect(() => {
+    if (!selectedPath) return
+
+    const prevMode = prevModeRef.current
+    prevModeRef.current = mode
+
+    // Skip on initial mount
+    if (prevMode === undefined) return
+
+    // Only trigger when transitioning TO review mode
+    const isEnteringReview = prevMode !== 'review' && mode === 'review'
+
+    if (isEnteringReview) {
+      triggerCommitMessageGeneration()
+    }
+  }, [selectedPath, mode, triggerCommitMessageGeneration])
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Auto-Run Phase Transitions
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const autoRunTriggeredRef = useRef<Record<string, string | undefined>>({})
+
+  // Query task data to get autoRun flag
+  const { data: taskDataForAutoRun } = trpc.tasks.get.useQuery(
+    { path: selectedPath ?? '' },
+    { enabled: !!selectedPath }
+  )
+
+  useEffect(() => {
+    if (!selectedPath || !agentSession) return
+
+    const prevStatus = prevAgentStatusRef.current[selectedPath]
+    const currentStatus = agentSession.status
+
+    // Check if autoRun is enabled for this task
+    const taskContent = taskDataForAutoRun?.content
+    if (!taskContent) return
+
+    const autoRun = parseAutoRun(taskContent)
+    if (!autoRun) return
+
+    // Only trigger once per session
+    const triggerKey = `${selectedPath}-${agentSession.id}`
+    if (autoRunTriggeredRef.current[triggerKey]) return
+
+    const wasActive = prevStatus === 'running' || prevStatus === 'pending'
+    const isNowCompleted = currentStatus === 'completed'
+
+    if (wasActive && isNowCompleted) {
+      // Determine session type by checking prompt or title
+      const sessionTitle = agentSession.title?.toLowerCase() || agentSession.prompt.toLowerCase()
+      const isPlanningSession = sessionTitle.includes('plan:') || sessionTitle.includes('debug:')
+      const isImplementationSession = sessionTitle.includes('implement') || sessionTitle.includes('execution')
+
+      // Mark as triggered
+      autoRunTriggeredRef.current[triggerKey] = currentStatus
+
+      if (isPlanningSession) {
+        // Planning completed → auto-trigger implementation
+        console.log('[auto-run] Planning completed, triggering implementation...')
+
+        // Delay to allow UI to update and commit message to be generated
+        setTimeout(() => {
+          // Get stored agent preferences from state
+          const agentType = run.agentType
+          const model = run.model
+
+          handleStartImplement(agentType, model, undefined).catch((err) => {
+            console.error('[auto-run] Failed to auto-trigger implementation:', err)
           })
-        })
+        }, 2000)
+      } else if (isImplementationSession) {
+        // Implementation completed → auto-trigger verification
+        console.log('[auto-run] Implementation completed, triggering verification...')
+
+        // Delay to allow UI to update
+        setTimeout(() => {
+          // Get stored agent preferences from state
+          const agentType = verify.agentType
+          const model = verify.model
+
+          handleStartVerify(agentType, model, undefined).catch((err) => {
+            console.error('[auto-run] Failed to auto-trigger verification:', err)
+          })
+        }, 2000)
+      }
     }
   }, [
     selectedPath,
+    agentSession?.id,
     agentSession?.status,
-    pendingCommitGenerating,
-    pendingCommitMessage,
-    selectedSummary?.title,
-    editor.draft,
-    utils.client.tasks.getChangedFilesForTask,
-    utils.client.git.generateCommitMessage,
-    dispatch,
+    agentSession?.title,
+    agentSession?.prompt,
+    taskDataForAutoRun?.content,
+    run.agentType,
+    run.model,
+    verify.agentType,
+    verify.model,
+    handleStartImplement,
+    handleStartVerify,
   ])
 
   return {

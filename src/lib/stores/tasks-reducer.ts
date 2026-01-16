@@ -38,6 +38,8 @@ export interface CreateModalState {
   model: string
   /** Multi-agent debug selections (bug type only) */
   debugAgents: DebugAgentSelection[]
+  /** Auto-run phases: planning→impl→verify */
+  autoRun: boolean
 }
 
 export interface RunAgentState {
@@ -125,6 +127,7 @@ export type TasksAction =
   | { type: 'SET_CREATE_USE_AGENT'; payload: boolean }
   | { type: 'SET_CREATE_AGENT_TYPE'; payload: PlannerAgentType }
   | { type: 'SET_CREATE_MODEL'; payload: string }
+  | { type: 'SET_CREATE_AUTO_RUN'; payload: boolean }
   | { type: 'RESET_CREATE_MODAL' }
   | { type: 'TOGGLE_DEBUG_AGENT'; payload: PlannerAgentType }
   | { type: 'SET_DEBUG_AGENT_MODEL'; payload: { agentType: PlannerAgentType; model: string } }
@@ -186,6 +189,7 @@ export const initialTasksState: TasksState = {
     agentType: 'codex',
     model: getDefaultModelId('codex'),
     debugAgents: [], // Initialized dynamically based on available types
+    autoRun: true, // Default checked
   },
   run: {
     agentType: 'codex',
@@ -277,6 +281,10 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
     .with({ type: 'SET_CREATE_MODEL' }, ({ payload }) => ({
       ...state,
       create: { ...state.create, model: payload },
+    }))
+    .with({ type: 'SET_CREATE_AUTO_RUN' }, ({ payload }) => ({
+      ...state,
+      create: { ...state.create, autoRun: payload },
     }))
     .with({ type: 'RESET_CREATE_MODAL' }, () => ({
       ...state,

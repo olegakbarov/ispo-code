@@ -2,7 +2,7 @@
  * Task Navigation Hook
  *
  * Handles URL-based navigation for the tasks page:
- * - buildSearchParams for preserving filter/sort state
+ * - buildSearchParams for preserving reviewFile in URL
  * - Mode change navigation (edit/review/debate)
  * - Review file selection
  * - Navigation to split-from task
@@ -11,15 +11,13 @@
 import { useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
+import { useTaskListPreferences } from '@/lib/stores/task-list-preferences'
 
 type Mode = 'edit' | 'review' | 'debate'
 
 interface UseTaskNavigationParams {
   selectedPath: string | null
   mode: Mode
-  archiveFilter: 'all' | 'active' | 'archived'
-  sortBy?: 'updated' | 'title' | 'progress'
-  sortDir?: 'asc' | 'desc'
   reviewFile?: string
   splitFrom?: string
 }
@@ -27,13 +25,11 @@ interface UseTaskNavigationParams {
 export function useTaskNavigation({
   selectedPath,
   mode,
-  archiveFilter,
-  sortBy,
-  sortDir,
   reviewFile,
   splitFrom,
 }: UseTaskNavigationParams) {
   const navigate = useNavigate()
+  const { setArchiveFilter } = useTaskListPreferences()
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Build Search Params
@@ -41,11 +37,8 @@ export function useTaskNavigation({
 
   const buildSearchParams = useCallback((overrideReviewFile?: string | null) => {
     const params: {
-      archiveFilter: typeof archiveFilter
-      sortBy?: typeof sortBy
-      sortDir?: typeof sortDir
       reviewFile?: string
-    } = { archiveFilter, sortBy, sortDir }
+    } = {}
 
     // Include reviewFile if provided or if we're in review mode with an existing value
     const fileToUse = overrideReviewFile !== undefined ? overrideReviewFile : reviewFile
@@ -53,7 +46,7 @@ export function useTaskNavigation({
       params.reviewFile = fileToUse
     }
     return params
-  }, [archiveFilter, sortBy, sortDir, reviewFile])
+  }, [reviewFile])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Mode Change
@@ -91,12 +84,14 @@ export function useTaskNavigation({
   const handleNavigateToSplitFrom = useCallback(() => {
     if (!splitFrom) return
 
+    // Set archive filter to 'all' when navigating to split-from task
+    setArchiveFilter('all')
+
     navigate({
       to: '/tasks/$',
       params: { _splat: encodeTaskPath(splitFrom) },
-      search: { archiveFilter: 'all', sortBy, sortDir },
     })
-  }, [splitFrom, navigate, sortBy, sortDir])
+  }, [splitFrom, navigate, setArchiveFilter])
 
   return {
     navigate,

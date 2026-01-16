@@ -45,12 +45,6 @@ interface TasksPageProps {
   mode?: Mode
   /** Whether the create modal should be open */
   createModalOpen: boolean
-  /** Archive filter from search params */
-  archiveFilter: 'all' | 'active' | 'archived'
-  /** Sort option from search params */
-  sortBy?: 'updated' | 'title' | 'progress'
-  /** Sort direction from search params */
-  sortDir?: 'asc' | 'desc'
   /** Selected file in review mode (git-relative path) */
   reviewFile?: string
 }
@@ -59,9 +53,6 @@ export function TasksPage({
   selectedPath,
   mode = 'edit',
   createModalOpen: initialCreateOpen,
-  archiveFilter,
-  sortBy,
-  sortDir,
   reviewFile,
 }: TasksPageProps) {
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -143,9 +134,6 @@ export function TasksPage({
   } = useTaskNavigation({
     selectedPath,
     mode,
-    archiveFilter,
-    sortBy,
-    sortDir,
     reviewFile,
     splitFrom: taskData?.splitFrom,
   })
@@ -262,6 +250,7 @@ export function TasksPage({
     workingDir,
     activeSessionId,
     latestActiveMerge,
+    mode,
     dispatch,
     editor,
     create,

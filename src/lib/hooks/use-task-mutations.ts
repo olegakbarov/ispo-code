@@ -15,9 +15,6 @@ interface UseTaskMutationsParams {
   dispatch: React.Dispatch<TasksAction>
   editor: EditorState
   buildSearchParams: (overrideReviewFile?: string | null) => {
-    archiveFilter: 'all' | 'active' | 'archived'
-    sortBy?: 'updated' | 'title' | 'progress'
-    sortDir?: 'asc' | 'desc'
     reviewFile?: string
   }
 }

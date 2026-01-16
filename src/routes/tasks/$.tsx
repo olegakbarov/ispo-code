@@ -18,9 +18,6 @@ import { decodeTaskPath } from '@/lib/utils/task-routing'
 export const Route = createFileRoute('/tasks/$')({
   validateSearch: z
     .object({
-      archiveFilter: z.enum(['all', 'active', 'archived']).optional().default('active'),
-      sortBy: z.enum(['updated', 'title', 'progress']).optional(),
-      sortDir: z.enum(['asc', 'desc']).optional(),
       reviewFile: z.string().optional(),
     })
     .parse,
@@ -58,9 +55,6 @@ function TasksSplat() {
       selectedPath={taskPath}
       mode={mode}
       createModalOpen={false}
-      archiveFilter={search.archiveFilter}
-      sortBy={search.sortBy}
-      sortDir={search.sortDir}
       reviewFile={search.reviewFile}
     />
   )

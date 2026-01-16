@@ -26,12 +26,15 @@ export interface CreateTaskFormProps {
   availablePlannerTypes: PlannerAgentType[]
   /** Debug agent selections for multi-agent debugging (bug type only) */
   debugAgents: DebugAgentSelection[]
+  /** Auto-run phases: planning→impl→verify */
+  autoRun: boolean
   onCreate: () => void
   onTitleChange: (title: string) => void
   onTaskTypeChange: (taskType: TaskType) => void
   onUseAgentChange: (useAgent: boolean) => void
   onAgentTypeChange: (agentType: PlannerAgentType) => void
   onModelChange: (model: string) => void
+  onAutoRunChange: (autoRun: boolean) => void
   onToggleDebugAgent: (agentType: PlannerAgentType) => void
   onDebugAgentModelChange: (agentType: PlannerAgentType, model: string) => void
   /** Optional: called on Escape key (only used in modal context) */
@@ -49,12 +52,14 @@ export function CreateTaskForm({
   createModel,
   availablePlannerTypes,
   debugAgents,
+  autoRun,
   onCreate,
   onTitleChange,
   onTaskTypeChange,
   onUseAgentChange,
   onAgentTypeChange,
   onModelChange,
+  onAutoRunChange,
   onToggleDebugAgent,
   onDebugAgentModelChange,
   onCancel,
@@ -130,6 +135,22 @@ export function CreateTaskForm({
           {taskType === 'bug' ? 'Debug with AI' : 'Plan with AI'}
         </span>
       </label>
+
+      {useAgent && canUseAgent && (
+        <label className="flex items-center gap-2 cursor-pointer group">
+          <Checkbox
+            checked={autoRun}
+            onChange={() => onAutoRunChange(!autoRun)}
+            disabled={isCreating}
+          />
+          <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
+            Auto-run phases
+          </span>
+          <span className="text-[10px] text-text-muted/60">
+            (planning→impl→verify)
+          </span>
+        </label>
+      )}
 
       {useAgent && canUseAgent && taskType === 'bug' && (
         /* Multi-agent selection for bug debugging */

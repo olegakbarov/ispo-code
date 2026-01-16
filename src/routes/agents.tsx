@@ -2,8 +2,8 @@
  * Agents Layout - Parent route for agent-related pages
  *
  * This is a layout component that wraps nested agent routes:
- * - /agents/ -> redirects to /
- * - / -> create new agent session
+ * - /agents/ -> redirects to /agents/new
+ * - /agents/new -> create new agent session
  * - /agents/$sessionId -> view existing session
  */
 
