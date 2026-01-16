@@ -536,20 +536,6 @@ export function DiffPanel({
 
   return (
     <div className="h-full min-h-0 min-w-0 flex flex-col">
-      <DiffTabsHeader
-        openFiles={openFiles}
-        activeFile={activeFile}
-        canToggleView={canToggleView}
-        activeView={activeView}
-        commentCounts={commentCounts}
-        toAgentFileCount={toAgentFileCount}
-        toAgentCommentCount={toAgentCommentCount}
-        onSelectFile={onSelectFile}
-        onCloseFile={onCloseFile}
-        onCloseAll={onCloseAll}
-        onViewChange={onViewChange}
-        onOpenSendToAgent={openSendModal}
-      />
 
       {!activeFile ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">

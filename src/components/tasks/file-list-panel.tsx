@@ -15,6 +15,8 @@ export interface ChangedFile {
   sessionId: string
   operation: "create" | "edit" | "delete"
   toolUsed: string
+  /** Working directory for this session (worktree path if applicable) */
+  sessionWorkingDir?: string
 }
 
 interface FileListPanelProps {
@@ -22,10 +24,11 @@ interface FileListPanelProps {
   filesBySession: Map<string, ChangedFile[]>
   selectedFiles: Map<string, string>
   expandedSessions: Set<string>
+  activeFile?: string | null
   onToggleFile: (absolutePath: string, gitPath: string) => void
   onToggleAll: () => void
   onToggleSession: (sessionId: string) => void
-  onFileClick: (file: string, view: GitDiffView) => void
+  onFileClick: (file: string, view: GitDiffView, sessionWorkingDir?: string) => void
 }
 
 export function FileListPanel({
@@ -33,6 +36,7 @@ export function FileListPanel({
   filesBySession,
   selectedFiles,
   expandedSessions,
+  activeFile,
   onToggleFile,
   onToggleAll,
   onToggleSession,
@@ -76,6 +80,7 @@ export function FileListPanel({
             sessionId={sessionId}
             files={sessionFiles}
             selectedFiles={selectedFiles}
+            activeFile={activeFile}
             isExpanded={expandedSessions.has(sessionId)}
             onToggleSession={onToggleSession}
             onToggleFile={onToggleFile}
@@ -91,16 +96,18 @@ interface SessionGroupProps {
   sessionId: string
   files: ChangedFile[]
   selectedFiles: Map<string, string>
+  activeFile?: string | null
   isExpanded: boolean
   onToggleSession: (sessionId: string) => void
   onToggleFile: (absolutePath: string, gitPath: string) => void
-  onFileClick: (file: string, view: GitDiffView) => void
+  onFileClick: (file: string, view: GitDiffView, sessionWorkingDir?: string) => void
 }
 
 const SessionGroup = memo(function SessionGroup({
   sessionId,
   files,
   selectedFiles,
+  activeFile,
   isExpanded,
   onToggleSession,
   onToggleFile,
@@ -139,15 +146,20 @@ const SessionGroup = memo(function SessionGroup({
 
       {isExpanded && (
         <div className="pb-1">
-          {files.map((file) => (
-            <FileListItem
-              key={file.path}
-              file={file}
-              isSelected={selectedFiles.has(file.path)}
-              onToggle={onToggleFile}
-              onFileClick={onFileClick}
-            />
-          ))}
+          {files.map((file) => {
+            const gitPath = file.repoRelativePath || file.relativePath || file.path
+            const isActive = activeFile === gitPath
+            return (
+              <FileListItem
+                key={file.path}
+                file={file}
+                isSelected={selectedFiles.has(file.path)}
+                isActive={isActive}
+                onToggle={onToggleFile}
+                onFileClick={onFileClick}
+              />
+            )
+          })}
         </div>
       )}
     </div>
@@ -157,13 +169,15 @@ const SessionGroup = memo(function SessionGroup({
 interface FileListItemProps {
   file: ChangedFile
   isSelected: boolean
+  isActive: boolean
   onToggle: (absolutePath: string, gitPath: string) => void
-  onFileClick: (file: string, view: GitDiffView) => void
+  onFileClick: (file: string, view: GitDiffView, sessionWorkingDir?: string) => void
 }
 
 const FileListItem = memo(function FileListItem({
   file,
   isSelected,
+  isActive,
   onToggle,
   onFileClick,
 }: FileListItemProps) {
@@ -171,20 +185,20 @@ const FileListItem = memo(function FileListItem({
   const displayPath = file.relativePath || file.path
 
   const handleRowClick = useCallback(() => {
-    // Open file diff view when clicking on the row
-    onFileClick(gitPath, "working")
-  }, [gitPath, onFileClick])
+    // Open file diff view when clicking on the row, passing session's working dir for worktree support
+    onFileClick(gitPath, "working", file.sessionWorkingDir)
+  }, [gitPath, onFileClick, file.sessionWorkingDir])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       // Enter opens the file
-      onFileClick(gitPath, "working")
+      onFileClick(gitPath, "working", file.sessionWorkingDir)
     } else if (e.key === " ") {
       // Space toggles selection
       e.preventDefault()
       onToggle(file.path, gitPath)
     }
-  }, [file.path, gitPath, onToggle, onFileClick])
+  }, [file.path, gitPath, onToggle, onFileClick, file.sessionWorkingDir])
 
   const OperationIcon = file.operation === "create" ? FilePlus
     : file.operation === "delete" ? FileX
@@ -205,7 +219,9 @@ const FileListItem = memo(function FileListItem({
       className={`
         group mx-2 px-3 py-2 rounded-md cursor-pointer
         flex items-center gap-3 transition-all
-        ${isSelected
+        ${isActive
+          ? "bg-primary/20 hover:bg-primary/25 border-l-2 border-primary"
+          : isSelected
           ? "bg-primary/10 hover:bg-primary/15"
           : "hover:bg-muted/50"
         }
