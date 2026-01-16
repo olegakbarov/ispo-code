@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Cpu, FolderOpen, ChevronRight, Settings, BarChart3, Wrench } from 'lucide-react'
+import { Cpu, FolderOpen, ChevronRight, Settings, BarChart3, Wrench, GitBranch } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { FolderPicker } from '@/components/ui/folder-picker'
 import { useWorkingDirStore } from '@/lib/stores/working-dir'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
+import { UserMenu } from '@/components/auth/user-menu'
+import { GitHubLoginButton } from '@/components/auth/github-login-button'
 
 export function Sidebar() {
+  const { data: session } = trpc.github.getSession.useQuery()
+
   return (
     <aside className="w-80 bg-card flex flex-col border-r border-border">
       <header className="h-12 flex items-center border-b border-border">
@@ -25,6 +29,9 @@ export function Sidebar() {
         {/* Project Selector */}
         <ProjectIndicator />
 
+        {/* Worktrees Link */}
+        <NavLink to="/worktrees" icon={<GitBranch className="w-4 h-4" />}>Worktrees</NavLink>
+
         {/* Stats Link */}
         <NavLink to="/stats" icon={<BarChart3 className="w-4 h-4" />}>Stats</NavLink>
 
@@ -33,6 +40,15 @@ export function Sidebar() {
 
         {/* Settings Link */}
         <NavLink to="/settings" icon={<Settings className="w-4 h-4" />}>Settings</NavLink>
+
+        {/* GitHub Auth */}
+        <div className="px-3 py-2 border-t border-border">
+          {session?.authenticated ? (
+            <UserMenu />
+          ) : (
+            <GitHubLoginButton />
+          )}
+        </div>
       </footer>
     </aside>
   )
