@@ -10,7 +10,7 @@ import { useWorkingDirStore } from "@/lib/stores/working-dir"
 
 /** Build repo path - inlined to avoid importing server-only clone-service */
 function getRepoPath(workingDir: string, owner: string, repo: string): string {
-  return `${workingDir}/.agentz/repos/${owner}/${repo}`
+  return `${workingDir}/.ispo-code/repos/${owner}/${repo}`
 }
 
 interface ReposListProps {

@@ -1,6 +1,6 @@
 /**
  * Debate Storage Module
- * File-backed persistence for debate sessions at .agentz/debates/{taskSlug}.json
+ * File-backed persistence for debate sessions at .ispo-code/debates/{taskSlug}.json
  */
 
 import * as fs from 'node:fs'
@@ -21,7 +21,7 @@ function taskPathToSlug(taskPath: string): string {
  * Get the debates directory path
  */
 function getDebatesDir(workingDir: string): string {
-  return path.join(workingDir, '.agentz', 'debates')
+  return path.join(workingDir, '.ispo-code', 'debates')
 }
 
 /**

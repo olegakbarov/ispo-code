@@ -283,7 +283,7 @@ function writeImagesTempFiles(attachments: ImageAttachment[]): string[] {
     // Determine extension from MIME type
     const ext = att.mimeType.split("/")[1] || "png"
     const fileName = att.fileName?.replace(/[^a-zA-Z0-9._-]/g, "_") || `image_${i}`
-    const tempPath = join(tempDir, `agentz_${Date.now()}_${fileName}.${ext}`)
+    const tempPath = join(tempDir, `ispo_code_${Date.now()}_${fileName}.${ext}`)
 
     // Decode base64 and write to temp file
     const buffer = Buffer.from(att.data, "base64")

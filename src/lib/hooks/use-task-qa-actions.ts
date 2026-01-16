@@ -49,7 +49,7 @@ export function useTaskQAActions({
     utils.tasks.getLatestActiveMerge.invalidate()
   }, [utils])
 
-  const expectedWorktreeBranch = activeSessionId ? `agentz/session-${activeSessionId}` : undefined
+  const expectedWorktreeBranch = activeSessionId ? `ispo-code/session-${activeSessionId}` : undefined
   const { data: branchData } = trpc.git.branches.useQuery(undefined, {
     enabled: !!workingDir && !!expectedWorktreeBranch,
   })

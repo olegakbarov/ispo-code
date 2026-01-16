@@ -28,8 +28,8 @@ import { resolve, relative, normalize, sep } from "path"
  * validatePath('src/../../../etc/passwd', '/project') // throws
  *
  * // Worktree isolation
- * validatePath('src/index.ts', '/project', { worktreePath: '/project/.agentz/worktrees/abc123' })
- * // -> '/project/.agentz/worktrees/abc123/src/index.ts'
+ * validatePath('src/index.ts', '/project', { worktreePath: '/project/.ispo-code/worktrees/abc123' })
+ * // -> '/project/.ispo-code/worktrees/abc123/src/index.ts'
  * ```
  */
 export function validatePath(

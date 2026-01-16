@@ -23,7 +23,7 @@ export default defineConfig({
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/.agentz/worktrees/**',
+      '**/.ispo-code/worktrees/**',
     ],
   },
 })

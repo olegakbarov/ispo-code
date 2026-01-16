@@ -1,6 +1,6 @@
 /**
  * GitHub repository cloning service
- * Clones repos to .agentz/repos/{owner}/{repo}
+ * Clones repos to .ispo-code/repos/{owner}/{repo}
  */
 
 import { exec } from "child_process"
@@ -21,7 +21,7 @@ export interface ClonedRepo {
  * Get the base directory for cloned repos
  */
 export function getReposDir(workingDir: string): string {
-  return path.join(workingDir, ".agentz", "repos")
+  return path.join(workingDir, ".ispo-code", "repos")
 }
 
 /**
@@ -99,7 +99,7 @@ async function configureGitCredentials(repoPath: string, accessToken: string): P
 }
 
 /**
- * List all cloned repos in the .agentz/repos directory
+ * List all cloned repos in the .ispo-code/repos directory
  */
 export function listClonedRepos(workingDir: string): ClonedRepo[] {
   const reposDir = getReposDir(workingDir)

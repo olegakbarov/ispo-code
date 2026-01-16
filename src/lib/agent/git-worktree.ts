@@ -51,7 +51,7 @@ function runGit(
  */
 function isValidWorktreeBranch(name: string): boolean {
   if (!name || name.length === 0) return false
-  if (!name.startsWith("agentz/session-")) return false
+  if (!name.startsWith("ispo-code/session-")) return false
   // Additional validation from git-service
   if (name.includes('..') || name.includes('~') || name.includes('^')) return false
   if (name.includes(' ') || name.includes('\n') || name.includes('\t')) return false
@@ -63,7 +63,7 @@ function isValidWorktreeBranch(name: string): boolean {
 /**
  * Create a git worktree for an agent session
  *
- * Creates an isolated working directory on a new branch (agentz/session-{sessionId})
+ * Creates an isolated working directory on a new branch (ispo-code/session-{sessionId})
  * that the agent can modify without affecting other concurrent sessions.
  *
  * @param options - Worktree configuration
@@ -80,7 +80,7 @@ export function createWorktree(options: WorktreeOptions): WorktreeInfo | null {
   }
 
   // Generate unique branch name for this session
-  const branch = `agentz/session-${sessionId}`
+  const branch = `ispo-code/session-${sessionId}`
   if (!isValidWorktreeBranch(branch)) {
     console.error(`[git-worktree] Invalid branch name: ${branch}`)
     return null
@@ -94,10 +94,10 @@ export function createWorktree(options: WorktreeOptions): WorktreeInfo | null {
   }
 
   // Create worktree directory (in .git/worktrees managed area)
-  const worktreePath = join(repoRoot, ".agentz", "worktrees", sessionId)
+  const worktreePath = join(repoRoot, ".ispo-code", "worktrees", sessionId)
 
   // Ensure parent directory exists
-  const worktreesDir = join(repoRoot, ".agentz", "worktrees")
+  const worktreesDir = join(repoRoot, ".ispo-code", "worktrees")
   try {
     mkdirSync(worktreesDir, { recursive: true })
   } catch (error) {
@@ -333,8 +333,8 @@ export function getWorktreeForSession(
   sessionId: string,
   repoRoot: string
 ): WorktreeInfo | null {
-  const expectedPath = join(repoRoot, ".agentz", "worktrees", sessionId)
-  const expectedBranch = `agentz/session-${sessionId}`
+  const expectedPath = join(repoRoot, ".ispo-code", "worktrees", sessionId)
+  const expectedBranch = `ispo-code/session-${sessionId}`
 
   if (!existsSync(expectedPath)) {
     return null
@@ -374,7 +374,7 @@ export function cleanupOrphanedWorktrees(
     return 0
   }
 
-  const worktreesDir = join(repoRoot, ".agentz", "worktrees")
+  const worktreesDir = join(repoRoot, ".ispo-code", "worktrees")
   if (!existsSync(worktreesDir)) {
     return 0
   }
@@ -394,7 +394,7 @@ export function cleanupOrphanedWorktrees(
       }
 
       const worktreePath = join(worktreesDir, sessionId)
-      const branch = `agentz/session-${sessionId}`
+      const branch = `ispo-code/session-${sessionId}`
 
       console.log(`[git-worktree] Cleaning up orphaned worktree for session ${sessionId}`)
       if (deleteWorktree(worktreePath, { branch, force: true })) {

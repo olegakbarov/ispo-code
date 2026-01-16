@@ -71,7 +71,7 @@ export const useSettingsStore = create<SettingsState>()(
       setDefaultVerifyAgentType: (agentType) => set({ defaultVerifyAgentType: agentType }),
       setDefaultVerifyModelId: (modelId) => set({ defaultVerifyModelId: modelId }),
     }),
-    { name: "agentz-settings" }
+    { name: "ispo-code-settings" }
   )
 )
 

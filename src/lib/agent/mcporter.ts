@@ -353,7 +353,7 @@ export class MCPorterAgent extends EventEmitter {
     while (retries < MAX_RETRIES) {
       try {
         this.runtime = await createRuntime({
-          clientInfo: { name: "agentz-qa-agent", version: "1.0.0" },
+          clientInfo: { name: "ispo-code-qa-agent", version: "1.0.0" },
           logger: {
             debug: (msg: string) => console.debug(`[MCPorter] ${msg}`),
             info: (msg: string) => console.log(`[MCPorter] ${msg}`),
@@ -751,7 +751,7 @@ export function createMCPorterAgent(options: MCPorterAgentOptions): MCPorterAgen
 export async function isMCPorterAvailable(): Promise<boolean> {
   try {
     const runtime = await createRuntime({
-      clientInfo: { name: "agentz-qa-agent", version: "1.0.0" },
+      clientInfo: { name: "ispo-code-qa-agent", version: "1.0.0" },
     })
     const servers = runtime.listServers()
     await runtime.close()

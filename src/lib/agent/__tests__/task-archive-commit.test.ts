@@ -18,7 +18,7 @@ describe('Archive Commit Flow', () => {
   let repoDir: string
 
   beforeEach(() => {
-    repoDir = mkdtempSync(join(tmpdir(), 'agentz-archive-test-'))
+    repoDir = mkdtempSync(join(tmpdir(), 'ispo-code-archive-test-'))
     runGit(['init'], repoDir)
 
     // Create tasks directory

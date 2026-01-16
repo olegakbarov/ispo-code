@@ -268,7 +268,7 @@ export interface AgentSession {
   workingDir: string
   /** Git worktree path for isolated session changes */
   worktreePath?: string
-  /** Git worktree branch name (agentz/session-{sessionId}) */
+  /** Git worktree branch name (ispo-code/session-{sessionId}) */
   worktreeBranch?: string
   /** GitHub repository info if working in a cloned repo */
   githubRepo?: {

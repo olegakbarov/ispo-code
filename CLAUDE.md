@@ -1,4 +1,4 @@
-# Agentz
+# Ispo Code
 
 A full-stack multi-agent control panel for spawning and managing AI coding agents (Claude CLI, Codex CLI, OpenCode, Cerebras GLM). Features real-time session monitoring, AI-powered task planning, and integrated git workflows.
 
@@ -52,7 +52,7 @@ npm run start        # Preview production build
 
 ## Worktree Isolation
 
-Each agent session runs in an isolated git worktree on a unique branch (`agentz/session-{id}`). This prevents:
+Each agent session runs in an isolated git worktree on a unique branch (`ispo-code/session-{id}`). This prevents:
 - Concurrent agents conflicting on same files
 - Mixed commits across sessions
 - Cross-session contamination
@@ -62,7 +62,7 @@ Each agent session runs in an isolated git worktree on a unique branch (`agentz/
 ### Architecture
 
 **Session Lifecycle**:
-1. **Spawn**: Creates `.agentz/worktrees/{sessionId}` on new branch
+1. **Spawn**: Creates `.ispo-code/worktrees/{sessionId}` on new branch
 2. **Execution**: All agent file operations scoped to worktree
 3. **Cleanup**: Deletes worktree and branch on session deletion
 
@@ -91,8 +91,8 @@ Each agent session runs in an isolated git worktree on a unique branch (`agentz/
 **Session Model**:
 ```ts
 interface AgentSession {
-  worktreePath?: string       // .agentz/worktrees/{sessionId}
-  worktreeBranch?: string     // agentz/session-{sessionId}
+  worktreePath?: string       // .ispo-code/worktrees/{sessionId}
+  worktreeBranch?: string     // ispo-code/session-{sessionId}
   // ...
 }
 ```
@@ -101,5 +101,5 @@ interface AgentSession {
 
 - **Disk Space**: Each worktree is full working copy (~repo size)
 - **Cleanup**: Orphaned worktrees removed on server restart
-- **Merging**: Manual merge from `agentz/session-*` branches to main
+- **Merging**: Manual merge from `ispo-code/session-*` branches to main
 - **Performance**: Worktree creation adds ~1-2s to session spawn

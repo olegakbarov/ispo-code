@@ -13,7 +13,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDebouncedCallback } from '@/lib/utils/debounce'
 
-const STORAGE_PREFIX = 'agentz:draft:'
+const STORAGE_PREFIX = 'ispo-code:draft:'
 
 /**
  * Build a storage key from context components

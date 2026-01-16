@@ -41,7 +41,7 @@ export const useTaskListPreferences = create<TaskListPreferencesState>()(
       sortDir: 'desc',
       setSortDir: (sortDir) => set({ sortDir }),
     }),
-    { name: "agentz-task-list-prefs" }
+    { name: "ispo-code-task-list-prefs" }
   )
 )
 

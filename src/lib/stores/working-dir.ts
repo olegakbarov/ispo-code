@@ -27,7 +27,7 @@ export const useWorkingDirStore = create<WorkingDirState>()(
       selectedRepo: null,
       setSelectedRepo: (repo) => set({ selectedRepo: repo }),
     }),
-    { name: "agentz-working-dir" }
+    { name: "ispo-code-working-dir" }
   )
 )
 

@@ -1136,7 +1136,7 @@ export interface MergeResult {
  *
  * @param cwd - Working directory
  * @param targetBranch - Branch to merge into (e.g., "main")
- * @param sourceBranch - Branch to merge from (e.g., "agentz/session-abc123")
+ * @param sourceBranch - Branch to merge from (e.g., "ispo-code/session-abc123")
  * @returns Merge result with commit hash or error
  */
 export function mergeBranch(

@@ -17,7 +17,7 @@ describe('mergeBranch', () => {
   let repoDir: string
 
   beforeEach(() => {
-    repoDir = mkdtempSync(join(tmpdir(), 'agentz-git-'))
+    repoDir = mkdtempSync(join(tmpdir(), 'ispo-code-git-'))
     runGit(['init'], repoDir)
     writeFileSync(join(repoDir, 'README.md'), 'init\n')
     runGit(['add', 'README.md'], repoDir)
@@ -30,9 +30,9 @@ describe('mergeBranch', () => {
   })
 
   it('returns a clear error when the source branch does not exist', () => {
-    const result = mergeBranch(repoDir, 'main', 'agentz/session-missing')
+    const result = mergeBranch(repoDir, 'main', 'ispo-code/session-missing')
 
     expect(result.success).toBe(false)
-    expect(result.error).toContain("Branch 'agentz/session-missing' does not exist")
+    expect(result.error).toContain("Branch 'ispo-code/session-missing' does not exist")
   })
 })
