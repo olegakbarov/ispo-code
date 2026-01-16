@@ -213,7 +213,7 @@ export class GeminiAgent extends EventEmitter {
           path: z.string().describe("The file path to read (relative to working directory or absolute)"),
         })),
         execute: async ({ path }) => {
-          agent.emitOutput("tool_use", `Reading file: ${path}`, { tool: "read_file", path })
+          agent.emitOutput("tool_use", JSON.stringify({ name: "read_file", input: { path } }), { tool: "read_file", toolName: "read_file" })
 
           try {
             // validatePath throws on invalid paths
@@ -245,7 +245,7 @@ export class GeminiAgent extends EventEmitter {
           content: z.string().describe("The content to write to the file"),
         })),
         execute: async ({ path, content }) => {
-          agent.emitOutput("tool_use", `Writing file: ${path}`, { tool: "write_file", path })
+          agent.emitOutput("tool_use", JSON.stringify({ name: "write_file", input: { path, content } }), { tool: "write_file", toolName: "write_file" })
 
           try {
             // validatePath throws on invalid paths
@@ -268,7 +268,7 @@ export class GeminiAgent extends EventEmitter {
           command: z.string().describe("The shell command to execute"),
         })),
         execute: async ({ command }) => {
-          agent.emitOutput("tool_use", `Executing: ${command}`, { tool: "exec_command", command })
+          agent.emitOutput("tool_use", JSON.stringify({ name: "exec_command", input: { command } }), { tool: "exec_command", toolName: "exec_command" })
 
           // Safety: block dangerous commands
           const dangerous = ["rm -rf /", "rm -rf ~", "mkfs", "dd if="]

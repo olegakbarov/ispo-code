@@ -26,6 +26,7 @@ import { createRuntime, type Runtime, type ServerToolInfo } from "mcporter"
 // Validation imports
 import {
   loadAndValidateConfigs,
+  getConfigPaths,
   createConnectionPool,
   acquireConnection,
   releaseConnection,
@@ -494,8 +495,8 @@ export class MCPorterAgent extends EventEmitter {
         execute: async ({ args }: { args?: Record<string, unknown> }) => {
           agent.emitOutput(
             "tool_use",
-            `Calling MCP tool: ${mcpTool.name} on ${server}`,
-            { tool: mcpTool.name, server }
+            JSON.stringify({ name: mcpTool.name, input: args ?? {} }),
+            { tool: mcpTool.name, toolName: mcpTool.name, server }
           )
 
           try {
@@ -762,14 +763,10 @@ export async function isMCPorterAvailable(): Promise<boolean> {
  */
 export function checkMCPorterAvailableSync(): boolean {
   const { existsSync, readFileSync } = require("fs")
-  const { join } = require("path")
-  const home = process.env.HOME || ""
-
-  // Check common MCPorter config locations
-  const configPaths = [
-    join(home, ".mcporter", "mcporter.json"),
-    join(home, ".config", "mcporter", "mcporter.json"),
-  ]
+  const explicitPath = process.env.MCPORTER_CONFIG_PATH?.trim()
+  const configPaths = explicitPath
+    ? [explicitPath]
+    : getConfigPaths()
 
   for (const configPath of configPaths) {
     if (existsSync(configPath)) {
@@ -786,21 +783,6 @@ export function checkMCPorterAvailableSync(): boolean {
       }
     }
   }
-
-  // Also check for Claude Desktop config (MCPorter can read it)
-  const claudeConfig = join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
-  if (existsSync(claudeConfig)) {
-    try {
-      const content = readFileSync(claudeConfig, "utf-8")
-      const config = JSON.parse(content)
-      if (config?.mcpServers && Object.keys(config.mcpServers).length > 0) {
-        return true
-      }
-    } catch {
-      // Invalid - ignore
-    }
-  }
-
   return false
 }
 

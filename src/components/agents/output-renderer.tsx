@@ -68,7 +68,7 @@ export const OutputChunk = memo(function OutputChunk({ chunk }: { chunk: AgentOu
   }, [type, content])
 
   if (type === 'tool_use' && parsedToolPayload) {
-    const toolName = parsedToolPayload.name || (metadata?.tool as string | undefined) || 'unknown'
+    const toolName = parsedToolPayload.name || (metadata?.toolName as string | undefined) || (metadata?.tool as string | undefined) || 'unknown'
     const toolInput = parsedToolPayload.input ?? parsedToolPayload.args
 
     // Special rendering for AskUserQuestion tool
