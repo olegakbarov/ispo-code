@@ -26,6 +26,13 @@ interface StatsOverview {
     input: number
     output: number
   }
+  // New efficiency/quality metrics
+  successRate: number // percentage of completed/(completed+failed)
+  avgDurationMs: number // average session duration
+  avgContextUtilization: number // average context window usage %
+  avgOutputTokens: number // average output tokens per session
+  totalMessages: number // total user+assistant messages
+  avgMessagesPerSession: number // average messages per completed session
 }
 
 /**
@@ -217,12 +224,46 @@ export const statsRouter = router({
     let failedCount = 0
     let activeCount = 0
 
+    // New aggregates for efficiency metrics
+    let totalDurationMs = 0
+    let sessionsWithDuration = 0
+    let totalContextUtilization = 0
+    let sessionsWithContext = 0
+    let totalOutputTokens = 0
+    let sessionsWithOutputTokens = 0
+    let totalMessages = 0
+    let sessionsWithMessages = 0
+
     for (const event of registryEvents) {
       if ((event.type === "session_completed" || event.type === "session_failed") && !deletedSessionIds.has(event.sessionId)) {
         const metadata = event.metadata
         if (metadata) {
           totalFilesChanged += metadata.editedFiles.length
           totalToolCalls += metadata.toolStats.totalCalls
+
+          // Duration
+          if (metadata.duration > 0) {
+            totalDurationMs += metadata.duration
+            sessionsWithDuration++
+          }
+
+          // Context window utilization
+          if (metadata.contextWindow?.utilizationPercent !== undefined) {
+            totalContextUtilization += metadata.contextWindow.utilizationPercent
+            sessionsWithContext++
+          }
+
+          // Output metrics
+          if (metadata.outputMetrics?.estimatedOutputTokens !== undefined) {
+            totalOutputTokens += metadata.outputMetrics.estimatedOutputTokens
+            sessionsWithOutputTokens++
+          }
+
+          // Message counts
+          if (metadata.messageCount !== undefined) {
+            totalMessages += metadata.messageCount
+            sessionsWithMessages++
+          }
         }
 
         if (event.type === "session_completed" && (event as SessionCompletedEvent).tokensUsed) {
@@ -250,6 +291,14 @@ export const statsRouter = router({
       }
     }
 
+    // Calculate derived metrics
+    const finishedSessions = completedCount + failedCount
+    const successRate = finishedSessions > 0 ? (completedCount / finishedSessions) * 100 : 0
+    const avgDurationMs = sessionsWithDuration > 0 ? totalDurationMs / sessionsWithDuration : 0
+    const avgContextUtilization = sessionsWithContext > 0 ? totalContextUtilization / sessionsWithContext : 0
+    const avgOutputTokens = sessionsWithOutputTokens > 0 ? totalOutputTokens / sessionsWithOutputTokens : 0
+    const avgMessagesPerSession = sessionsWithMessages > 0 ? totalMessages / sessionsWithMessages : 0
+
     const overview: StatsOverview = {
       totalTasks: tasks.length,
       totalSessions: allSessionIds.size,
@@ -262,6 +311,13 @@ export const statsRouter = router({
         input: totalTokensInput,
         output: totalTokensOutput,
       },
+      // New efficiency metrics
+      successRate,
+      avgDurationMs,
+      avgContextUtilization,
+      avgOutputTokens,
+      totalMessages,
+      avgMessagesPerSession,
     }
 
     return overview

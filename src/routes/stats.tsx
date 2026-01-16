@@ -14,11 +14,32 @@ import { SessionBreakdown } from '@/components/stats/session-breakdown'
 import { TaskStatsTable } from '@/components/stats/task-stats-table'
 import { HotFilesTable } from '@/components/stats/hot-files-table'
 import { DailyStatsChart } from '@/components/stats/daily-stats-chart'
-import { Activity, FileCode, Zap, Database } from 'lucide-react'
+import { SessionMetrics } from '@/components/stats/session-metrics'
+import { Activity, FileCode, Zap, Database, CheckCircle, Clock, Gauge, MessageSquare } from 'lucide-react'
 
 export const Route = createFileRoute('/stats')({
   component: StatsPage,
 })
+
+/**
+ * Format milliseconds into human-readable duration
+ */
+function formatDuration(ms: number): string {
+  if (ms === 0) return '0s'
+  const seconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+  }
+  if (minutes > 0) {
+    const remainingSeconds = seconds % 60
+    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
+  }
+  return `${seconds}s`
+}
 
 function StatsPage() {
   // Load all stats data
@@ -61,7 +82,7 @@ function StatsPage() {
           </p>
         </div>
 
-        {/* KPI Cards */}
+        {/* KPI Cards - Row 1: Totals */}
         {overview && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
@@ -90,6 +111,45 @@ function StatsPage() {
               iconColor="text-orange-500"
             />
           </div>
+        )}
+
+        {/* KPI Cards - Row 2: Efficiency Metrics */}
+        {overview && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              icon={<CheckCircle className="h-4 w-4" />}
+              label="Success Rate"
+              value={`${overview.successRate.toFixed(1)}%`}
+              subtitle={`${overview.completedSessions} succeeded, ${overview.failedSessions} failed`}
+              iconColor="text-emerald-500"
+            />
+            <StatCard
+              icon={<Clock className="h-4 w-4" />}
+              label="Avg Duration"
+              value={formatDuration(overview.avgDurationMs)}
+              subtitle="per completed session"
+              iconColor="text-sky-500"
+            />
+            <StatCard
+              icon={<Gauge className="h-4 w-4" />}
+              label="Avg Context Use"
+              value={`${overview.avgContextUtilization.toFixed(1)}%`}
+              subtitle="of context window"
+              iconColor="text-amber-500"
+            />
+            <StatCard
+              icon={<MessageSquare className="h-4 w-4" />}
+              label="Total Messages"
+              value={overview.totalMessages}
+              subtitle={`~${overview.avgMessagesPerSession.toFixed(1)} per session`}
+              iconColor="text-violet-500"
+            />
+          </div>
+        )}
+
+        {/* Session & Output Metrics */}
+        {overview && (
+          <SessionMetrics data={overview} />
         )}
 
         {/* Daily Activity Stats */}
