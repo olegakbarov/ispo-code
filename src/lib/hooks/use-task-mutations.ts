@@ -333,15 +333,24 @@ export function useTaskMutations({
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
 
-      utils.tasks.getActiveAgentSessions.setData(undefined, {
-        ...(previousSessions ?? {}),
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
         [path]: {
           sessionId: `pending-${Date.now()}`,
           status: 'pending',
         },
-      })
+      }))
 
       return { previousSessions, path }
+    },
+    onSuccess: (data) => {
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [data.path]: {
+          sessionId: data.sessionId,
+          status: data.status,
+        },
+      }))
     },
     onError: (_err, _variables, context) => {
       if (context?.previousSessions !== undefined) {
@@ -349,9 +358,6 @@ export function useTaskMutations({
       } else {
         utils.tasks.getActiveAgentSessions.setData(undefined, {})
       }
-    },
-    onSettled: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
@@ -402,15 +408,24 @@ export function useTaskMutations({
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
 
-      utils.tasks.getActiveAgentSessions.setData(undefined, {
-        ...(previousSessions ?? {}),
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
         [path]: {
           sessionId: `pending-verify-${Date.now()}`,
           status: 'pending',
         },
-      })
+      }))
 
       return { previousSessions, path }
+    },
+    onSuccess: (data) => {
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [data.path]: {
+          sessionId: data.sessionId,
+          status: data.status,
+        },
+      }))
     },
     onError: (_err, _variables, context) => {
       if (context?.previousSessions !== undefined) {
@@ -418,9 +433,6 @@ export function useTaskMutations({
       } else {
         utils.tasks.getActiveAgentSessions.setData(undefined, {})
       }
-    },
-    onSettled: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
@@ -433,19 +445,24 @@ export function useTaskMutations({
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
 
-      utils.tasks.getActiveAgentSessions.setData(undefined, {
-        ...(previousSessions ?? {}),
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
         [path]: {
           sessionId: `pending-rewrite-${Date.now()}`,
           status: 'pending',
         },
-      })
+      }))
 
       return { previousSessions, path }
     },
-    onSuccess: () => {
-      // Stay on task page - rewrite session will be visible in sidebar
-      // No navigation needed, already on task page
+    onSuccess: (data) => {
+      utils.tasks.getActiveAgentSessions.setData(undefined, (prev) => ({
+        ...(prev ?? {}),
+        [data.path]: {
+          sessionId: data.sessionId,
+          status: data.status,
+        },
+      }))
     },
     onError: (_err, _variables, context) => {
       if (context?.previousSessions !== undefined) {
@@ -453,9 +470,6 @@ export function useTaskMutations({
       } else {
         utils.tasks.getActiveAgentSessions.setData(undefined, {})
       }
-    },
-    onSettled: () => {
-      utils.tasks.getActiveAgentSessions.invalidate()
     },
   })
 
