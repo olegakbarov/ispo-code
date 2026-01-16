@@ -1,7 +1,7 @@
 /**
  * Settings Store
  *
- * Zustand store for user preferences including brand color and audio notifications.
+ * Zustand store for user preferences including theme and audio notifications.
  * Persists to localStorage so settings survive page refreshes.
  */
 
@@ -16,11 +16,6 @@ interface SettingsState {
   themeId: string
   /** Update the theme preset */
   setThemeId: (themeId: string) => void
-
-  /** Brand color hue (0-360 in OKLch color space) */
-  brandHue: number
-  /** Update the brand hue */
-  setBrandHue: (hue: number) => void
 
   /** Audio notifications enabled */
   audioEnabled: boolean
@@ -46,17 +41,11 @@ interface SettingsState {
   setDefaultVerifyModelId: (modelId: string | null) => void
 }
 
-// Default hue - 220 is a nice blue
-const DEFAULT_HUE = 220
-
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       themeId: DEFAULT_THEME_ID,
       setThemeId: (themeId) => set({ themeId }),
-
-      brandHue: DEFAULT_HUE,
-      setBrandHue: (hue) => set({ brandHue: hue }),
 
       audioEnabled: false,
       selectedVoiceId: null,
@@ -74,16 +63,3 @@ export const useSettingsStore = create<SettingsState>()(
     { name: "ispo-code-settings" }
   )
 )
-
-/**
- * Non-reactive getter for use outside React components.
- */
-export const getBrandHue = () => useSettingsStore.getState().brandHue
-
-/**
- * Apply brand hue to document CSS variables.
- * Call this on app init and when hue changes.
- */
-export function applyBrandHue(hue: number) {
-  document.documentElement.style.setProperty("--brand-hue", String(hue))
-}

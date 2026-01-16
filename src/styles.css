@@ -133,8 +133,8 @@ samp,
 
 /* Dark theme is default */
 :root {
-  /* Brand hue - dynamically set via JavaScript */
-  --brand-hue: 220;
+  /* Brand hue - set from theme preset via JavaScript */
+  --brand-hue: 250;
   --radius: 0.625rem;
   --background: oklch(0 0 0);
   --foreground: oklch(0.85 0 0);

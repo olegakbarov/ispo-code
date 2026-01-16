@@ -13,7 +13,6 @@ import { ThemeProvider, ThemeScript } from '@/components/theme'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TRPCProvider } from '@/components/providers'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
-import { useSettingsStore, applyBrandHue } from '@/lib/stores/settings'
 import { AppErrorFallback } from '@/components/ui/app-error-fallback'
 import { Sidebar } from '@/components/layout/sidebar'
 import { initAudioUnlock } from '@/lib/audio/audio-unlock'
@@ -40,13 +39,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 })
 
 function RootDocument() {
-  const brandHue = useSettingsStore((s) => s.brandHue)
-
-  // Apply brand hue to CSS on mount and when it changes
-  useEffect(() => {
-    applyBrandHue(brandHue)
-  }, [brandHue])
-
   // Initialize audio unlock listeners for notification sounds
   useEffect(() => {
     initAudioUnlock()

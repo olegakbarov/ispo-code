@@ -24,6 +24,9 @@ export function applyThemeVariables(themeId: string, isDark: boolean): void {
   for (const [property, value] of Object.entries(variables)) {
     root.style.setProperty(property, value)
   }
+
+  // Apply brand hue from preset
+  root.style.setProperty("--brand-hue", String(preset.brandHue))
 }
 
 /**
