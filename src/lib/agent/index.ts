@@ -6,7 +6,7 @@
  * - OpenCode SDK (embedded server)
  * - Claude CLI (subprocess)
  * - Codex CLI (subprocess)
- * - MCPorter (MCP-powered QA agent)
+ * - OpenRouter (multi-provider access)
  */
 
 // Types
@@ -29,23 +29,6 @@ export type { GeminiAgentOptions, GeminiEvents } from "./gemini"
 
 export { OpencodeAgent, createOpencodeAgent } from "./opencode"
 export type { OpencodeAgentOptions, OpencodeEvents } from "./opencode"
-
-export { MCPorterAgent, createMCPorterAgent, isMCPorterAvailable, checkMCPorterAvailableSync, MCPORTER_MODELS } from "./mcporter"
-export type { MCPorterAgentOptions, MCPorterEvents } from "./mcporter"
-
-// MCP Server validation
-export {
-  loadAndValidateConfigs,
-  validateUrlFormat,
-  validateHostname,
-  isBlacklistedHost,
-  createConnectionPool,
-  MAX_CONNECTIONS_PER_SERVER,
-  MAX_TOTAL_CONNECTIONS,
-  IDLE_CONNECTION_TIMEOUT_MS,
-  BLACKLISTED_HOSTS,
-} from "./mcp-server-validator"
-export type { MCPServerConfig, ValidationResult, ValidatedServer, ConnectionPoolState } from "./mcp-server-validator"
 
 // CLI runner for subprocess agents
 export { CLIAgentRunner, checkCLIAvailable, getAvailableAgentTypes } from "./cli-runner"

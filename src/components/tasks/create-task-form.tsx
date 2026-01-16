@@ -15,7 +15,7 @@ import { Sparkles, Bug, Zap, Bot, Cpu, HelpCircle } from 'lucide-react'
 export type TaskType = 'bug' | 'feature'
 
 /** All planner agent type candidates (shown in UI, some may be unavailable) */
-export const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'mcporter', 'openrouter']
+export const ALL_PLANNER_CANDIDATES: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'openrouter']
 
 /** cmdk-style group heading */
 function GroupHeading({ children }: { children: React.ReactNode }) {

@@ -1,7 +1,16 @@
+import { z } from "zod"
+
 /**
- * Agent types supported by the system
+ * Agent types supported by the system - single source of truth
  */
-export type AgentType = "claude" | "codex" | "opencode" | "cerebras" | "gemini" | "mcporter"
+export const AGENT_TYPES = ["claude", "codex", "opencode", "cerebras", "gemini", "openrouter"] as const
+
+export type AgentType = (typeof AGENT_TYPES)[number]
+
+/**
+ * Zod schema for validating agent types - reuse this everywhere
+ */
+export const agentTypeSchema = z.enum(AGENT_TYPES)
 
 /**
  * Image attachment for multimodal agent input
@@ -237,9 +246,9 @@ export interface OpencodeMessageData {
 }
 
 /**
- * Serializable MCPorter message format for session storage (Vercel AI SDK CoreMessage)
+ * Serializable OpenRouter message format for session storage (Vercel AI SDK CoreMessage)
  */
-export interface MCPorterMessageData {
+export interface OpenRouterMessageData {
   role: "system" | "user" | "assistant" | "tool"
   content: string | Array<{ type: string; text?: string; toolCallId?: string; toolName?: string; args?: unknown; result?: unknown }>
 }
@@ -293,8 +302,8 @@ export interface AgentSession {
   cerebrasMessages?: CerebrasMessageData[]
   /** Raw Gemini messages for conversation resumption (Vercel AI SDK format) */
   geminiMessages?: GeminiMessageData[]
-  /** Raw MCPorter messages for conversation resumption (Vercel AI SDK format) */
-  mcporterMessages?: MCPorterMessageData[]
+  /** Raw OpenRouter messages for conversation resumption (Vercel AI SDK format) */
+  openrouterMessages?: OpenRouterMessageData[]
   /** Link to a task file if this session is executing a task */
   taskPath?: string
   /** Link to a plan file if this session was created from a plan */

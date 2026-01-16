@@ -30,7 +30,7 @@ const AGENT_CONFIG: Record<AgentType, { icon: typeof Terminal; label: string; de
   cerebras: { icon: Cpu, label: 'Cerebras', desc: 'Fast inference SDK' },
   opencode: { icon: Terminal, label: 'OpenCode', desc: 'Open source agent' },
   gemini: { icon: Sparkles, label: 'Gemini', desc: 'Google AI agent' },
-  mcporter: { icon: Terminal, label: 'MCPorter', desc: 'MCP testing agent' },
+  openrouter: { icon: Sparkles, label: 'OpenRouter', desc: 'Multi-provider API' },
 }
 
 export function ImplementModal({

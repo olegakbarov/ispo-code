@@ -16,7 +16,7 @@ import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
 import { getGitStatus, getGitRoot, commitScopedChanges } from "@/lib/agent/git-service"
 import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
-import type { SessionStatus, AgentType, EditedFileInfo, AgentOutputChunk } from "@/lib/agent/types"
+import { agentTypeSchema, type SessionStatus, type AgentType, type EditedFileInfo, type AgentOutputChunk } from "@/lib/agent/types"
 import { checkCLIAvailable } from "@/lib/agent/cli-runner"
 import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent } from "@/streams/schemas"
 import { createRegistryEvent } from "@/streams/schemas"
@@ -776,7 +776,7 @@ export const tasksRouter = router({
     .input(z.object({
       title: z.string().min(1),
       taskType: z.enum(["bug", "feature"]).default("feature"),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
+      agentType: agentTypeSchema.default("claude"),
       model: z.string().optional(),
       autoRun: z.boolean().default(true),
       /** Include clarifying questions before generating final plan */
@@ -992,7 +992,7 @@ export const tasksRouter = router({
     .input(z.object({
       path: z.string().min(1),
       message: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("codex"),
+      agentType: agentTypeSchema.default("codex"),
       model: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1207,7 +1207,7 @@ Begin working on the task now.`
   assignToAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
+      agentType: agentTypeSchema.default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -1251,7 +1251,7 @@ Begin working on the task now.`
   reviewWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
+      agentType: agentTypeSchema.default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -1296,7 +1296,7 @@ Begin working on the task now.`
   verifyWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
+      agentType: agentTypeSchema.default("claude"),
       model: z.string().optional(),
       instructions: z.string().optional(),
     }))
@@ -1341,7 +1341,7 @@ Begin working on the task now.`
   rewriteWithAgent: procedure
     .input(z.object({
       path: z.string().min(1),
-      agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]).default("claude"),
+      agentType: agentTypeSchema.default("claude"),
       model: z.string().optional(),
       userComment: z.string().min(1),
     }))
@@ -1927,7 +1927,7 @@ Begin working on the task now.`
     .input(z.object({
       title: z.string().min(1),
       agents: z.array(z.object({
-        agentType: z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter", "openrouter"]),
+        agentType: agentTypeSchema,
         model: z.string().optional(),
       })).min(1).max(5),
       autoRun: z.boolean().default(true),

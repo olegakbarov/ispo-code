@@ -7,6 +7,7 @@
  * - Claude CLI (subprocess via CLIAgentRunner)
  * - Codex CLI (subprocess via CLIAgentRunner)
  * - MCPorter (MCP-powered QA agent)
+ * - OpenRouter (multi-provider via Vercel AI SDK)
  */
 
 import { EventEmitter } from "events"
@@ -17,7 +18,7 @@ import { getSessionStore } from "./session-store"
 import { CerebrasAgent } from "./cerebras"
 import { GeminiAgent } from "./gemini"
 import { OpencodeAgent } from "./opencode"
-import { MCPorterAgent } from "./mcporter"
+import { OpenRouterAgent } from "./openrouter"
 import { CLIAgentRunner, getAvailableAgentTypes } from "./cli-runner"
 import { MetadataAnalyzer } from "./metadata-analyzer"
 import { createWorktree, deleteWorktree, isWorktreeIsolationEnabled, cleanupOrphanedWorktrees } from "./git-worktree"
@@ -59,8 +60,8 @@ function isSessionResumable(session: AgentSession): boolean {
     return false
   }
 
-  // SDK agents (cerebras, gemini, opencode, mcporter) are always resumable if completed/idle
-  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "gemini" || session.agentType === "opencode" || session.agentType === "mcporter"
+  // SDK agents (cerebras, gemini, opencode, openrouter) are always resumable if completed/idle
+  const isSdkAgent = session.agentType === "cerebras" || session.agentType === "gemini" || session.agentType === "opencode" || session.agentType === "openrouter"
   if (isSdkAgent) {
     return session.status === "completed" || session.status === "idle"
   }
@@ -258,7 +259,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
     // Run the agent with resume flag, passing worktree info if available
     this.runAgent(sessionId, trimmed, session.workingDir, agentType, session.model, {
-      isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras" || agentType === "mcporter",
+      isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras" || agentType === "openrouter",
       cliSessionId: session.cliSessionId,
       worktreePath: session.worktreePath,
     })
@@ -361,17 +362,17 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
             getSessionUpdatesOnComplete: undefined as (() => Partial<AgentSession>) | undefined,
           }
         })
-        .with("mcporter", () => {
-          const agent = new MCPorterAgent({
+        .with("openrouter", () => {
+          const agent = new OpenRouterAgent({
             workingDir,
             worktreePath: options?.worktreePath,
             model,
-            messages: session?.mcporterMessages ?? undefined,
+            messages: session?.openrouterMessages ?? undefined,
           })
           return {
             agentEmitter: agent as EventEmitter & { abort: () => void; run: (p: string) => Promise<void> },
             sendApproval: undefined as ((approved: boolean) => boolean) | undefined,
-            getSessionUpdatesOnComplete: (() => ({ mcporterMessages: agent.getMessages() })) as () => Partial<AgentSession>,
+            getSessionUpdatesOnComplete: (() => ({ openrouterMessages: agent.getMessages() })) as () => Partial<AgentSession>,
           }
         })
         .with(P.union("claude", "codex"), () => {

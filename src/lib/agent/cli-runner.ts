@@ -9,7 +9,6 @@ import { join, dirname } from "path"
 import { tmpdir } from "os"
 import { match } from 'ts-pattern'
 import type { AgentOutputChunk, AgentType, ImageAttachment } from "./types"
-import { getConfigPaths } from "./mcp-server-validator"
 
 export interface CLIRunnerConfig {
   agentType: AgentType
@@ -90,34 +89,6 @@ export function checkCLIAvailable(cli: "claude" | "codex" | "opencode"): boolean
 }
 
 /**
- * Check if MCPorter is available (has configuration)
- */
-function checkMCPorterConfig(): boolean {
-  const explicitPath = process.env.MCPORTER_CONFIG_PATH?.trim()
-  const configPaths = explicitPath
-    ? [explicitPath]
-    : getConfigPaths()
-
-  for (const configPath of configPaths) {
-    if (existsSync(configPath)) {
-      try {
-        const { readFileSync } = require("fs")
-        const content = readFileSync(configPath, "utf-8")
-        const config = JSON.parse(content)
-        // Check if config has any server definitions
-        if (config && (config.servers || config.mcpServers || Array.isArray(config))) {
-          return true
-        }
-      } catch {
-        // Invalid JSON or structure - continue checking other paths
-        continue
-      }
-    }
-  }
-  return false
-}
-
-/**
  * Get available agent types based on installed CLIs and API keys
  */
 export function getAvailableAgentTypes(): AgentType[] {
@@ -134,10 +105,9 @@ export function getAvailableAgentTypes(): AgentType[] {
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()) {
     types.push("gemini")
   }
-  // MCPorter QA agent - requires MCPorter config with MCP servers
-  // Also needs GOOGLE_GENERATIVE_AI_API_KEY for reasoning (uses Gemini)
-  if (checkMCPorterConfig() && (process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim())) {
-    types.push("mcporter")
+  // OpenRouter agent via Vercel AI SDK - requires OPENROUTER_API_KEY
+  if (process.env.OPENROUTER_API_KEY?.trim()) {
+    types.push("openrouter")
   }
   return types
 }
@@ -504,10 +474,11 @@ export class CLIAgentRunner extends EventEmitter {
             if (!stdinPrompt.endsWith("\n")) {
               this.process.stdin.write("\n")
             }
-            // Claude CLI requires EOF to process input. Since we use
-            // --dangerously-skip-permissions, no interactive prompts are expected.
-            // Codex may need stdin open for interactive prompts, so only close for Claude.
-            if (agentType === "claude") {
+            // Both Claude and Codex need EOF to process stdin input.
+            // Since we use --dangerously-skip-permissions (Claude) and
+            // --dangerously-bypass-approvals-and-sandbox (Codex), no interactive
+            // prompts are expected, so we can safely close stdin.
+            if (agentType === "claude" || agentType === "codex") {
               this.process.stdin.end()
             }
           }
@@ -654,7 +625,7 @@ export class CLIAgentRunner extends EventEmitter {
       })
       .with("codex", () => {
         if (isResume && cliSessionId) {
-          const args = ["resume", cliSessionId, "--json"]
+          const args = ["resume", cliSessionId, "--json", "--dangerously-bypass-approvals-and-sandbox"]
           if (promptTransport === "args") {
             args.push(prompt)
           }
@@ -667,7 +638,9 @@ export class CLIAgentRunner extends EventEmitter {
         }
         return {
           command: cliPath,
-          args: promptTransport === "args" ? ["exec", "--json", prompt] : ["exec", "--json"],
+          args: promptTransport === "args"
+            ? ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", prompt]
+            : ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox"],
           promptTransport,
           stdinPrompt: promptTransport === "stdin" ? prompt : undefined,
         }

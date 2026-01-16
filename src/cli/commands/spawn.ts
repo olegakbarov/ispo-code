@@ -8,7 +8,7 @@ import { registerCommand } from "./index"
 import { formatSessionId, formatAgentType } from "../formatter"
 import type { CLIContext } from "../context"
 
-const VALID_AGENTS = ["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"]
+const VALID_AGENTS = ["claude", "codex", "opencode", "cerebras", "gemini", "openrouter"]
 
 registerCommand({
   name: "spawn",
@@ -36,7 +36,7 @@ registerCommand({
 
     try {
       const result = await ctx.trpc.agent.spawn({
-        agentType: agentType as "claude" | "codex" | "opencode" | "cerebras" | "gemini" | "mcporter",
+        agentType: agentType as "claude" | "codex" | "opencode" | "cerebras" | "gemini" | "openrouter",
         prompt,
       })
 

@@ -63,7 +63,7 @@ export function useTaskAgentTypeSync({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const plannerPreferredOrder: PlannerAgentType[] = useMemo(
-    () => ['claude', 'codex', 'cerebras', 'opencode', 'mcporter'],
+    () => ['claude', 'codex', 'cerebras', 'opencode', 'openrouter'],
     []
   )
 

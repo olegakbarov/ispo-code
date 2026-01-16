@@ -227,34 +227,74 @@ const CODEX_MODELS: ModelDefinition[] = [
 ]
 
 /**
- * MCPorter (QA Agent) models - Uses Gemini for LLM reasoning with MCP tools
- * MCPorter discovers and invokes MCP tools; these models power the reasoning layer
+ * OpenRouter models - Multi-provider access via unified API
+ * Format: provider/model (OpenRouter routing format)
  */
-const MCPORTER_MODELS: ModelDefinition[] = [
+const OPENROUTER_MODELS: ModelDefinition[] = [
   {
-    id: "gemini-2.0-flash",
-    name: "Gemini 2.0 Flash",
-    description: "Fast reasoning with MCP tools",
-    contextLimit: 1_048_576,
-    agentType: "mcporter",
-    provider: "Google",
+    id: "anthropic/claude-sonnet-4",
+    name: "Claude Sonnet 4",
+    description: "Balanced performance",
+    contextLimit: 200_000,
+    agentType: "openrouter",
+    provider: "Anthropic",
     isDefault: true,
   },
   {
-    id: "gemini-2.0-pro",
-    name: "Gemini 2.0 Pro",
-    description: "Advanced reasoning with MCP tools",
+    id: "anthropic/claude-opus-4",
+    name: "Claude Opus 4",
+    description: "Most capable",
+    contextLimit: 200_000,
+    agentType: "openrouter",
+    provider: "Anthropic",
+  },
+  {
+    id: "openai/gpt-4.1",
+    name: "GPT-4.1",
+    description: "Latest GPT-4",
+    contextLimit: 128_000,
+    agentType: "openrouter",
+    provider: "OpenAI",
+  },
+  {
+    id: "openai/o3",
+    name: "O3",
+    description: "Advanced reasoning",
+    contextLimit: 200_000,
+    agentType: "openrouter",
+    provider: "OpenAI",
+  },
+  {
+    id: "google/gemini-2.5-pro-preview",
+    name: "Gemini 2.5 Pro",
+    description: "Google's latest",
     contextLimit: 1_048_576,
-    agentType: "mcporter",
+    agentType: "openrouter",
     provider: "Google",
   },
   {
-    id: "gemini-1.5-pro",
-    name: "Gemini 1.5 Pro",
-    description: "Balanced performance",
-    contextLimit: 2_097_152,
-    agentType: "mcporter",
-    provider: "Google",
+    id: "meta-llama/llama-4-maverick",
+    name: "Llama 4 Maverick",
+    description: "Open source",
+    contextLimit: 131_072,
+    agentType: "openrouter",
+    provider: "Meta",
+  },
+  {
+    id: "deepseek/deepseek-r1",
+    name: "DeepSeek R1",
+    description: "Reasoning model",
+    contextLimit: 64_000,
+    agentType: "openrouter",
+    provider: "DeepSeek",
+  },
+  {
+    id: "mistralai/mistral-large-2411",
+    name: "Mistral Large",
+    description: "Enterprise grade",
+    contextLimit: 128_000,
+    agentType: "openrouter",
+    provider: "Mistral AI",
   },
 ]
 
@@ -271,7 +311,7 @@ const MODEL_REGISTRY: Record<AgentType, ModelDefinition[]> = {
   opencode: OPENCODE_MODELS,
   claude: CLAUDE_MODELS,
   codex: CODEX_MODELS,
-  mcporter: MCPORTER_MODELS,
+  openrouter: OPENROUTER_MODELS,
 }
 
 /**
@@ -333,7 +373,7 @@ export function getContextLimit(modelId: string, agentType: AgentType): number {
     opencode: 200_000,
     cerebras: 131_072,
     gemini: 1_048_576,
-    mcporter: 1_048_576,
+    openrouter: 200_000,
   }
   return defaults[agentType] ?? 128_000
 }
@@ -393,7 +433,7 @@ export function getModelsByProvider(provider: string): ModelDefinition[] {
 // ============================================================================
 
 // Re-export grouped arrays for backward compatibility
-export { CEREBRAS_MODELS, GEMINI_MODELS, OPENCODE_MODELS, CLAUDE_MODELS, CODEX_MODELS, MCPORTER_MODELS }
+export { CEREBRAS_MODELS, GEMINI_MODELS, OPENCODE_MODELS, CLAUDE_MODELS, CODEX_MODELS, OPENROUTER_MODELS }
 
 // Export the full registry
 export { MODEL_REGISTRY, ALL_MODELS }

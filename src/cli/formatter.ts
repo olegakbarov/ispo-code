@@ -43,7 +43,7 @@ export function formatAgentType(type: string): string {
     opencode: chalk.green,
     cerebras: chalk.yellow,
     gemini: chalk.cyan,
-    mcporter: chalk.white,
+    openrouter: chalk.white,
   }
   const color = colors[type] || chalk.white
   return color(type)

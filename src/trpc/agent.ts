@@ -18,12 +18,10 @@ import { killDaemon, isDaemonRunning } from "@/daemon/spawn-daemon"
 import { getStreamServerUrl } from "@/streams/server"
 import { getAvailableAgentTypes } from "@/lib/agent/cli-runner"
 import { getAgentManager } from "@/lib/agent/manager"
-import type { AgentSession, AgentOutputChunk, SessionStatus, EditedFileInfo, ImageAttachment } from "@/lib/agent/types"
+import { agentTypeSchema, type AgentSession, type AgentOutputChunk, type SessionStatus, type EditedFileInfo, type ImageAttachment } from "@/lib/agent/types"
 import type { RegistryEvent, SessionStreamEvent, AgentOutputEvent, CLISessionIdEvent, AgentStateEvent } from "@/streams/schemas"
 import { createControlEvent, createRegistryEvent, getControlStreamPath } from "@/streams/schemas"
 import { calculateRelativePaths } from "@/lib/utils/path-utils"
-
-const agentTypeSchema = z.enum(["claude", "codex", "opencode", "cerebras", "gemini", "mcporter"])
 
 /** Zod schema for image attachments */
 const imageAttachmentSchema = z.object({
@@ -342,34 +340,51 @@ export const agentRouter = router({
       claudeUseSubscription: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      console.log(`[tRPC:spawn] Starting spawn for ${input.agentType}`)
+      console.log(`[tRPC:spawn] Input:`, JSON.stringify({ ...input, prompt: input.prompt.slice(0, 100) + '...' }, null, 2))
+
       const sessionId = randomBytes(6).toString("hex")
       const streamServerUrl = getStreamServerUrl()
       const daemonNonce = randomBytes(16).toString("hex")
 
-      // Spawn daemon as detached process and track it
-      const monitor = getProcessMonitor()
-      const daemon = await monitor.spawnDaemon({
-        sessionId,
-        agentType: input.agentType,
-        prompt: input.prompt,
-        workingDir: ctx.workingDir,
-        model: input.model,
-        title: input.title,
-        taskPath: input.taskPath,
-        sourceFile: input.sourceFile,
-        sourceLine: input.sourceLine,
-        streamServerUrl,
-        daemonNonce,
-        attachments: input.attachments,
-        githubRepo: input.githubRepo,
-        claudeUseSubscription: input.claudeUseSubscription,
-      })
+      console.log(`[tRPC:spawn] Generated sessionId: ${sessionId}`)
+      console.log(`[tRPC:spawn] Stream server URL: ${streamServerUrl}`)
+      console.log(`[tRPC:spawn] Working dir: ${ctx.workingDir}`)
 
-      return {
-        sessionId,
-        status: "pending" as SessionStatus,
-        agentType: input.agentType,
-        pid: daemon.pid,
+      // Spawn daemon as detached process and track it
+      console.log(`[tRPC:spawn] Getting process monitor...`)
+      const monitor = getProcessMonitor()
+      console.log(`[tRPC:spawn] Process monitor obtained, calling spawnDaemon...`)
+
+      try {
+        const daemon = await monitor.spawnDaemon({
+          sessionId,
+          agentType: input.agentType,
+          prompt: input.prompt,
+          workingDir: ctx.workingDir,
+          model: input.model,
+          title: input.title,
+          taskPath: input.taskPath,
+          sourceFile: input.sourceFile,
+          sourceLine: input.sourceLine,
+          streamServerUrl,
+          daemonNonce,
+          attachments: input.attachments,
+          githubRepo: input.githubRepo,
+          claudeUseSubscription: input.claudeUseSubscription,
+        })
+
+        console.log(`[tRPC:spawn] Daemon spawned successfully, PID: ${daemon.pid}`)
+
+        return {
+          sessionId,
+          status: "pending" as SessionStatus,
+          agentType: input.agentType,
+          pid: daemon.pid,
+        }
+      } catch (err) {
+        console.error(`[tRPC:spawn] Failed to spawn daemon:`, err)
+        throw err
       }
     }),
 

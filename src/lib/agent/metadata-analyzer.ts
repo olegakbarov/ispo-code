@@ -30,7 +30,7 @@ const MODEL_CONTEXT_LIMITS: Record<AgentType, number> = {
   opencode: 200_000, // Varies by provider, default to Claude
   cerebras: 131_072, // GLM-4.7 / Llama-3.3-70b (131k context)
   gemini: 1_048_576, // Gemini 2.0 (1M tokens)
-  mcporter: 1_048_576, // Uses Gemini 2.0 Flash (1M tokens)
+  openrouter: 200_000, // Default to Claude, varies by model
 }
 
 /**

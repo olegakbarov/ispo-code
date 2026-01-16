@@ -4,7 +4,7 @@ A full-stack multi-agent control panel for spawning and managing AI coding agent
 
 ## Overview
 
-Ispo Code is a comprehensive web-based control panel that lets you orchestrate multiple AI coding agents (Claude, Codex, OpenCode, Cerebras, Gemini) to work on your codebase. It provides task management, real-time monitoring, git integration, and a complete workflow from planning to verification.
+Ispo Code is a comprehensive web-based control panel that lets you orchestrate multiple AI coding agents (Claude, Codex, OpenCode, Cerebras, Gemini, OpenRouter) to work on your codebase. It provides task management, real-time monitoring, git integration, and a complete workflow from planning to verification.
 
 **Tech Stack**: React 19 + TanStack Router/Start + tRPC + Tailwind CSS + Vite
 
@@ -31,7 +31,7 @@ Ispo Code is a comprehensive web-based control panel that lets you orchestrate m
   - **OpenCode** - Multi-provider embedded agent (configurable)
   - **Cerebras GLM** - GLM 4.7, 20x faster (8K-131K context)
   - **Gemini** - Google Gemini 2.0 (1M context)
-  - **QA Agent (mcporter)** - MCP-powered QA tools
+  - **OpenRouter** - Multi-provider API (Claude, GPT-4, Llama, etc.)
 - **Real-time output streaming** - Live agent output via Server-Sent Events
 - **Durable sessions** - Sessions survive server restarts via durable streams
 - **Session resumption** - Continue conversations with follow-up messages
@@ -106,6 +106,7 @@ Install CLI tools for agents you want to use:
 - **OpenCode**: `npm install -g @opencode-ai/sdk` (multi-provider)
 - **Cerebras**: SDK embedded (requires `CEREBRAS_API_KEY`)
 - **Gemini**: SDK embedded (requires `GOOGLE_GENERATIVE_AI_API_KEY`)
+- **OpenRouter**: SDK embedded (requires `OPENROUTER_API_KEY`)
 
 ### Installation
 
@@ -138,6 +139,7 @@ npm run test:run     # Run tests once
 ANTHROPIC_API_KEY=...          # For Claude CLI
 CEREBRAS_API_KEY=...           # For Cerebras GLM
 GOOGLE_GENERATIVE_AI_API_KEY=...  # For Gemini
+OPENROUTER_API_KEY=...         # For OpenRouter (multi-provider)
 
 # Optional: Audio notifications
 ELEVENLABS_API_KEY=...         # For TTS notifications

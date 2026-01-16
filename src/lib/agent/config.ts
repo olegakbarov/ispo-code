@@ -33,7 +33,7 @@ export const agentTypeLabel: Record<AgentType, string> = {
   opencode: 'OpenCode',
   cerebras: 'Cerebras GLM',
   gemini: 'Google Gemini',
-  mcporter: 'QA Agent',
+  openrouter: 'OpenRouter',
 }
 
 /**
@@ -60,6 +60,8 @@ export const CEREBRAS_MODELS = toLegacyFormat(getModelOptions('cerebras'))
 export const CLAUDE_MODELS = toLegacyFormat(getModelOptions('claude'))
 
 export const CODEX_MODELS = toLegacyFormat(getModelOptions('codex'))
+
+export const OPENROUTER_MODELS = toLegacyFormat(getModelOptions('openrouter'))
 
 /**
  * Get all model options for a given agent type
