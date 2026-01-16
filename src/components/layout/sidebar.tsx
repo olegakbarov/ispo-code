@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Cpu, BarChart3, Wrench, GitBranch } from 'lucide-react'
+import { Cpu } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { UserMenu } from '@/components/auth/user-menu'
@@ -33,17 +33,8 @@ export function Sidebar() {
       </div>
 
       <footer className="border-t border-border shrink-0">
-        {/* Worktrees Link */}
-        <NavLink to="/worktrees" icon={<GitBranch className="w-4 h-4" />}>Worktrees</NavLink>
-
-        {/* Stats Link */}
-        <NavLink to="/stats" icon={<BarChart3 className="w-4 h-4" />}>Stats</NavLink>
-
-        {/* Tool Calls Gallery Link */}
-        <NavLink to="/tool-calls" icon={<Wrench className="w-4 h-4" />}>Tool Calls</NavLink>
-
         {/* GitHub Auth */}
-        <div className="px-3 py-2 border-t border-border">
+        <div className="px-3 py-2">
           {session?.authenticated ? (
             <UserMenu />
           ) : (
@@ -52,21 +43,6 @@ export function Sidebar() {
         </div>
       </footer>
     </aside>
-  )
-}
-
-function NavLink({ to, icon, children }: { to: string; icon?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <Link
-      to={to}
-      className="flex items-center gap-2 px-3 py-2 text-sm font-vcr text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
-      activeProps={{
-        className: 'text-primary bg-secondary',
-      }}
-    >
-      {icon}
-      {children}
-    </Link>
   )
 }
 
