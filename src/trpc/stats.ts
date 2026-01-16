@@ -109,6 +109,21 @@ interface ToolCallDetails {
 }
 
 /**
+ * Daily stats aggregate for trend visualization
+ */
+interface DailyStats {
+  date: string // YYYY-MM-DD format
+  sessionsCreated: number
+  tasksCreated: number
+  toolCalls: number
+  filesChanged: number
+  tokensUsed: {
+    input: number
+    output: number
+  }
+}
+
+/**
  * Helper to determine session type from title
  */
 function getSessionType(title?: string, sourceFile?: string): string {
@@ -123,6 +138,16 @@ function getSessionType(title?: string, sourceFile?: string): string {
   if (titleLower.startsWith("run:")) return "execution"
 
   return "execution"
+}
+
+/**
+ * Helper to format date to YYYY-MM-DD in local timezone
+ */
+function toDateBucket(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 /**
@@ -654,5 +679,100 @@ export const statsRouter = router({
     toolDetails.sort((a, b) => b.totalCalls - a.totalCalls)
 
     return toolDetails
+  }),
+
+  /**
+   * Get daily stats breakdown for trend visualization
+   * Aggregates sessions, tasks, tool calls, files, and tokens by day
+   */
+  getDailyStats: procedure.query(async ({ ctx }) => {
+    const tasks = listTasks(ctx.workingDir)
+    const streamAPI = getStreamAPI()
+    const registryEvents = await streamAPI.readRegistry()
+
+    const deletedSessionIds = new Set<string>()
+    for (const event of registryEvents) {
+      if (event.type === "session_deleted") {
+        deletedSessionIds.add(event.sessionId)
+      }
+    }
+
+    // Initialize daily buckets map
+    const dailyBuckets = new Map<string, {
+      sessionsCreated: number
+      tasksCreated: number
+      toolCalls: number
+      filesChanged: number
+      tokensInput: number
+      tokensOutput: number
+    }>()
+
+    // Helper to ensure bucket exists
+    const ensureBucket = (date: string) => {
+      if (!dailyBuckets.has(date)) {
+        dailyBuckets.set(date, {
+          sessionsCreated: 0,
+          tasksCreated: 0,
+          toolCalls: 0,
+          filesChanged: 0,
+          tokensInput: 0,
+          tokensOutput: 0,
+        })
+      }
+      return dailyBuckets.get(date)!
+    }
+
+    // Aggregate sessions created per day
+    for (const event of registryEvents) {
+      if (event.type === "session_created" && !deletedSessionIds.has(event.sessionId)) {
+        const date = toDateBucket(new Date(event.timestamp))
+        const bucket = ensureBucket(date)
+        bucket.sessionsCreated++
+      }
+    }
+
+    // Aggregate tool calls, files, and tokens from completed/failed sessions
+    for (const event of registryEvents) {
+      if ((event.type === "session_completed" || event.type === "session_failed") && !deletedSessionIds.has(event.sessionId)) {
+        const date = toDateBucket(new Date(event.timestamp))
+        const bucket = ensureBucket(date)
+
+        const metadata = event.metadata
+        if (metadata) {
+          bucket.toolCalls += metadata.toolStats.totalCalls
+          bucket.filesChanged += metadata.editedFiles.length
+        }
+
+        if (event.type === "session_completed" && (event as SessionCompletedEvent).tokensUsed) {
+          const tokens = (event as SessionCompletedEvent).tokensUsed!
+          bucket.tokensInput += tokens.input
+          bucket.tokensOutput += tokens.output
+        }
+      }
+    }
+
+    // Aggregate tasks created per day
+    for (const task of tasks) {
+      const date = toDateBucket(new Date(task.createdAt))
+      const bucket = ensureBucket(date)
+      bucket.tasksCreated++
+    }
+
+    // Convert to sorted array (most recent first)
+    const dailyStats: DailyStats[] = Array.from(dailyBuckets.entries())
+      .map(([date, bucket]) => ({
+        date,
+        sessionsCreated: bucket.sessionsCreated,
+        tasksCreated: bucket.tasksCreated,
+        toolCalls: bucket.toolCalls,
+        filesChanged: bucket.filesChanged,
+        tokensUsed: {
+          input: bucket.tokensInput,
+          output: bucket.tokensOutput,
+        },
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+
+    return dailyStats
   }),
 })

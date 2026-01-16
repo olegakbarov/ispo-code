@@ -13,6 +13,7 @@ import { FileChangesTable } from '@/components/stats/file-changes-table'
 import { SessionBreakdown } from '@/components/stats/session-breakdown'
 import { TaskStatsTable } from '@/components/stats/task-stats-table'
 import { HotFilesTable } from '@/components/stats/hot-files-table'
+import { DailyStatsChart } from '@/components/stats/daily-stats-chart'
 import { Activity, FileCode, Zap, Database } from 'lucide-react'
 
 export const Route = createFileRoute('/stats')({
@@ -28,8 +29,9 @@ function StatsPage() {
   const fileChangesQuery = trpc.stats.getFileChanges.useQuery()
   const sessionStatsQuery = trpc.stats.getSessionStats.useQuery()
   const taskMetricsQuery = trpc.stats.getTaskMetrics.useQuery()
+  const dailyStatsQuery = trpc.stats.getDailyStats.useQuery()
 
-  const isLoading = overviewQuery.isLoading || toolStatsQuery.isLoading || toolDetailsQuery.isLoading || hotFilesQuery.isLoading || fileChangesQuery.isLoading || sessionStatsQuery.isLoading || taskMetricsQuery.isLoading
+  const isLoading = overviewQuery.isLoading || toolStatsQuery.isLoading || toolDetailsQuery.isLoading || hotFilesQuery.isLoading || fileChangesQuery.isLoading || sessionStatsQuery.isLoading || taskMetricsQuery.isLoading || dailyStatsQuery.isLoading
 
   if (isLoading) {
     return (
@@ -46,6 +48,7 @@ function StatsPage() {
   const fileChanges = fileChangesQuery.data
   const sessionStats = sessionStatsQuery.data
   const taskMetrics = taskMetricsQuery.data
+  const dailyStats = dailyStatsQuery.data
 
   return (
     <div className="h-full overflow-auto">
@@ -86,6 +89,13 @@ function StatsPage() {
               value={overview.totalToolCalls}
               iconColor="text-orange-500"
             />
+          </div>
+        )}
+
+        {/* Daily Activity Stats */}
+        {dailyStats && (
+          <div>
+            <DailyStatsChart data={dailyStats} />
           </div>
         )}
 
