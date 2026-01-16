@@ -521,6 +521,10 @@ export interface InitialStateDefaults {
   defaultVerifyAgentType?: AgentType | null
   /** Default verify model from settings */
   defaultVerifyModelId?: string | null
+  /** Default implementation agent type from settings */
+  defaultImplementAgentType?: AgentType | null
+  /** Default implementation model from settings */
+  defaultImplementModelId?: string | null
 }
 
 export function createInitialState(defaults: InitialStateDefaults | boolean): TasksState {
@@ -534,6 +538,8 @@ export function createInitialState(defaults: InitialStateDefaults | boolean): Ta
     defaultPlanningAgentType,
     defaultVerifyAgentType,
     defaultVerifyModelId,
+    defaultImplementAgentType,
+    defaultImplementModelId,
   } = opts
 
   return {
@@ -546,6 +552,14 @@ export function createInitialState(defaults: InitialStateDefaults | boolean): Ta
       model: defaultPlanningAgentType
         ? getDefaultModelId(defaultPlanningAgentType)
         : initialTasksState.create.model,
+    },
+    run: {
+      ...initialTasksState.run,
+      // Use settings default if provided, otherwise fall back to initial state default
+      agentType: defaultImplementAgentType ?? initialTasksState.run.agentType,
+      model: defaultImplementModelId ?? (defaultImplementAgentType
+        ? getDefaultModelId(defaultImplementAgentType)
+        : initialTasksState.run.model),
     },
     verify: {
       ...initialTasksState.verify,

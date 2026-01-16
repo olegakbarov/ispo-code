@@ -39,6 +39,10 @@ function SettingsPage() {
     setDefaultVerifyAgentType,
     defaultVerifyModelId,
     setDefaultVerifyModelId,
+    defaultImplementAgentType,
+    setDefaultImplementAgentType,
+    defaultImplementModelId,
+    setDefaultImplementModelId,
   } = useSettingsStore()
 
   return (
@@ -52,6 +56,10 @@ function SettingsPage() {
         setDefaultVerifyAgentType={setDefaultVerifyAgentType}
         defaultVerifyModelId={defaultVerifyModelId}
         setDefaultVerifyModelId={setDefaultVerifyModelId}
+        defaultImplementAgentType={defaultImplementAgentType}
+        setDefaultImplementAgentType={setDefaultImplementAgentType}
+        defaultImplementModelId={defaultImplementModelId}
+        setDefaultImplementModelId={setDefaultImplementModelId}
       />
       <ClaudeAuthSection />
       <AccountSection />

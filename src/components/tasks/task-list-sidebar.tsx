@@ -356,12 +356,22 @@ export function TaskListSidebar() {
     },
   })
 
-  const handleRunImpl = useCallback((path: string) => {
-    assignToAgentMutation.mutate({ path })
-  }, [assignToAgentMutation])
+  // Get defaults from settings
+  const {
+    defaultVerifyAgentType,
+    defaultVerifyModelId,
+    defaultImplementAgentType,
+    defaultImplementModelId,
+  } = useSettingsStore()
 
-  // Get verification defaults from settings
-  const { defaultVerifyAgentType, defaultVerifyModelId } = useSettingsStore()
+  const handleRunImpl = useCallback((path: string) => {
+    assignToAgentMutation.mutate({
+      path,
+      // Use settings defaults if available, otherwise let server use its defaults
+      ...(defaultImplementAgentType && { agentType: defaultImplementAgentType }),
+      ...(defaultImplementModelId && { model: defaultImplementModelId }),
+    })
+  }, [assignToAgentMutation, defaultImplementAgentType, defaultImplementModelId])
 
   const handleRunVerify = useCallback((path: string) => {
     verifyWithAgentMutation.mutate({

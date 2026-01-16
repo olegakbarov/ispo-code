@@ -21,6 +21,10 @@ interface AgentDefaultsSectionProps {
   setDefaultVerifyAgentType: (agentType: AgentType | null) => void
   defaultVerifyModelId: string | null
   setDefaultVerifyModelId: (modelId: string | null) => void
+  defaultImplementAgentType: AgentType | null
+  setDefaultImplementAgentType: (agentType: AgentType | null) => void
+  defaultImplementModelId: string | null
+  setDefaultImplementModelId: (modelId: string | null) => void
 }
 
 export function AgentDefaultsSection({
@@ -30,6 +34,10 @@ export function AgentDefaultsSection({
   setDefaultVerifyAgentType,
   defaultVerifyModelId,
   setDefaultVerifyModelId,
+  defaultImplementAgentType,
+  setDefaultImplementAgentType,
+  defaultImplementModelId,
+  setDefaultImplementModelId,
 }: AgentDefaultsSectionProps) {
   // Fetch available agent types
   const { data: availableTypes = [], isLoading } = trpc.agent.availableTypes.useQuery()
@@ -45,6 +53,12 @@ export function AgentDefaultsSection({
     if (!defaultVerifyAgentType) return []
     return getModelsForAgentType(defaultVerifyAgentType)
   }, [defaultVerifyAgentType])
+
+  // Get models for selected implementation agent type
+  const implementModels = useMemo(() => {
+    if (!defaultImplementAgentType) return []
+    return getModelsForAgentType(defaultImplementAgentType)
+  }, [defaultImplementAgentType])
 
   const handlePlanningAgentChange = (value: string) => {
     setDefaultPlanningAgentType(value ? (value as PlannerAgentType) : null)
@@ -63,6 +77,21 @@ export function AgentDefaultsSection({
 
   const handleVerifyModelChange = (value: string) => {
     setDefaultVerifyModelId(value || null)
+  }
+
+  const handleImplementAgentChange = (value: string) => {
+    const newType = value ? (value as AgentType) : null
+    setDefaultImplementAgentType(newType)
+    // Reset model when agent type changes, set to default for the new type
+    if (newType) {
+      setDefaultImplementModelId(getDefaultModelId(newType))
+    } else {
+      setDefaultImplementModelId(null)
+    }
+  }
+
+  const handleImplementModelChange = (value: string) => {
+    setDefaultImplementModelId(value || null)
   }
 
   return (
@@ -148,6 +177,54 @@ export function AgentDefaultsSection({
                 className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
               >
                 {verifyModels.map((model) => (
+                  <option key={model.value} value={model.value}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Implementation Agent Default */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-2 block">
+              Default Implementation Agent
+            </label>
+            <p className="text-[10px] text-muted-foreground/70 mb-2">
+              Pre-selected agent for task implementation
+            </p>
+            <select
+              value={defaultImplementAgentType ?? ""}
+              onChange={(e) => handleImplementAgentChange(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Use system default</option>
+              {ALL_AGENT_TYPES.map((type) => {
+                const isAvailable = availableTypes.includes(type)
+                return (
+                  <option key={type} value={type} disabled={!isAvailable}>
+                    {agentTypeLabel[type]}{!isAvailable ? ' (Not available)' : ''}
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          {/* Implementation Model Default (only show if agent is selected) */}
+          {defaultImplementAgentType && implementModels.length > 0 && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">
+                Default Implementation Model
+              </label>
+              <p className="text-[10px] text-muted-foreground/70 mb-2">
+                Pre-selected model for the implementation agent
+              </p>
+              <select
+                value={defaultImplementModelId ?? ""}
+                onChange={(e) => handleImplementModelChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-border bg-input text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                {implementModels.map((model) => (
                   <option key={model.value} value={model.value}>
                     {model.label}
                   </option>

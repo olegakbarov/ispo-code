@@ -39,6 +39,15 @@ interface SettingsState {
   setDefaultVerifyAgentType: (agentType: AgentType | null) => void
   /** Update default verify model ID */
   setDefaultVerifyModelId: (modelId: string | null) => void
+
+  /** Default agent type for task implementation */
+  defaultImplementAgentType: AgentType | null
+  /** Default model ID for task implementation */
+  defaultImplementModelId: string | null
+  /** Update default implementation agent type */
+  setDefaultImplementAgentType: (agentType: AgentType | null) => void
+  /** Update default implementation model ID */
+  setDefaultImplementModelId: (modelId: string | null) => void
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -59,6 +68,11 @@ export const useSettingsStore = create<SettingsState>()(
       defaultVerifyModelId: null,
       setDefaultVerifyAgentType: (agentType) => set({ defaultVerifyAgentType: agentType }),
       setDefaultVerifyModelId: (modelId) => set({ defaultVerifyModelId: modelId }),
+
+      defaultImplementAgentType: null,
+      defaultImplementModelId: null,
+      setDefaultImplementAgentType: (agentType) => set({ defaultImplementAgentType: agentType }),
+      setDefaultImplementModelId: (modelId) => set({ defaultImplementModelId: modelId }),
     }),
     { name: "ispo-code-settings" }
   )

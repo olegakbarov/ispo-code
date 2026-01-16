@@ -127,6 +127,8 @@ export function useTaskAgentTypeSync({
     defaultPlanningAgentType,
     defaultVerifyAgentType,
     defaultVerifyModelId,
+    defaultImplementAgentType,
+    defaultImplementModelId,
   } = useSettingsStore()
 
   const hasAppliedSettingsRef = useRef(false)
@@ -147,10 +149,20 @@ export function useTaskAgentTypeSync({
         dispatch({ type: 'SET_VERIFY_MODEL', payload: defaultVerifyModelId })
       }
     }
+
+    // Apply default implementation agent and model from settings
+    if (defaultImplementAgentType && availableTypes.includes(defaultImplementAgentType)) {
+      dispatch({ type: 'SET_RUN_AGENT_TYPE', payload: defaultImplementAgentType })
+      if (defaultImplementModelId) {
+        dispatch({ type: 'SET_RUN_MODEL', payload: defaultImplementModelId })
+      }
+    }
   }, [
     defaultPlanningAgentType,
     defaultVerifyAgentType,
     defaultVerifyModelId,
+    defaultImplementAgentType,
+    defaultImplementModelId,
     availablePlannerTypes,
     availableTypes,
     dispatch,
