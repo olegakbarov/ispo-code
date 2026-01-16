@@ -593,6 +593,17 @@ export function DiffPanel({
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
           Binary file - cannot display diff
         </div>
+      ) : /* OPTIMIZATION: Add size guardrails for large diffs */
+        (diffData.oldContent.length + diffData.newContent.length > 500000) ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground text-sm gap-2 p-4">
+          <div>Large file - diff rendering disabled for performance</div>
+          <div className="text-xs">
+            ({Math.round((diffData.oldContent.length + diffData.newContent.length) / 1024)} KB total)
+          </div>
+          <div className="text-xs text-muted-foreground/60">
+            Old: {diffData.oldContent.split('\n').length} lines · New: {diffData.newContent.split('\n').length} lines
+          </div>
+        </div>
       ) : (
         <div className="flex-1 min-h-0 min-w-0 overflow-auto">
           {(toAgentCommentCount > 0 || (activeFile && (commentsByKey[commentKey(activeFile, activeView)]?.length ?? 0) > 0)) && (

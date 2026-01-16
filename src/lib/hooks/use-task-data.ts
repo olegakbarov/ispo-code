@@ -25,14 +25,16 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
 
   const { data: tasks = [] } = trpc.tasks.list.useQuery(undefined, {
     enabled: !!workingDir,
-    refetchInterval: 5000, // Refresh every 5s for progress updates
+    // In review mode, reduce polling frequency since task list changes rarely
+    refetchInterval: mode === 'review' ? 30000 : 5000,
   })
 
   const { data: availableTypes = [] } = trpc.agent.availableTypes.useQuery()
 
   const { data: activeAgentSessions = {} } = trpc.tasks.getActiveAgentSessions.useQuery(undefined, {
     enabled: !!workingDir,
-    refetchInterval: 2000, // Poll for agent status updates
+    // In review mode, agents are typically not running, reduce polling
+    refetchInterval: mode === 'review' ? 10000 : 2000,
   })
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +45,8 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
     { path: selectedPath ?? '' },
     {
       enabled: !!selectedPath && !!workingDir,
-      refetchInterval: 5000, // Refresh session list periodically
+      // In review mode, session list is static, reduce polling significantly
+      refetchInterval: mode === 'review' ? 30000 : 5000,
     }
   )
 

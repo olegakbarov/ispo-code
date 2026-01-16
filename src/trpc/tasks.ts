@@ -740,7 +740,7 @@ export const tasksRouter = router({
       const daemonNonce = randomBytes(16).toString("hex")
 
       const monitor = getProcessMonitor()
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
         model: input.model,
@@ -1014,7 +1014,7 @@ export const tasksRouter = router({
       const daemonNonce = randomBytes(16).toString("hex")
 
       const monitor = getProcessMonitor()
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
         model: input.model,
@@ -1058,7 +1058,7 @@ export const tasksRouter = router({
       const daemonNonce = randomBytes(16).toString("hex")
 
       const monitor = getProcessMonitor()
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
         model: input.model,
@@ -1103,7 +1103,7 @@ export const tasksRouter = router({
       const daemonNonce = randomBytes(16).toString("hex")
 
       const monitor = getProcessMonitor()
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
         model: input.model,
@@ -1148,7 +1148,7 @@ export const tasksRouter = router({
       const daemonNonce = randomBytes(16).toString("hex")
 
       const monitor = getProcessMonitor()
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId,
         agentType: input.agentType,
         model: input.model,
@@ -1339,6 +1339,8 @@ export const tasksRouter = router({
    * Get all files changed across all sessions for a task.
    * Aggregates changed files from all task sessions (planning, review, verify, execution).
    * Includes session worktree path for proper git operations.
+   *
+   * OPTIMIZED: Uses parallel session queries instead of sequential.
    */
   getChangedFilesForTask: procedure
     .input(z.object({
@@ -1352,8 +1354,39 @@ export const tasksRouter = router({
       // Find all active (non-deleted) session IDs for this task (fallback to splitFrom when needed)
       const taskSessionIds = getActiveSessionIdsForTask(registryEvents, input.path, task.splitFrom)
 
+      if (taskSessionIds.length === 0) {
+        return []
+      }
+
       // Get repo root for worktree lookups
       const repoRoot = getGitRoot(ctx.workingDir)
+      const worktreeEnabled = isWorktreeIsolationEnabled()
+
+      // Import agent router to get changed files
+      const { agentRouter } = await import("./agent")
+      const caller = agentRouter.createCaller({ workingDir: "" })
+
+      // OPTIMIZATION: Fetch all sessions in parallel instead of sequentially
+      const sessionResults = await Promise.all(
+        taskSessionIds.map(async (sessionId) => {
+          try {
+            const changedFiles = await caller.getChangedFiles({ sessionId })
+
+            // Get session's worktree path if it exists
+            let sessionWorkingDir: string | undefined
+            if (repoRoot && worktreeEnabled) {
+              const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
+              if (worktreeInfo) {
+                sessionWorkingDir = worktreeInfo.path
+              }
+            }
+
+            return { sessionId, changedFiles, sessionWorkingDir }
+          } catch {
+            return null // Skip sessions that can't be read
+          }
+        })
+      )
 
       // Aggregate changed files from all sessions
       const allFiles = new Map<string, {
@@ -1367,44 +1400,25 @@ export const tasksRouter = router({
         sessionWorkingDir?: string
       }>()
 
-      // Import agent router to get changed files
-      const { agentRouter } = await import("./agent")
-      const caller = agentRouter.createCaller({ workingDir: "" })
+      for (const result of sessionResults) {
+        if (!result) continue
+        const { sessionId, changedFiles, sessionWorkingDir } = result
 
-      for (const sessionId of taskSessionIds) {
-        try {
-          // Use agent.getChangedFiles to get files for this session
-          const changedFiles = await caller.getChangedFiles({ sessionId })
-
-          // Get session's worktree path if it exists
-          let sessionWorkingDir: string | undefined
-          if (repoRoot && isWorktreeIsolationEnabled()) {
-            const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
-            if (worktreeInfo) {
-              sessionWorkingDir = worktreeInfo.path
-            }
+        for (const file of changedFiles) {
+          // Use the latest operation for each file path
+          const existing = allFiles.get(file.path)
+          if (!existing || new Date(file.timestamp) > new Date(existing.timestamp)) {
+            allFiles.set(file.path, {
+              path: file.path,
+              relativePath: file.relativePath,
+              repoRelativePath: file.repoRelativePath,
+              operation: file.operation,
+              timestamp: file.timestamp,
+              toolUsed: file.toolUsed,
+              sessionId,
+              sessionWorkingDir,
+            })
           }
-
-          // Add files to map (using path as key to deduplicate)
-          for (const file of changedFiles) {
-            // Use the latest operation for each file path
-            const existing = allFiles.get(file.path)
-            if (!existing || new Date(file.timestamp) > new Date(existing.timestamp)) {
-              allFiles.set(file.path, {
-                path: file.path,
-                relativePath: file.relativePath,
-                repoRelativePath: file.repoRelativePath,
-                operation: file.operation,
-                timestamp: file.timestamp,
-                toolUsed: file.toolUsed,
-                sessionId,
-                sessionWorkingDir,
-              })
-            }
-          }
-        } catch (error) {
-          // Skip sessions that can't be read
-          continue
         }
       }
 
@@ -1417,6 +1431,8 @@ export const tasksRouter = router({
    * Check if a task has uncommitted changes.
    * Aggregates changed files from all task sessions and checks git status
    * from each session's worktree (or main repo if no worktree).
+   *
+   * OPTIMIZED: Uses parallel session queries instead of sequential.
    */
   hasUncommittedChanges: procedure
     .input(z.object({
@@ -1438,37 +1454,47 @@ export const tasksRouter = router({
       const repoRoot = getGitRoot(ctx.workingDir)
       const worktreeEnabled = isWorktreeIsolationEnabled()
 
-      // Collect changed files per session with their working directories
-      const sessionFiles = new Map<string, { files: Set<string>; workingDir: string }>()
+      // Import agent router to get changed files
       const { agentRouter } = await import("./agent")
       const caller = agentRouter.createCaller({ workingDir: "" })
 
-      for (const sessionId of taskSessionIds) {
-        try {
-          const changedFiles = await caller.getChangedFiles({ sessionId })
+      // OPTIMIZATION: Fetch all sessions in parallel instead of sequentially
+      const sessionResults = await Promise.all(
+        taskSessionIds.map(async (sessionId) => {
+          try {
+            const changedFiles = await caller.getChangedFiles({ sessionId })
 
-          // Determine working directory for this session
-          let sessionWorkingDir = ctx.workingDir
-          if (repoRoot && worktreeEnabled) {
-            const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
-            if (worktreeInfo) {
-              sessionWorkingDir = worktreeInfo.path
+            // Determine working directory for this session
+            let sessionWorkingDir = ctx.workingDir
+            if (repoRoot && worktreeEnabled) {
+              const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
+              if (worktreeInfo) {
+                sessionWorkingDir = worktreeInfo.path
+              }
             }
-          }
 
-          // Track files for this session
-          const filePaths = new Set<string>()
-          for (const file of changedFiles) {
-            const pathToCheck = file.repoRelativePath || file.relativePath || file.path
-            filePaths.add(pathToCheck)
-          }
+            // Track files for this session
+            const filePaths = new Set<string>()
+            for (const file of changedFiles) {
+              const pathToCheck = file.repoRelativePath || file.relativePath || file.path
+              filePaths.add(pathToCheck)
+            }
 
-          if (filePaths.size > 0) {
-            sessionFiles.set(sessionId, { files: filePaths, workingDir: sessionWorkingDir })
+            return { sessionId, filePaths, sessionWorkingDir }
+          } catch {
+            return null // Skip sessions that can't be read
           }
-        } catch {
-          // Skip sessions that can't be read
-          continue
+        })
+      )
+
+      // Collect valid results
+      const sessionFiles = new Map<string, { files: Set<string>; workingDir: string }>()
+      for (const result of sessionResults) {
+        if (result && result.filePaths.size > 0) {
+          sessionFiles.set(result.sessionId, {
+            files: result.filePaths,
+            workingDir: result.sessionWorkingDir,
+          })
         }
       }
 
@@ -1478,21 +1504,19 @@ export const tasksRouter = router({
 
       // Query git status from each unique working directory and aggregate uncommitted files
       const uncommittedFiles = new Set<string>()
-      const queriedWorkingDirs = new Set<string>()
+      const gitStatusCache = new Map<string, Set<string>>()
 
       for (const [, { files, workingDir }] of sessionFiles) {
-        // Get git status from this working directory (cache per workingDir to avoid redundant queries)
-        if (!queriedWorkingDirs.has(workingDir)) {
-          queriedWorkingDirs.add(workingDir)
+        // Cache git status per workingDir to avoid redundant queries
+        let uncommittedInGit = gitStatusCache.get(workingDir)
+        if (!uncommittedInGit) {
+          const gitStatus = getGitStatus(workingDir)
+          uncommittedInGit = new Set<string>()
+          for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
+          for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
+          for (const f of gitStatus.untracked) uncommittedInGit.add(f)
+          gitStatusCache.set(workingDir, uncommittedInGit)
         }
-
-        const gitStatus = getGitStatus(workingDir)
-
-        // Build set of uncommitted files for this worktree
-        const uncommittedInGit = new Set<string>()
-        for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
-        for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
-        for (const f of gitStatus.untracked) uncommittedInGit.add(f)
 
         // Check which of this session's files are uncommitted
         for (const filePath of files) {
@@ -1503,6 +1527,140 @@ export const tasksRouter = router({
       }
 
       return {
+        hasUncommitted: uncommittedFiles.size > 0,
+        uncommittedCount: uncommittedFiles.size,
+        uncommittedFiles: Array.from(uncommittedFiles),
+      }
+    }),
+
+  /**
+   * OPTIMIZED: Combined endpoint for review page that returns both changed files
+   * AND uncommitted status in a single query with parallel session fetching.
+   *
+   * This eliminates duplicate session queries that occurred when calling
+   * getChangedFilesForTask and hasUncommittedChanges separately.
+   */
+  getReviewData: procedure
+    .input(z.object({
+      path: z.string().min(1),
+    }))
+    .query(async ({ ctx, input }) => {
+      const streamAPI = getStreamAPI()
+      const registryEvents = await streamAPI.readRegistry()
+      const task = getTask(ctx.workingDir, input.path)
+
+      // Find all active (non-deleted) session IDs for this task
+      const taskSessionIds = getActiveSessionIdsForTask(registryEvents, input.path, task.splitFrom)
+
+      if (taskSessionIds.length === 0) {
+        return {
+          changedFiles: [],
+          hasUncommitted: false,
+          uncommittedCount: 0,
+          uncommittedFiles: [],
+        }
+      }
+
+      // Get repo root for worktree lookups
+      const repoRoot = getGitRoot(ctx.workingDir)
+      const worktreeEnabled = isWorktreeIsolationEnabled()
+
+      // Import agent router
+      const { agentRouter } = await import("./agent")
+      const caller = agentRouter.createCaller({ workingDir: "" })
+
+      // Fetch all sessions in parallel (single pass, reused for both outputs)
+      const sessionResults = await Promise.all(
+        taskSessionIds.map(async (sessionId) => {
+          try {
+            const changedFiles = await caller.getChangedFiles({ sessionId })
+
+            let sessionWorkingDir = ctx.workingDir
+            if (repoRoot && worktreeEnabled) {
+              const worktreeInfo = getWorktreeForSession(sessionId, repoRoot)
+              if (worktreeInfo) {
+                sessionWorkingDir = worktreeInfo.path
+              }
+            }
+
+            return { sessionId, changedFiles, sessionWorkingDir }
+          } catch {
+            return null
+          }
+        })
+      )
+
+      // Build changed files map and collect per-session file sets
+      const allFiles = new Map<string, {
+        path: string
+        relativePath?: string
+        repoRelativePath?: string
+        operation: "create" | "edit" | "delete"
+        timestamp: string
+        toolUsed: string
+        sessionId: string
+        sessionWorkingDir?: string
+      }>()
+      const sessionFileSets = new Map<string, { gitPaths: Set<string>; workingDir: string }>()
+
+      for (const result of sessionResults) {
+        if (!result) continue
+        const { sessionId, changedFiles, sessionWorkingDir } = result
+
+        const gitPaths = new Set<string>()
+        for (const file of changedFiles) {
+          // Aggregate for changed files output
+          const existing = allFiles.get(file.path)
+          if (!existing || new Date(file.timestamp) > new Date(existing.timestamp)) {
+            allFiles.set(file.path, {
+              path: file.path,
+              relativePath: file.relativePath,
+              repoRelativePath: file.repoRelativePath,
+              operation: file.operation,
+              timestamp: file.timestamp,
+              toolUsed: file.toolUsed,
+              sessionId,
+              sessionWorkingDir,
+            })
+          }
+          // Track git path for uncommitted check
+          const gitPath = file.repoRelativePath || file.relativePath || file.path
+          gitPaths.add(gitPath)
+        }
+
+        if (gitPaths.size > 0) {
+          sessionFileSets.set(sessionId, { gitPaths, workingDir: sessionWorkingDir })
+        }
+      }
+
+      // Build changed files array
+      const changedFiles = Array.from(allFiles.values())
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+      // Calculate uncommitted status using cached git status per workingDir
+      const uncommittedFiles = new Set<string>()
+      const gitStatusCache = new Map<string, Set<string>>()
+
+      for (const [, { gitPaths, workingDir }] of sessionFileSets) {
+        let uncommittedInGit = gitStatusCache.get(workingDir)
+        if (!uncommittedInGit) {
+          const gitStatus = getGitStatus(workingDir)
+          uncommittedInGit = new Set<string>()
+          for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
+          for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
+          for (const f of gitStatus.untracked) uncommittedInGit.add(f)
+          gitStatusCache.set(workingDir, uncommittedInGit)
+        }
+
+        for (const gitPath of gitPaths) {
+          if (uncommittedInGit.has(gitPath)) {
+            uncommittedFiles.add(gitPath)
+          }
+        }
+      }
+
+      return {
+        changedFiles,
         hasUncommitted: uncommittedFiles.size > 0,
         uncommittedCount: uncommittedFiles.size,
         uncommittedFiles: Array.from(uncommittedFiles),
@@ -1591,7 +1749,7 @@ export const tasksRouter = router({
         const sessionId = randomBytes(6).toString("hex")
         const daemonNonce = randomBytes(16).toString("hex")
 
-        monitor.spawnDaemon({
+        await monitor.spawnDaemon({
           sessionId,
           agentType: agent.agentType,
           model: agent.model,
@@ -1847,7 +2005,7 @@ export const tasksRouter = router({
       const streamServerUrl = getStreamServerUrl()
       const monitor = getProcessMonitor()
 
-      monitor.spawnDaemon({
+      await monitor.spawnDaemon({
         sessionId,
         agentType: "codex",
         prompt,

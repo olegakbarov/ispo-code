@@ -86,11 +86,13 @@ export function TaskReviewPanel({
   // Available agent types
   const { data: availableAgentTypes = [] } = trpc.agent.availableTypes.useQuery()
 
-  // Query for changed files across all task sessions
-  const { data: changedFiles = [], isLoading: filesLoading } = trpc.tasks.getChangedFilesForTask.useQuery(
+  // OPTIMIZED: Use combined endpoint for review data (changed files + uncommitted status)
+  // This replaces separate getChangedFilesForTask and hasUncommittedChanges queries
+  const { data: reviewData, isLoading: filesLoading } = trpc.tasks.getReviewData.useQuery(
     { path: taskPath },
     { enabled: !!taskPath }
   )
+  const changedFiles = reviewData?.changedFiles ?? []
 
   // Query git status for the repo
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
@@ -117,11 +119,13 @@ export function TaskReviewPanel({
     ? (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : theme
 
-  // Query uncommitted status to distinguish "no changes yet" vs "all committed"
-  const { data: uncommittedStatus } = trpc.tasks.hasUncommittedChanges.useQuery(
-    { path: taskPath },
-    { enabled: !!taskPath }
-  )
+  // OPTIMIZED: uncommitted status comes from the combined getReviewData query
+  // No separate hasUncommittedChanges query needed
+  const uncommittedStatus = reviewData ? {
+    hasUncommitted: reviewData.hasUncommitted,
+    uncommittedCount: reviewData.uncommittedCount,
+    uncommittedFiles: reviewData.uncommittedFiles,
+  } : undefined
 
   // Derive "all committed" state:
   // - changedFiles.length > 0 (sessions have produced files - work was done)
@@ -165,6 +169,8 @@ export function TaskReviewPanel({
 
   // Track whether we've initialized from URL reviewFile (to avoid re-triggering on state updates)
   const initializedFromUrlRef = useRef(false)
+  // Track whether we've auto-opened the first file (to avoid re-triggering when files refresh)
+  const autoOpenedRef = useRef(false)
 
   // Initialize activeFile and openFiles from reviewFile URL param on mount
   useEffect(() => {
@@ -204,6 +210,47 @@ export function TaskReviewPanel({
         })
     }
   }, [reviewFile, uncommittedFiles, utils])
+
+  // Auto-open first uncommitted file when entering review with no reviewFile
+  useEffect(() => {
+    // Skip if we've already auto-opened
+    if (autoOpenedRef.current) return
+    // Skip if there's a reviewFile in URL (handled by above effect)
+    if (reviewFile) return
+    // Skip if there's already an active file
+    if (activeFile) return
+    // Skip if files haven't loaded yet or no files available
+    if (uncommittedFiles.length === 0) return
+
+    // Get the first uncommitted file
+    const firstFile = uncommittedFiles[0]
+    const gitPath = firstFile.repoRelativePath || firstFile.relativePath || firstFile.path
+    const sessionWorkingDir = firstFile.sessionWorkingDir
+
+    autoOpenedRef.current = true
+
+    // Open the file and set it as active
+    setOpenFiles([gitPath])
+    setActiveFile(gitPath)
+    setFileViews({ [gitPath]: "working" })
+    // Store working dir for this file
+    setFileWorkingDirs({ [gitPath]: sessionWorkingDir })
+
+    // Fetch diff for the file
+    setDiffLoading(true)
+    utils.client.git.diff.query({ file: gitPath, view: "working", workingDir: sessionWorkingDir })
+      .then((data) => {
+        setDiffData({
+          oldContent: data.oldContent,
+          newContent: data.newContent,
+        })
+        setDiffLoading(false)
+      })
+      .catch(() => {
+        setDiffData(null)
+        setDiffLoading(false)
+      })
+  }, [reviewFile, activeFile, uncommittedFiles, utils])
 
   // Sync activeFile changes to URL
   const prevActiveFileRef = useRef<string | null>(null)
