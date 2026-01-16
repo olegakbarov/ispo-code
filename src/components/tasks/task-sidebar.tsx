@@ -89,6 +89,9 @@ export function TaskSidebar({
   onAssignToAgent,
   onCancelAgent,
 }: TaskSidebarProps) {
+  // State for collapsible merge history
+  const [showMergeHistory, setShowMergeHistory] = useState(false)
+
   // Hide sessions and controls in review mode
   if (mode === 'review') {
     return null
@@ -98,6 +101,7 @@ export function TaskSidebar({
   const canMerge = worktreeBranch && !latestActiveMerge && onMergeToMain
   const showQAControls = qaStatus === 'pending' && latestActiveMerge
   const canRevert = qaStatus === 'fail' && latestActiveMerge && !latestActiveMerge.revertedAt
+  const hasHistory = mergeHistory && mergeHistory.length > 0
 
   return (
     <div className="w-full h-full bg-panel overflow-y-auto flex flex-col">
