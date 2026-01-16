@@ -3,7 +3,7 @@
  * Used by both CreateTaskModal and inline form on tasks index
  */
 
-import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select } from '@/components/ui/select'
 import { agentTypeLabel, supportsModelSelection, getModelsForAgentType, type PlannerAgentType } from '@/lib/agent/config'
@@ -66,18 +66,24 @@ export function CreateTaskForm({
     <div className="space-y-4">
       <div>
         <div className="font-vcr text-xs text-text-muted mb-2">What do you want to accomplish?</div>
-        <Input
+        <Textarea
           value={newTitle}
           onChange={(e) => onTitleChange(e.target.value)}
           placeholder="e.g. Add dark mode toggle to settings"
           variant="sm"
           className="bg-background"
+          rows={3}
           autoFocus={autoFocus}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) onCreate()
+            // Cmd/Ctrl+Enter to submit, plain Enter for newline
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault()
+              onCreate()
+            }
             if (e.key === 'Escape' && onCancel) onCancel()
           }}
         />
+        <div className="text-[10px] text-text-muted/60 mt-1">Press Cmd+Enter to create</div>
       </div>
 
       <div>
