@@ -5,18 +5,15 @@ export function parseAutoRunFromContent(content: string): boolean | undefined {
   return match ? match[1] === 'true' : undefined
 }
 
-export function inferAutoRunPhase(title?: string, prompt?: string): AutoRunPhase {
-  const signature = [title, prompt].filter(Boolean).join(' ').toLowerCase()
+export function inferAutoRunPhase(title?: string, _prompt?: string): AutoRunPhase {
+  if (!title) return null
 
-  if (!signature) return null
+  const titleLower = title.toLowerCase().trim()
 
-  if (signature.includes('plan:') || signature.includes('debug:')) return 'planning'
-  if (
-    signature.includes('run:') ||
-    signature.includes('implement') ||
-    signature.includes('execution')
-  ) {
-    return 'execution'
+  if (titleLower.startsWith('plan:')) return 'planning'
+  if (titleLower.startsWith('debug:') || /^debug \(\d+\):/.test(titleLower)) {
+    return 'planning'
   }
+  if (titleLower.startsWith('run:')) return 'execution'
   return null
 }

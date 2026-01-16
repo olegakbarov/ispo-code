@@ -281,18 +281,38 @@ export const agentRouter = router({
     .query(async ({ input }) => {
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
-      const sessionEvents = await streamAPI.readSession(input.sessionId)
-      const session = reconstructSessionFromStreams(input.sessionId, registryEvents, sessionEvents)
 
-      if (!session) return []
+      const wasDeleted = registryEvents.some(
+        (e) => e.type === "session_deleted" && e.sessionId === input.sessionId
+      )
+      if (wasDeleted) return []
 
-      // If metadata with editedFiles is available (session completed/failed), use it
-      if (session.metadata?.editedFiles && session.metadata.editedFiles.length > 0) {
-        return session.metadata.editedFiles
+      const createdEvent = registryEvents.find(
+        (e) => e.type === "session_created" && e.sessionId === input.sessionId
+      )
+      if (!createdEvent || createdEvent.type !== "session_created") {
+        return []
       }
 
+      const latestMetadataEvent = [...registryEvents]
+        .reverse()
+        .find((e) =>
+          (e.type === "session_completed" || e.type === "session_failed") &&
+          e.sessionId === input.sessionId &&
+          e.metadata
+        )
+
+      if (latestMetadataEvent?.metadata?.editedFiles) {
+        return latestMetadataEvent.metadata.editedFiles
+      }
+
+      const sessionEvents = await streamAPI.readSession(input.sessionId)
+      const outputChunks: AgentOutputChunk[] = sessionEvents
+        .filter((e): e is AgentOutputEvent => e.type === "output")
+        .map((e) => e.chunk)
+
       // Otherwise, reconstruct from output chunks for runtime display
-      return reconstructEditedFilesFromChunks(session.output, session.workingDir)
+      return reconstructEditedFilesFromChunks(outputChunks, createdEvent.workingDir)
     }),
 
   // === Mutations ===

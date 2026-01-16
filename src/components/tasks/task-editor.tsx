@@ -83,30 +83,65 @@ export function TaskEditor({
   const [editTab, setEditTab] = useState<EditTab>('draft')
   return (
     <>
-      <div className="sticky top-0 z-10 border-b border-border bg-panel/80 backdrop-blur px-3 py-2">
-        <div className="flex items-center gap-3 w-full">
+      <div className="sticky top-0 z-10 h-12 border-b border-border bg-panel/80 backdrop-blur">
+        <div className="flex items-center gap-3 w-full h-full px-3">
           {/* Mode tabs */}
-          <div className="flex items-center border border-border rounded overflow-hidden">
-            <button
-              onClick={() => onModeChange('edit')}
-              className={`px-2 py-1 text-xs font-vcr transition-colors ${
-                mode === 'edit'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => onModeChange('review')}
-              className={`px-2 py-1 text-xs font-vcr transition-colors border-l border-border ${
-                mode === 'review'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-            >
-              Review
-            </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center border border-border rounded overflow-hidden">
+              <button
+                onClick={() => onModeChange('edit')}
+                className={`px-2 py-1 text-xs font-vcr transition-colors ${
+                  mode === 'edit'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                }`}
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => onModeChange('review')}
+                className={`px-2 py-1 text-xs font-vcr transition-colors border-l border-border ${
+                  mode === 'review'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                }`}
+              >
+                Review
+              </button>
+            </div>
+
+            {/* Draft/Subtasks tabs */}
+            {mode === 'edit' && !isPlanningActive && (
+              <div className="flex items-center border border-border rounded overflow-hidden">
+                <button
+                  onClick={() => setEditTab('draft')}
+                  className={`px-2 py-1 text-xs font-vcr transition-colors ${
+                    editTab === 'draft'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  }`}
+                >
+                  Draft
+                </button>
+                <button
+                  onClick={() => setEditTab('subtasks')}
+                  className={`px-2 py-1 text-xs font-vcr transition-colors border-l border-border flex items-center gap-1.5 ${
+                    editTab === 'subtasks'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  }`}
+                >
+                  Subtasks
+                  {subtasks.length > 0 && (
+                    <span className={`px-1 min-w-[16px] text-center rounded text-[10px] ${
+                      editTab === 'subtasks' ? 'bg-accent-foreground/20' : 'bg-border/50'
+                    }`}>
+                      {subtasks.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="min-w-0 flex-1 font-vcr text-xs text-text-secondary truncate">
@@ -145,37 +180,6 @@ export function TaskEditor({
             </div>
           ) : (
             <div className="h-full flex flex-col">
-              {/* Draft/Subtasks tabs */}
-              <div className="shrink-0 flex border-b border-border">
-                <button
-                  onClick={() => setEditTab('draft')}
-                  className={`px-3 py-1.5 text-xs font-vcr transition-colors border-b-2 -mb-px ${
-                    editTab === 'draft'
-                      ? 'text-accent border-accent'
-                      : 'text-muted-foreground border-transparent hover:text-foreground'
-                  }`}
-                >
-                  Draft
-                </button>
-                <button
-                  onClick={() => setEditTab('subtasks')}
-                  className={`px-3 py-1.5 text-xs font-vcr transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
-                    editTab === 'subtasks'
-                      ? 'text-accent border-accent'
-                      : 'text-muted-foreground border-transparent hover:text-foreground'
-                  }`}
-                >
-                  Subtasks
-                  {subtasks.length > 0 && (
-                    <span className={`px-1 min-w-[16px] text-center rounded text-[10px] ${
-                      editTab === 'subtasks' ? 'bg-accent/20' : 'bg-border/50'
-                    }`}>
-                      {subtasks.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-
               {/* Tab content */}
               {editTab === 'draft' ? (
                 <Textarea

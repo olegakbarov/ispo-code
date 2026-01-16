@@ -46,8 +46,18 @@ function getAudioContextConstructor(): AudioContextConstructor | null {
   return window.AudioContext ?? win.webkitAudioContext ?? null
 }
 
-async function attemptUnlock(): Promise<boolean> {
+function getErrorName(error: unknown): string | null {
+  if (error instanceof DOMException) return error.name
+  if (typeof error === "object" && error && "name" in error) {
+    return String((error as { name: unknown }).name)
+  }
+  return null
+}
+
+async function attemptUnlock(event?: Event): Promise<boolean> {
   if (isUnlocked) return true
+
+  const isTrustedInteraction = event?.isTrusted ?? false
 
   try {
     // Create AudioContext if supported
@@ -68,18 +78,26 @@ async function attemptUnlock(): Promise<boolean> {
     // Also play a silent audio element to unlock HTMLAudioElement
     // Some browsers treat AudioContext and HTMLAudioElement separately
     const silentAudio = new Audio()
-    silentAudio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7v/////////////////////////////////"
-    silentAudio.volume = 0
+    silentAudio.src = "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7v/////////////////////////////////"
+    silentAudio.muted = true
+    silentAudio.setAttribute("playsinline", "true")
 
     let htmlUnlocked = false
     try {
       // Call play() before any await to preserve user-gesture context
       const playPromise = silentAudio.play()
-      await playPromise
+      if (playPromise !== undefined) {
+        await playPromise
+      }
       htmlUnlocked = true
     } catch (playError) {
-      console.debug("[AudioUnlock] Silent audio play failed:", playError)
-      // Unlock may still fail and we'll retry on the next interaction.
+      const errorName = getErrorName(playError)
+      console.debug("[AudioUnlock] Silent audio play failed:", { name: errorName, error: playError })
+      // If this was a trusted user interaction, allow fallback unless it was explicitly blocked.
+      if (isTrustedInteraction && errorName !== "NotAllowedError") {
+        console.debug("[AudioUnlock] Proceeding with trusted interaction despite silent audio failure")
+        htmlUnlocked = true
+      }
     }
     silentAudio.pause()
 
@@ -113,8 +131,8 @@ export function initAudioUnlock(): void {
 
   const events = ["click", "keydown", "touchstart"] as const
 
-  const unlockListener = () => {
-    attemptUnlock().then((unlocked) => {
+  const unlockListener = (event: Event) => {
+    attemptUnlock(event).then((unlocked) => {
       if (!unlocked) return
       // Remove listeners after successful unlock
       for (const event of events) {
@@ -144,6 +162,6 @@ export function getAudioContext(): AudioContext | null {
  * Useful for retry scenarios when the automatic unlock failed.
  * Returns true if unlock succeeded, false otherwise.
  */
-export async function tryUnlockAudio(): Promise<boolean> {
-  return attemptUnlock()
+export async function tryUnlockAudio(event?: Event): Promise<boolean> {
+  return attemptUnlock(event)
 }
