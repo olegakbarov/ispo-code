@@ -97,7 +97,7 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
   // ─────────────────────────────────────────────────────────────────────────────
 
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
-    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'openrouter']
+    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'openrouter', 'research', 'qa']
     return candidates.filter((t) => availableTypes.includes(t))
   }, [availableTypes])
 

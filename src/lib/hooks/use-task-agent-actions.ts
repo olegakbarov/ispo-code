@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { trpc } from '@/lib/trpc-client'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
-import { inferAutoRunPhase, parseAutoRunFromContent } from '@/lib/tasks/auto-run'
+import { hasCompletedExecutionSession, inferAutoRunPhase, parseAutoRunFromContent } from '@/lib/tasks/auto-run'
 import type { AgentType } from '@/lib/agent/types'
 import type {
   TasksAction,
@@ -296,10 +296,8 @@ export function useTaskAgentActions({
         // Implementation completed → auto-trigger verification
         // BUT first, validate that there's actually a completed execution session
         // This prevents verification from running if no implementation was done
-        const executionSessions = taskSessions?.grouped?.execution ?? []
-        const hasCompletedExecution = executionSessions.some(
-          (s) => s.status === 'completed'
-        )
+        const executionSessions = taskSessions?.grouped?.execution
+        const hasCompletedExecution = hasCompletedExecutionSession(executionSessions, currentStatus)
 
         if (!hasCompletedExecution) {
           console.log('[auto-run] Skipping verification: no completed execution session found')

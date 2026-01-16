@@ -335,7 +335,8 @@ export class AgentDaemon {
           attachments,
         }) as unknown as SDKAgentLike
       })
-      .with(P.union("claude", "codex"), () => {
+      .with(P.union("claude", "codex", "research", "qa"), () => {
+        // Research and QA agents use Claude CLI with --chrome
         const cliRunner = new CLIAgentRunner()
         // Store attachments for CLI runner to use
         let pendingAttachments = attachments
@@ -368,7 +369,7 @@ export class AgentDaemon {
             })
 
             await cliRunner.run({
-              agentType: agentType as "claude" | "codex",
+              agentType: agentType as "claude" | "codex" | "research" | "qa",
               workingDir,
               prompt: p,
               cliSessionId,

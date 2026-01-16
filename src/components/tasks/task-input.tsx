@@ -70,16 +70,18 @@ export function TaskInput({
         {attachmentsSlot}
 
         {/* Textarea */}
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={rows}
-          className="w-full px-5 pt-4 pb-14 bg-transparent text-sm leading-relaxed resize-none focus:outline-none placeholder:text-text-muted/50 disabled:opacity-50"
-        />
+        <div className="grow-wrap w-full" data-replicated-value={value}>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={rows}
+            className="w-full px-5 pt-4 pb-14 bg-transparent text-sm leading-relaxed resize-none focus:outline-none placeholder:text-text-muted/50 disabled:opacity-50"
+          />
+        </div>
 
         {/* Bottom toolbar */}
         <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-4 pb-4">

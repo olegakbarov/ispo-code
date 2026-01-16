@@ -12,7 +12,7 @@ import type { PlannerAgentType } from "@/lib/agent/config"
 import { ALL_PLANNER_CANDIDATES } from "@/components/tasks/create-task-form"
 
 /** All agent types for verification dropdown (includes all AgentType values) */
-const ALL_AGENT_TYPES: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'gemini', 'openrouter']
+const ALL_AGENT_TYPES: AgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'gemini', 'openrouter', 'research', 'qa']
 
 interface AgentDefaultsSectionProps {
   defaultPlanningAgentType: PlannerAgentType | null
@@ -44,7 +44,7 @@ export function AgentDefaultsSection({
 
   // Filter to planner types
   const availablePlannerTypes = useMemo((): PlannerAgentType[] => {
-    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'openrouter']
+    const candidates: PlannerAgentType[] = ['claude', 'codex', 'cerebras', 'opencode', 'openrouter', 'research', 'qa']
     return candidates.filter((t) => availableTypes.includes(t))
   }, [availableTypes])
 

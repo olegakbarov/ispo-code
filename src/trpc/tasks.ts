@@ -23,7 +23,7 @@ import { createRegistryEvent } from "@/streams/schemas"
 import { calculateRelativePaths } from "@/lib/utils/path-utils"
 
 /** CLI agent types that require the CLI to be installed */
-const CLI_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode"]
+const CLI_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode", "research", "qa"]
 
 /**
  * Validate that CLI is available for CLI-based agent types.
@@ -31,9 +31,15 @@ const CLI_AGENT_TYPES: AgentType[] = ["claude", "codex", "opencode"]
  */
 function validateCLIAvailability(agentType: AgentType): void {
   if (CLI_AGENT_TYPES.includes(agentType)) {
-    const cliName = agentType as "claude" | "codex" | "opencode"
+    // Research and QA agents use Claude CLI
+    const cliName = (agentType === "research" || agentType === "qa")
+      ? "claude"
+      : agentType as "claude" | "codex" | "opencode"
     if (!checkCLIAvailable(cliName)) {
-      throw new Error(`${agentType} CLI is not installed. Please install it first.`)
+      const displayName = (agentType === "research" || agentType === "qa")
+        ? `${agentType} (Claude CLI)`
+        : agentType
+      throw new Error(`${displayName} CLI is not installed. Please install it first.`)
     }
   }
 }

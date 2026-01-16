@@ -3,7 +3,7 @@ import { z } from "zod"
 /**
  * Agent types supported by the system - single source of truth
  */
-export const AGENT_TYPES = ["claude", "codex", "opencode", "cerebras", "gemini", "openrouter"] as const
+export const AGENT_TYPES = ["claude", "codex", "opencode", "cerebras", "gemini", "openrouter", "research", "qa"] as const
 
 export type AgentType = (typeof AGENT_TYPES)[number]
 

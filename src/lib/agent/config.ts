@@ -34,6 +34,8 @@ export const agentTypeLabel: Record<AgentType, string> = {
   cerebras: 'Cerebras GLM',
   gemini: 'Google Gemini',
   openrouter: 'OpenRouter',
+  research: 'Research Agent',
+  qa: 'QA Agent',
 }
 
 /**

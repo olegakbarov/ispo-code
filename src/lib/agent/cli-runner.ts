@@ -93,7 +93,12 @@ export function checkCLIAvailable(cli: "claude" | "codex" | "opencode"): boolean
  */
 export function getAvailableAgentTypes(): AgentType[] {
   const types: AgentType[] = []
-  if (checkCLIAvailable("claude")) types.push("claude")
+  if (checkCLIAvailable("claude")) {
+    types.push("claude")
+    // Research and QA agents use Claude CLI with --chrome
+    types.push("research")
+    types.push("qa")
+  }
   if (checkCLIAvailable("codex")) types.push("codex")
   // OpenCode is available via the embedded SDK (no CLI required).
   types.push("opencode")
@@ -569,9 +574,11 @@ export class CLIAgentRunner extends EventEmitter {
   private buildCommand(config: CLIRunnerConfig): BuiltCommand {
     const { agentType, prompt, cliSessionId, isResume, model, attachments } = config
 
-    const cliPath = getCLIPath(agentType as "claude" | "codex" | "opencode")
+    // Research and QA agents use Claude CLI
+    const cliType = (agentType === "research" || agentType === "qa") ? "claude" : agentType
+    const cliPath = getCLIPath(cliType as "claude" | "codex" | "opencode")
     if (!cliPath) {
-      throw new Error(`CLI '${agentType}' not found`)
+      throw new Error(`CLI '${cliType}' not found (for agent type '${agentType}')`)
     }
 
     const promptBytes = Buffer.byteLength(prompt, "utf8")
@@ -585,7 +592,7 @@ export class CLIAgentRunner extends EventEmitter {
     }
 
     return match(agentType)
-      .with("claude", () => {
+      .with("claude", "research", "qa", () => {
         // Claude Code supports reading the prompt from stdin (when no positional prompt
         // argument is provided). Prefer stdin to avoid shell escaping issues and OS
         // argv size limits for large task prompts.
@@ -597,6 +604,11 @@ export class CLIAgentRunner extends EventEmitter {
           "--output-format", "stream-json",
           "--dangerously-skip-permissions",
         ]
+
+        // Research and QA agents use --chrome for web browsing capability
+        if (agentType === "research" || agentType === "qa") {
+          args.push("--chrome")
+        }
 
         if (model) {
           args.push("--model", model)

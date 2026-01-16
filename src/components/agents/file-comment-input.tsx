@@ -4,14 +4,45 @@
  * When taskPath is provided, comments spawn agent sessions linked to the task.
  */
 
-import { useState } from "react"
-import { Send } from "lucide-react"
+import { useState, useRef } from "react"
+import { MessageSquare, Paperclip, Send, X, Plus } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import { trpc } from "@/lib/trpc-client"
-import { ImageAttachmentInput } from "@/components/agents/image-attachment-input"
 import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
 import type { ImageAttachment } from "@/lib/agent/types"
+
+/** Accepted image MIME types */
+const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+
+/** Default max file size: 10MB */
+const DEFAULT_MAX_SIZE = 10 * 1024 * 1024
+
+/**
+ * Convert a File to an ImageAttachment (base64 encoded)
+ */
+async function fileToAttachment(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      const base64Data = dataUrl.split(",")[1]
+      if (!base64Data) {
+        reject(new Error("Failed to read file as base64"))
+        return
+      }
+      resolve({
+        type: "image",
+        mimeType: file.type,
+        data: base64Data,
+        fileName: file.name,
+      })
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
 
 interface FileCommentInputProps {
   fileName: string
@@ -23,6 +54,8 @@ interface FileCommentInputProps {
   sourceLine?: number
   /** Legacy handler - used when taskPath not provided */
   onSubmit?: (comment: string) => Promise<void>
+  /** Optional close handler - shows close button when provided */
+  onClose?: () => void
 }
 
 export function FileCommentInput({
@@ -31,12 +64,66 @@ export function FileCommentInput({
   sourceFile,
   sourceLine,
   onSubmit,
+  onClose,
 }: FileCommentInputProps) {
   // Draft key includes file and optional line number for unique context
   const draftKey = `file-comment:${fileName}${sourceLine ? `:${sourceLine}` : ''}`
   const [comment, setComment, clearDraft] = useTextareaDraft(draftKey)
   const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const maxFiles = 3
+  const maxSizeBytes = DEFAULT_MAX_SIZE
+
+  // Handle file selection
+  const handleFiles = async (files: FileList | File[]) => {
+    setAttachError(null)
+    const fileArray = Array.from(files)
+
+    const remainingSlots = maxFiles - attachments.length
+    if (fileArray.length > remainingSlots) {
+      setAttachError(`Can only add ${remainingSlots} more image${remainingSlots !== 1 ? "s" : ""}`)
+      return
+    }
+
+    const newAttachments: ImageAttachment[] = []
+    for (const file of fileArray) {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        setAttachError(`${file.name}: Unsupported type. Use PNG, JPEG, GIF, or WebP.`)
+        continue
+      }
+      if (file.size > maxSizeBytes) {
+        const maxMB = Math.round(maxSizeBytes / 1024 / 1024)
+        setAttachError(`${file.name}: File too large. Max ${maxMB}MB.`)
+        continue
+      }
+      try {
+        const attachment = await fileToAttachment(file)
+        newAttachments.push(attachment)
+      } catch {
+        setAttachError(`${file.name}: Failed to process file.`)
+      }
+    }
+
+    if (newAttachments.length > 0) {
+      setAttachments([...attachments, ...newAttachments])
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      handleFiles(files)
+    }
+    e.target.value = ""
+  }
+
+  const removeAttachment = (index: number) => {
+    setAttachments(attachments.filter((_, i) => i !== index))
+    setAttachError(null)
+  }
 
   const utils = trpc.useUtils()
 
@@ -118,50 +205,131 @@ export function FileCommentInput({
     }
   }
 
+  const canAddMore = attachments.length < maxFiles && !isSubmitting
+
   return (
-    <div className="mt-3 border rounded-lg p-3 bg-muted/30">
-      <label htmlFor={`comment-${fileName}`} className="text-sm font-medium block mb-2">
-        Add feedback on this file
-      </label>
+    <div className="mt-3 bg-card/95 backdrop-blur-md border border-border/50 rounded-xl shadow-lg overflow-hidden transition-all focus-within:ring-1 focus-within:ring-primary/30">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/30">
+        <MessageSquare className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm font-medium flex-1">Add feedback</span>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 -mr-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+            title="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Textarea - borderless, blends in */}
       <Textarea
         id={`comment-${fileName}`}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Type your feedback here... (Cmd/Ctrl+Enter to send)"
-        className="min-h-[80px] bg-background resize-y"
+        placeholder="Share your feedback..."
+        className="border-0 bg-transparent focus-visible:ring-0 resize-none min-h-[100px] px-4 py-3 text-sm"
         disabled={isSubmitting}
       />
-      {/* Image attachments */}
-      <div className="mt-2">
-        <ImageAttachmentInput
-          attachments={attachments}
-          onChange={setAttachments}
+
+      {/* Toolbar row */}
+      <div className="flex items-center gap-2 px-4 py-2 border-t border-border/30 bg-muted/20">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ACCEPTED_TYPES.join(",")}
+          multiple
+          onChange={handleInputChange}
+          className="hidden"
           disabled={isSubmitting}
-          maxFiles={3}
         />
-      </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-xs text-muted-foreground">
-          {comment.length} characters{attachments.length > 0 ? ` + ${attachments.length} image${attachments.length > 1 ? "s" : ""}` : ""}
-        </span>
+
+        {/* Attach button */}
         <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!canAddMore}
+          className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Attach images"
+        >
+          <Paperclip className="w-3.5 h-3.5" />
+          <span>Attach</span>
+        </button>
+
+        {/* Inline thumbnails */}
+        {attachments.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            {attachments.map((att, i) => (
+              <div
+                key={i}
+                className="relative group w-8 h-8 rounded border border-border bg-muted overflow-hidden"
+              >
+                <img
+                  src={`data:${att.mimeType};base64,${att.data}`}
+                  alt={att.fileName || `Image ${i + 1}`}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(i)}
+                  className="absolute inset-0 bg-background/80 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                  title="Remove"
+                >
+                  <X className="w-3 h-3 text-destructive" />
+                </button>
+              </div>
+            ))}
+            {canAddMore && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-8 h-8 rounded border border-dashed border-border bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
+                title="Add more"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Error message */}
+        {attachError && (
+          <span className="text-xs text-destructive truncate">{attachError}</span>
+        )}
+
+        {/* Spacer + char count */}
+        <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+          {comment.length}
+        </span>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-t border-border/30">
+        <kbd className="text-[10px] text-muted-foreground font-mono">
+          {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵ to send
+        </kbd>
+        <Button
+          size="sm"
           onClick={handleSubmit}
           disabled={!comment.trim() || isSubmitting}
-          className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {isSubmitting ? (
             <>
-              <Spinner size="xs" />
-              Sending...
+              <Spinner size="xs" className="mr-1.5" />
+              Sending
             </>
           ) : (
             <>
-              <Send className="w-3 h-3" />
-              Send to Agent
+              <Send className="w-3.5 h-3.5 mr-1.5" />
+              Send
             </>
           )}
-        </button>
+        </Button>
       </div>
     </div>
   )

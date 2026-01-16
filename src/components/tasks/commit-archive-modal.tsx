@@ -66,15 +66,20 @@ export function CommitArchiveModal({
     { enabled: isOpen && !!taskPath }
   )
   const changedFiles = reviewData?.changedFiles ?? []
+  const uncommittedFiles = reviewData?.uncommittedFiles ?? []
 
   // Query git status to check if task file is modified
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     enabled: isOpen && !!taskPath,
   })
 
-  // Git-relative paths for commit (include task file if modified)
+  // Git-relative paths for commit (only uncommitted files, include task file if modified)
   const gitRelativeFiles = useMemo(() => {
-    const files = changedFiles.map(f => f.repoRelativePath || f.relativePath || f.path)
+    // Filter to only files that have uncommitted changes (same as review panel sidebar)
+    const uncommittedSet = new Set(uncommittedFiles)
+    const files = changedFiles
+      .map(f => f.repoRelativePath || f.relativePath || f.path)
+      .filter(gitPath => uncommittedSet.has(gitPath))
 
     // Check if task file is in git status (staged/modified/untracked)
     if (gitStatus && taskPath) {
@@ -90,7 +95,7 @@ export function CommitArchiveModal({
     }
 
     return files
-  }, [changedFiles, gitStatus, taskPath])
+  }, [changedFiles, uncommittedFiles, gitStatus, taskPath])
 
   // Generate commit message mutation
   const generateMutation = trpc.git.generateCommitMessage.useMutation({

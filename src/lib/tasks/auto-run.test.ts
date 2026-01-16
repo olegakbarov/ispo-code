@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { inferAutoRunPhase } from './auto-run'
+import { hasCompletedExecutionSession, inferAutoRunPhase } from './auto-run'
 
 describe('inferAutoRunPhase', () => {
   it('identifies planning sessions from plan/debug titles', () => {
@@ -17,5 +17,11 @@ describe('inferAutoRunPhase', () => {
 
   it('does not classify non-run titles as execution based on prompt text', () => {
     expect(inferAutoRunPhase('Verify: Sample task', 'Not implemented')).toBe(null)
+  })
+})
+
+describe('hasCompletedExecutionSession', () => {
+  it('treats current completed status as sufficient even when sessions list is empty', () => {
+    expect(hasCompletedExecutionSession([], 'completed')).toBe(true)
   })
 })

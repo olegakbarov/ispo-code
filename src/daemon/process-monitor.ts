@@ -106,20 +106,30 @@ export class ProcessMonitor {
    * Spawn a new agent daemon process (detached)
    */
   async spawnDaemon(config: DaemonConfig): Promise<SpawnedDaemon> {
+    console.log(`[ProcessMonitor] spawnDaemon called for session ${config.sessionId}`)
+    console.log(`[ProcessMonitor] Agent type: ${config.agentType}, Model: ${config.model || 'default'}`)
+
     const daemonNonce = config.daemonNonce || randomBytes(16).toString("hex")
     const spawnConfig: DaemonConfig = { ...config, daemonNonce }
     const configJson = JSON.stringify(spawnConfig)
 
     // Use tsx in development mode to run TypeScript directly
+    // In production, the daemon script is built alongside the CLI in the package's dist/
     const isDev = process.env.NODE_ENV !== "production"
     const command = isDev ? "tsx" : "node"
     const daemonScript = isDev
       ? join(__dirname, "agent-daemon.ts")
-      : join(process.cwd(), "dist", "daemon", "agent-daemon.js")
+      : join(__dirname, "..", "daemon", "agent-daemon.js") // Relative to dist/cli/ or dist/daemon/
+
+    console.log(`[ProcessMonitor] isDev: ${isDev}, command: ${command}`)
+    console.log(`[ProcessMonitor] daemonScript: ${daemonScript}`)
+    console.log(`[ProcessMonitor] workingDir: ${spawnConfig.workingDir}`)
+    console.log(`[ProcessMonitor] streamServerUrl: ${spawnConfig.streamServerUrl}`)
 
     // Spawn detached process
     let child: ChildProcess
     try {
+      console.log(`[ProcessMonitor] Calling spawnWithRetry...`)
       child = await spawnWithRetry(command, [daemonScript, `--config=${configJson}`], {
         detached: true,
         stdio: "ignore", // Don't pipe stdio - daemon writes to streams
@@ -129,9 +139,11 @@ export class ProcessMonitor {
           STREAM_SERVER_URL: spawnConfig.streamServerUrl || process.env.STREAM_SERVER_URL,
         },
       })
+      console.log(`[ProcessMonitor] spawnWithRetry succeeded, PID: ${child.pid}`)
     } catch (err) {
       const message = formatSpawnError(err)
-      console.error(`[ProcessMonitor] ${message}`)
+      console.error(`[ProcessMonitor] spawnWithRetry failed: ${message}`)
+      console.error(`[ProcessMonitor] Full error:`, err)
       throw new Error(message)
     }
 

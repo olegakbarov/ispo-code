@@ -17,3 +17,13 @@ export function inferAutoRunPhase(title?: string, _prompt?: string): AutoRunPhas
   if (titleLower.startsWith('run:')) return 'execution'
   return null
 }
+
+export function hasCompletedExecutionSession(
+  executionSessions: Array<{ status?: string }> | undefined,
+  currentStatus?: string
+): boolean {
+  if (currentStatus === 'completed') return true
+
+  const sessions = executionSessions ?? []
+  return sessions.some((session) => session.status === 'completed')
+}

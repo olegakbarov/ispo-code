@@ -31,6 +31,8 @@ const AGENT_CONFIG: Record<AgentType, { icon: typeof Terminal; label: string; de
   opencode: { icon: Terminal, label: 'OpenCode', desc: 'Open source agent' },
   gemini: { icon: Sparkles, label: 'Gemini', desc: 'Google AI agent' },
   openrouter: { icon: Sparkles, label: 'OpenRouter', desc: 'Multi-provider API' },
+  research: { icon: Sparkles, label: 'Research', desc: 'Claude + web browsing' },
+  qa: { icon: Terminal, label: 'QA', desc: 'Claude + web testing' },
 }
 
 export function ImplementModal({

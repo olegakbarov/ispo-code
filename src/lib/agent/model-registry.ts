@@ -227,6 +227,36 @@ const CODEX_MODELS: ModelDefinition[] = [
 ]
 
 /**
+ * Research Agent models - Claude CLI with --chrome for web research
+ */
+const RESEARCH_MODELS: ModelDefinition[] = [
+  {
+    id: "claude-opus-4-5-20251101",
+    name: "Claude Opus 4.5",
+    description: "Research with web browsing",
+    contextLimit: 200_000,
+    agentType: "research",
+    provider: "Anthropic",
+    isDefault: true,
+  },
+]
+
+/**
+ * QA Agent models - Claude CLI with --chrome for testing/verification
+ */
+const QA_MODELS: ModelDefinition[] = [
+  {
+    id: "claude-opus-4-5-20251101",
+    name: "Claude Opus 4.5",
+    description: "QA with web browsing",
+    contextLimit: 200_000,
+    agentType: "qa",
+    provider: "Anthropic",
+    isDefault: true,
+  },
+]
+
+/**
  * OpenRouter models - Multi-provider access via unified API
  * Format: provider/model (OpenRouter routing format)
  */
@@ -312,6 +342,8 @@ const MODEL_REGISTRY: Record<AgentType, ModelDefinition[]> = {
   claude: CLAUDE_MODELS,
   codex: CODEX_MODELS,
   openrouter: OPENROUTER_MODELS,
+  research: RESEARCH_MODELS,
+  qa: QA_MODELS,
 }
 
 /**
@@ -374,6 +406,8 @@ export function getContextLimit(modelId: string, agentType: AgentType): number {
     cerebras: 131_072,
     gemini: 1_048_576,
     openrouter: 200_000,
+    research: 200_000,
+    qa: 200_000,
   }
   return defaults[agentType] ?? 128_000
 }
@@ -433,7 +467,7 @@ export function getModelsByProvider(provider: string): ModelDefinition[] {
 // ============================================================================
 
 // Re-export grouped arrays for backward compatibility
-export { CEREBRAS_MODELS, GEMINI_MODELS, OPENCODE_MODELS, CLAUDE_MODELS, CODEX_MODELS, OPENROUTER_MODELS }
+export { CEREBRAS_MODELS, GEMINI_MODELS, OPENCODE_MODELS, CLAUDE_MODELS, CODEX_MODELS, OPENROUTER_MODELS, RESEARCH_MODELS, QA_MODELS }
 
 // Export the full registry
 export { MODEL_REGISTRY, ALL_MODELS }

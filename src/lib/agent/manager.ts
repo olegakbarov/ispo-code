@@ -55,7 +55,7 @@ function isSessionResumable(session: AgentSession): boolean {
   // The CLI will reject if it truly can't resume
 
   // CLI agents require a cliSessionId for resume
-  const isCliAgent = session.agentType === "claude" || session.agentType === "codex"
+  const isCliAgent = session.agentType === "claude" || session.agentType === "codex" || session.agentType === "research" || session.agentType === "qa"
   if (isCliAgent && !session.cliSessionId) {
     return false
   }
@@ -259,7 +259,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
 
     // Run the agent with resume flag, passing worktree info if available
     this.runAgent(sessionId, trimmed, session.workingDir, agentType, session.model, {
-      isResume: agentType === "claude" || agentType === "codex" || agentType === "cerebras" || agentType === "openrouter",
+      isResume: agentType === "claude" || agentType === "codex" || agentType === "research" || agentType === "qa" || agentType === "cerebras" || agentType === "openrouter",
       cliSessionId: session.cliSessionId,
       worktreePath: session.worktreePath,
     })
@@ -375,8 +375,9 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
             getSessionUpdatesOnComplete: (() => ({ openrouterMessages: agent.getMessages() })) as () => Partial<AgentSession>,
           }
         })
-        .with(P.union("claude", "codex"), () => {
+        .with(P.union("claude", "codex", "research", "qa"), () => {
           // CLI-based agents using subprocess spawning
+          // Research and QA agents use Claude CLI with --chrome
           const cliRunner = new CLIAgentRunner()
           const sendApproval = (approved: boolean) => cliRunner.sendApproval(approved)
 
@@ -413,7 +414,7 @@ export class AgentManager extends EventEmitter<AgentManagerEvents> {
               })
 
               await cliRunner.run({
-                agentType: agentType as "claude" | "codex",
+                agentType: agentType as "claude" | "codex" | "research" | "qa",
                 workingDir: options?.worktreePath ?? workingDir,
                 prompt: p,
                 cliSessionId: options?.cliSessionId ?? session?.cliSessionId,

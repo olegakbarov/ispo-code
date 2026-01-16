@@ -1,11 +1,14 @@
 import { defineConfig } from "tsup"
 
 export default defineConfig({
-  entry: ["src/cli/bin.ts"],
+  entry: {
+    "cli/bin": "src/cli/bin.ts",
+    "daemon/agent-daemon": "src/daemon/agent-daemon.ts",
+  },
   format: ["esm"],
   target: "node20",
-  outDir: "dist/cli",
-  clean: true,
+  outDir: "dist",
+  clean: false, // Don't clean - vite build output is also in dist/
   splitting: false,
   sourcemap: true,
   dts: false,
@@ -17,6 +20,8 @@ export default defineConfig({
     "@durable-streams/state",
     "@trpc/server",
     "@trpc/client",
+    // CommonJS packages that don't bundle well into ESM
+    "dotenv",
     // Node builtins
     "fs",
     "path",

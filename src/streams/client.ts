@@ -88,9 +88,17 @@ export class StreamAPI {
    * Append an event to the registry stream
    */
   async appendToRegistry(event: RegistryEvent): Promise<void> {
-    await this.ensureStreamExists(REGISTRY_STREAM)
-    const handle = this.getHandle(REGISTRY_STREAM)
-    await handle.append([JSON.stringify(event)])
+    console.log(`[StreamAPI] appendToRegistry: ${event.type} for session ${event.sessionId}`)
+    console.log(`[StreamAPI] baseUrl: ${this.baseUrl}`)
+    try {
+      await this.ensureStreamExists(REGISTRY_STREAM)
+      const handle = this.getHandle(REGISTRY_STREAM)
+      await handle.append([JSON.stringify(event)])
+      console.log(`[StreamAPI] appendToRegistry: success`)
+    } catch (err) {
+      console.error(`[StreamAPI] appendToRegistry failed:`, err)
+      throw err
+    }
   }
 
   /**
@@ -98,9 +106,17 @@ export class StreamAPI {
    */
   async appendToSession(sessionId: string, event: SessionStreamEvent): Promise<void> {
     const streamPath = getSessionStreamPath(sessionId)
-    await this.ensureStreamExists(streamPath)
-    const handle = this.getHandle(streamPath)
-    await handle.append([JSON.stringify(event)])
+    console.log(`[StreamAPI] appendToSession(${sessionId}): ${event.type}`)
+    console.log(`[StreamAPI] streamPath: ${streamPath}, baseUrl: ${this.baseUrl}`)
+    try {
+      await this.ensureStreamExists(streamPath)
+      const handle = this.getHandle(streamPath)
+      await handle.append([JSON.stringify(event)])
+      console.log(`[StreamAPI] appendToSession: success`)
+    } catch (err) {
+      console.error(`[StreamAPI] appendToSession failed:`, err)
+      throw err
+    }
   }
 
   /**

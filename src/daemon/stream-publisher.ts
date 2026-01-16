@@ -48,6 +48,7 @@ export class StreamPublisher {
       debug: options.debug ?? false,
     }
 
+    console.log(`[StreamPublisher] Initializing with serverUrl: ${this.options.serverUrl}`)
     this.streamAPI = new StreamAPI(this.options.serverUrl)
 
     // Auto-flush on interval
@@ -83,6 +84,7 @@ export class StreamPublisher {
    * Publish an event to the registry stream
    */
   async publishRegistry(event: RegistryEvent): Promise<void> {
+    console.log(`[StreamPublisher] publishRegistry: ${event.type}`)
     if (this.options.bufferSize > 1) {
       this.registryBuffer.push(event)
       if (this.registryBuffer.length >= this.options.bufferSize) {
@@ -90,7 +92,13 @@ export class StreamPublisher {
       }
     } else {
       // No buffering - publish immediately
-      await this.streamAPI.appendToRegistry(event)
+      try {
+        await this.streamAPI.appendToRegistry(event)
+        console.log(`[StreamPublisher] publishRegistry: ${event.type} - success`)
+      } catch (err) {
+        console.error(`[StreamPublisher] publishRegistry failed:`, err)
+        throw err
+      }
     }
   }
 
@@ -98,6 +106,7 @@ export class StreamPublisher {
    * Publish an event to a session stream
    */
   async publishSession(sessionId: string, event: SessionStreamEvent): Promise<void> {
+    console.log(`[StreamPublisher] publishSession(${sessionId}): ${event.type}`)
     if (this.options.bufferSize > 1) {
       if (!this.sessionBuffers.has(sessionId)) {
         this.sessionBuffers.set(sessionId, [])
@@ -110,7 +119,13 @@ export class StreamPublisher {
       }
     } else {
       // No buffering - publish immediately
-      await this.streamAPI.appendToSession(sessionId, event)
+      try {
+        await this.streamAPI.appendToSession(sessionId, event)
+        console.log(`[StreamPublisher] publishSession(${sessionId}): ${event.type} - success`)
+      } catch (err) {
+        console.error(`[StreamPublisher] publishSession failed:`, err)
+        throw err
+      }
     }
   }
 

@@ -926,7 +926,7 @@ export function DiffPanel({
               <div>
                 <div className="font-vcr text-xs text-muted-foreground mb-2">Agent Type</div>
                 <div className="flex gap-2 flex-wrap">
-                  {(['cerebras', 'gemini', 'opencode', 'claude', 'codex'] as AgentType[]).map((type) => {
+                  {(['cerebras', 'gemini', 'opencode', 'claude', 'codex', 'research', 'qa'] as AgentType[]).map((type) => {
                     const available = isAvailable(type)
                     const selected = agentType === type
                     return (
