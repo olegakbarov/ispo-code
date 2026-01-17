@@ -24,6 +24,23 @@ export interface WorktreeInfo {
   sessionId: string
 }
 
+export interface TaskWorktreeOptions {
+  taskId: string
+  /** Base branch to create worktree from (default: current branch) */
+  baseBranch?: string
+  /** Repository root (auto-detected if not provided) */
+  repoRoot?: string
+}
+
+export interface TaskWorktreeInfo {
+  /** Path to the worktree directory */
+  path: string
+  /** Branch name for this worktree */
+  branch: string
+  /** Task ID this worktree belongs to */
+  taskId: string
+}
+
 /**
  * Execute a git command and return result
  */
@@ -53,6 +70,19 @@ function isValidWorktreeBranch(name: string): boolean {
   if (!name || name.length === 0) return false
   if (!name.startsWith("ispo-code/session-")) return false
   // Additional validation from git-service
+  if (name.includes('..') || name.includes('~') || name.includes('^')) return false
+  if (name.includes(' ') || name.includes('\n') || name.includes('\t')) return false
+  if (/[\\:?*\[\]]/.test(name)) return false
+  if (name.endsWith('.lock') || name.includes('@{')) return false
+  return true
+}
+
+/**
+ * Validate task worktree branch name
+ */
+function isValidTaskWorktreeBranch(name: string): boolean {
+  if (!name || name.length === 0) return false
+  if (!name.startsWith("ispo-code/task-")) return false
   if (name.includes('..') || name.includes('~') || name.includes('^')) return false
   if (name.includes(' ') || name.includes('\n') || name.includes('\t')) return false
   if (/[\\:?*\[\]]/.test(name)) return false
@@ -144,6 +174,70 @@ export function createWorktree(options: WorktreeOptions): WorktreeInfo | null {
     path: worktreePath,
     branch,
     sessionId,
+  }
+}
+
+/**
+ * Ensure a git worktree exists for a task
+ *
+ * Reuses existing worktree/branch if present.
+ */
+export function ensureTaskWorktree(options: TaskWorktreeOptions): TaskWorktreeInfo | null {
+  const { taskId, baseBranch, repoRoot: providedRepoRoot } = options
+
+  const repoRoot = providedRepoRoot ?? getGitRoot(process.cwd())
+  if (!repoRoot || !isGitRepo(repoRoot)) {
+    console.error("[git-worktree] Not a git repository")
+    return null
+  }
+
+  const branch = `ispo-code/task-${taskId}`
+  if (!isValidTaskWorktreeBranch(branch)) {
+    console.error(`[git-worktree] Invalid task branch name: ${branch}`)
+    return null
+  }
+
+  let baseBranchResolved = baseBranch
+  if (!baseBranchResolved) {
+    const currentBranchResult = runGit(["branch", "--show-current"], repoRoot)
+    baseBranchResolved = currentBranchResult.stdout.trim() || "HEAD"
+  }
+
+  const worktreesDir = join(repoRoot, ".ispo-code", "worktrees", "tasks")
+  const worktreePath = join(worktreesDir, taskId)
+
+  try {
+    mkdirSync(worktreesDir, { recursive: true })
+  } catch (error) {
+    console.error("[git-worktree] Failed to create task worktrees directory:", error)
+    return null
+  }
+
+  if (existsSync(worktreePath)) {
+    return {
+      path: worktreePath,
+      branch,
+      taskId,
+    }
+  }
+
+  const branchExistsResult = runGit(["rev-parse", "--verify", branch], repoRoot)
+  const args = branchExistsResult.ok
+    ? ["worktree", "add", worktreePath, branch]
+    : ["worktree", "add", "-b", branch, worktreePath, baseBranchResolved]
+
+  const createResult = runGit(args, repoRoot)
+  if (!createResult.ok) {
+    console.error(`[git-worktree] Failed to create task worktree: ${createResult.stderr}`)
+    return null
+  }
+
+  console.log(`[git-worktree] Created task worktree at ${worktreePath} on branch ${branch}`)
+
+  return {
+    path: worktreePath,
+    branch,
+    taskId,
   }
 }
 
@@ -346,6 +440,27 @@ export function getWorktreeForSession(
     path: expectedPath,
     branch: expectedBranch,
     sessionId,
+  }
+}
+
+/**
+ * Get task worktree info for a task ID
+ */
+export function getTaskWorktreeForId(
+  taskId: string,
+  repoRoot: string
+): TaskWorktreeInfo | null {
+  const expectedPath = join(repoRoot, ".ispo-code", "worktrees", "tasks", taskId)
+  const expectedBranch = `ispo-code/task-${taskId}`
+
+  if (!existsSync(expectedPath)) {
+    return null
+  }
+
+  return {
+    path: expectedPath,
+    branch: expectedBranch,
+    taskId,
   }
 }
 

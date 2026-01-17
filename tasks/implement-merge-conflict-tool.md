@@ -1,5 +1,7 @@
 # implement merge conflict resolution tool
 
+<!-- taskId: oqG3whxkO2 -->
+
 ## Problem Statement
 When merging worktree branches to main, conflicts are detected but not resolvable in UI.
 User must manually resolve via CLI. Need in-app conflict resolution workflow.

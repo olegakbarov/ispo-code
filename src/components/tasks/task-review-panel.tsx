@@ -7,6 +7,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { taskTrpcOptions } from "@/lib/trpc-task"
 import { Spinner } from "@/components/ui/spinner"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { DiffPanel, type GitStatus, type DiffData } from "@/components/git/diff-panel"
@@ -64,17 +65,19 @@ export function TaskReviewPanel({
   const { theme } = useTheme()
   const utils = trpc.useUtils()
   const { data: workingDir } = trpc.system.workingDir.useQuery()
+  const taskTrpc = taskTrpcOptions(taskPath)
 
   // OPTIMIZED: Use combined endpoint for review data (changed files + uncommitted status)
   const { data: reviewData, isLoading: filesLoading } = trpc.tasks.getReviewData.useQuery(
     { path: taskPath },
-    { enabled: !!taskPath }
+    { enabled: !!taskPath, ...taskTrpc }
   )
   const changedFiles = reviewData?.changedFiles ?? []
 
   // Query git status for the repo
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     enabled: !!workingDir,
+    ...taskTrpc,
   })
 
   // Simplified state - single active file for diff viewing

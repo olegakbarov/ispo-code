@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { trpc } from '@/lib/trpc-client'
+import { taskTrpcOptions } from '@/lib/trpc-task'
+import { useTaskTRPCClient } from '@/lib/hooks/use-task-client'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { hasCompletedExecutionSession, inferAutoRunPhase, parseAutoRunFromContent } from '@/lib/tasks/auto-run'
 import type { AgentType } from '@/lib/agent/types'
@@ -92,6 +94,8 @@ export function useTaskAgentActions({
 }: UseTaskAgentActionsParams) {
   const navigate = useNavigate()
   const utils = trpc.useUtils()
+  const taskTrpc = taskTrpcOptions(selectedPath ?? undefined)
+  const taskClient = useTaskTRPCClient(selectedPath)
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Agent Handlers
@@ -194,13 +198,14 @@ export function useTaskAgentActions({
     utils.tasks.list.invalidate()
 
     try {
-      const task = await utils.client.tasks.get.query({ path: selectedPath })
+      const client = taskClient ?? utils.client
+      const task = await client.tasks.get.query({ path: selectedPath })
       dispatch({ type: 'SET_DRAFT', payload: task.content })
       dispatch({ type: 'SET_DIRTY', payload: false })
     } catch (err) {
       console.error('Failed to refresh task after debate accept:', err)
     }
-  }, [selectedPath, utils, dispatch])
+  }, [selectedPath, taskClient, utils, dispatch])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Rewrite Handler
@@ -236,7 +241,7 @@ export function useTaskAgentActions({
   // Query task data to get autoRun flag
   const { data: taskDataForAutoRun } = trpc.tasks.get.useQuery(
     { path: selectedPath ?? '' },
-    { enabled: !!selectedPath }
+    { enabled: !!selectedPath, ...taskTrpc }
   )
 
   useEffect(() => {

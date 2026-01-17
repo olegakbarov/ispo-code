@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { StyledTextarea } from '@/components/ui/styled-textarea'
 import { trpc } from '@/lib/trpc-client'
 import { useTextareaDraft } from '@/lib/hooks/use-textarea-draft'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 import { GitCommit, Archive, RefreshCw, GitMerge, AlertTriangle } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -50,6 +51,7 @@ export function CommitArchiveModal({
   onMergeSuccess,
 }: CommitArchiveModalProps) {
   const utils = trpc.useUtils()
+  const taskTrpc = taskTrpcOptions(taskPath)
 
   // Local state - use task path for scoped draft key
   const draftKey = taskPath ? `commit-archive:${taskPath}` : ''
@@ -63,7 +65,7 @@ export function CommitArchiveModal({
   // OPTIMIZED: Use combined review data endpoint (same as review panel)
   const { data: reviewData, isLoading: filesLoading } = trpc.tasks.getReviewData.useQuery(
     { path: taskPath },
-    { enabled: isOpen && !!taskPath }
+    { enabled: isOpen && !!taskPath, ...taskTrpc }
   )
   const changedFiles = reviewData?.changedFiles ?? []
   const uncommittedFiles = reviewData?.uncommittedFiles ?? []
@@ -71,6 +73,7 @@ export function CommitArchiveModal({
   // Query git status to check if task file is modified
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     enabled: isOpen && !!taskPath,
+    ...taskTrpc,
   })
 
   // Git-relative paths for commit (only uncommitted files, include task file if modified)
@@ -99,6 +102,7 @@ export function CommitArchiveModal({
 
   // Generate commit message mutation
   const generateMutation = trpc.git.generateCommitMessage.useMutation({
+    ...taskTrpc,
     onSuccess: (data) => {
       setCommitMessage(data.message)
     },
@@ -109,6 +113,7 @@ export function CommitArchiveModal({
 
   // Commit mutation
   const commitMutation = trpc.git.commitScoped.useMutation({
+    ...taskTrpc,
     onError: (err) => {
       setError(`Commit failed: ${err.message}`)
     },
@@ -158,6 +163,7 @@ export function CommitArchiveModal({
 
   // Record merge mutation - stores merge info in task
   const recordMergeMutation = trpc.tasks.recordMerge.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate()
       utils.tasks.getLatestActiveMerge.invalidate()

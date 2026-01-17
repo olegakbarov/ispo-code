@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Cpu, HelpCircle } from 'lucide-react'
+import { HelpCircle } from 'lucide-react'
 import { trpc } from '@/lib/trpc-client'
 import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { UserMenu } from '@/components/auth/user-menu'
@@ -10,11 +10,10 @@ export function Sidebar() {
   const { data: session } = trpc.github.getSession.useQuery()
 
   return (
-    <aside className="w-80 bg-card flex flex-col border-r border-border">
-      <header className="h-12 flex items-center border-b border-border">
-        <Link to="/" className="flex items-center gap-2 px-3 h-full hover:bg-secondary/50 transition-colors">
-          <Cpu className="w-5 h-5 text-primary" />
-          <h1 className="font-vcr text-sm text-primary">ISPO Code</h1>
+    <aside className="w-[400px] bg-card flex flex-col border-r border-border">
+      <header className="flex justify-center py-10">
+        <Link to="/" className="hover:opacity-70 transition-opacity">
+          <img src="/ispo.svg" alt="ISPO" className="h-6 dark:invert" />
         </Link>
       </header>
 

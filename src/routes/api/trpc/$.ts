@@ -14,6 +14,7 @@ import { ensureServerEnv } from "@/lib/server/env"
 import { getAgentManager } from "@/lib/agent/manager"
 import { getWorktreeForSession } from "@/lib/agent/git-worktree"
 import { getGitRoot } from "@/lib/agent/git-service"
+import { ensureTaskWorktreeForPath } from "@/lib/agent/task-worktree"
 import { getSession } from "@/lib/auth/session-store"
 
 // Default working directory - falls back to current working directory
@@ -23,9 +24,24 @@ const DEFAULT_WORKING_DIR = process.env.WORKING_DIR || process.cwd()
 const serve = async (request: Request) => {
   let workingDir: string | null = request.headers.get("X-Working-Dir")
   const sessionId = request.headers.get("X-Session-Id")
+  const taskPath = request.headers.get("X-Task-Path")
+  const baseWorkingDir = workingDir ?? DEFAULT_WORKING_DIR
+
+  // Task-scoped worktree isolation (preferred when provided)
+  if (taskPath) {
+    const taskWorktree = ensureTaskWorktreeForPath({
+      taskPath,
+      baseWorkingDir,
+    })
+    if (taskWorktree?.path) {
+      workingDir = taskWorktree.path
+    } else {
+      workingDir = baseWorkingDir
+    }
+  }
 
   // Check for session-based worktree isolation (preferred over base working dir)
-  if (sessionId) {
+  if (!taskPath && sessionId) {
     const manager = getAgentManager()
     const session = manager.getSession(sessionId)
     let sessionWorktreePath: string | undefined
@@ -44,7 +60,6 @@ const serve = async (request: Request) => {
 
     // Fallback: derive worktree path from repo root
     if (!sessionWorktreePath) {
-      const baseWorkingDir = workingDir ?? DEFAULT_WORKING_DIR
       const repoRoot = getGitRoot(baseWorkingDir)
       const worktreeInfo = repoRoot ? getWorktreeForSession(sessionId, repoRoot) : null
       if (worktreeInfo && existsSync(worktreeInfo.path)) {

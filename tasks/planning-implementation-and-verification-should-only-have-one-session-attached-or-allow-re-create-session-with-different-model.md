@@ -1,5 +1,7 @@
 # planning, implementation and verification should only have one session attached or allow re-create session with different model
 
+<!-- taskId: zMQkk0r_ex -->
+
 ## Problem Statement
 Multiple plan/run/verify sessions per task; reruns clutter, source of truth unclear.
 Single session per phase, allow re-create on model change.

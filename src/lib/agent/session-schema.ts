@@ -197,6 +197,8 @@ export const AgentSessionSchema = z.object({
   startedAt: z.string(),
   completedAt: z.string().optional(),
   workingDir: z.string(),
+  worktreePath: z.string().optional(),
+  worktreeBranch: z.string().optional(),
   output: z.array(AgentOutputChunkSchema),
   error: z.string().optional(),
   agentType: agentTypeSchema.optional(),

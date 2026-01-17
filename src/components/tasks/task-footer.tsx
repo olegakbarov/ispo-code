@@ -157,7 +157,7 @@ export function TaskFooter({
           {splitButton}
         </>
       }
-      containerClassName="shrink-0 border-t border-border p-4 flex justify-center"
+      containerClassName="p-4 flex justify-center"
     />
   )
 }

@@ -9,6 +9,9 @@ import { router, procedure } from "./trpc"
 import { getRateLimiter } from "@/lib/agent/rate-limiter"
 import { getAbuseDetector } from "@/lib/agent/abuse-detector"
 import { SecurityConfig } from "@/lib/agent/security-config"
+import { createLogger } from "@/lib/logger"
+
+const log = createLogger('RateLimit')
 
 export const rateLimitRouter = router({
   /**
@@ -154,6 +157,7 @@ export const rateLimitRouter = router({
       durationMs: z.number().optional(),
     }))
     .mutation(({ input }) => {
+      log.warn('suspendUser', `Suspending user: ${input.userId}`, { durationMs: input.durationMs })
       const rateLimiter = getRateLimiter()
       rateLimiter.suspend(input.userId, input.durationMs)
 
@@ -169,6 +173,7 @@ export const rateLimitRouter = router({
   clearUser: procedure
     .input(z.object({ userId: z.string() }))
     .mutation(({ input }) => {
+      log.info('clearUser', `Clearing rate limit data for user: ${input.userId}`)
       const rateLimiter = getRateLimiter()
       rateLimiter.clearUser(input.userId)
 
@@ -182,6 +187,7 @@ export const rateLimitRouter = router({
    * Reset all rate limit data
    */
   reset: procedure.mutation(() => {
+    log.warn('reset', 'Resetting all rate limit data')
     const rateLimiter = getRateLimiter()
     rateLimiter.reset()
 

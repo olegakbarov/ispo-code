@@ -27,6 +27,7 @@ import { saveTask } from "../lib/agent/task-service"
 import { getContextLimit } from "../lib/agent/model-registry"
 import { readServerConfig } from "../trpc/system"
 import type { AgentType, AgentOutputChunk, CerebrasMessageData, GeminiMessageData, OpencodeMessageData, OpenRouterMessageData, ImageAttachment, SerializedImageAttachment } from "../lib/agent/types"
+import { CLIENT_MESSAGE_ID_METADATA_KEY } from "../lib/agent/output-utils"
 
 /** Agent interface with optional getMessages for SDK agents */
 interface SDKAgentLike extends EventEmitter {
@@ -67,6 +68,8 @@ export interface DaemonConfig {
   reconstructedMessages?: unknown[]
   /** Image attachments for multimodal input */
   attachments?: ImageAttachment[]
+  /** Client-generated ID for resume messages */
+  clientMessageId?: string
   /** GitHub repository info if working in a cloned repo */
   githubRepo?: {
     owner: string
@@ -135,7 +138,7 @@ export class AgentDaemon {
    * Run the agent and publish all events to streams
    */
   async run(): Promise<void> {
-    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, planRunId, isResume, cliSessionId, githubRepo, claudeUseSubscription, worktreePath, worktreeBranch } =
+    const { sessionId, agentType, prompt, workingDir, model, taskPath, title, instructions, sourceFile, sourceLine, debugRunId, planRunId, isResume, cliSessionId, clientMessageId, githubRepo, claudeUseSubscription, worktreePath, worktreeBranch } =
       this.config
     const runWorkingDir = this.effectiveWorkingDir
     const { daemonNonce } = this.config
@@ -184,6 +187,7 @@ export class AgentDaemon {
         type: "user_message",
         content: prompt,
         timestamp: new Date().toISOString(),
+        metadata: clientMessageId ? { [CLIENT_MESSAGE_ID_METADATA_KEY]: clientMessageId } : undefined,
       }
 
       // Add attachments to the user message if present

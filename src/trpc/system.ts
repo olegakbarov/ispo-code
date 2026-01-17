@@ -7,6 +7,9 @@ import { join, resolve } from "path"
 import { homedir } from "os"
 import { z } from "zod"
 import { router, procedure } from "./trpc"
+import { createLogger } from "@/lib/logger"
+
+const log = createLogger('System')
 
 // Config file path for server-side settings
 const CONFIG_DIR = ".ispo-code"
@@ -114,6 +117,7 @@ export const systemRouter = router({
   setClaudeUseSubscription: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ ctx, input }) => {
+      log.info('setClaudeUseSubscription', `Setting Claude subscription auth: ${input.enabled}`)
       writeServerConfig(ctx.workingDir, { claudeUseSubscription: input.enabled })
       return { success: true }
     }),

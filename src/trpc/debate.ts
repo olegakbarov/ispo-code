@@ -5,7 +5,10 @@
 
 import { z } from "zod"
 import { router, procedure } from "./trpc"
+import { createLogger } from "@/lib/logger"
 import { getTask, saveTask } from "@/lib/agent/task-service"
+
+const log = createLogger('Debate')
 import {
   createDebateOrchestrator,
   type DebateSession,
@@ -64,6 +67,7 @@ export const debateRouter = router({
       config: debateConfigSchema.optional(),
     }))
     .mutation(({ ctx, input }): { debateId: string; session: DebateSession; resumed: boolean } => {
+      log.info('start', `Starting debate session for task: ${input.path}`)
       // Check for existing debate on disk
       const existingSession = loadDebate(ctx.workingDir, input.path)
 

@@ -7,7 +7,7 @@
  */
 
 import { createTRPCReact } from "@trpc/react-query"
-import { httpBatchLink } from "@trpc/client"
+import { httpBatchLink, httpLink, splitLink } from "@trpc/client"
 import type { AppRouter } from "@/trpc/router"
 import { getWorkingDir } from "@/lib/stores/working-dir"
 
@@ -27,29 +27,52 @@ export const trpc = createTRPCReact<AppRouter>()
  * ```
  */
 export function createTRPCClient() {
+  const getSessionId = (context?: unknown): string | undefined =>
+    (context as { sessionId?: string })?.sessionId
+
+  const getTaskPath = (context?: unknown): string | undefined =>
+    (context as { taskPath?: string })?.taskPath
+
+  const buildHeaders = (context?: unknown, includeTaskPath = false) => {
+    const workingDir = getWorkingDir()
+    const headers: Record<string, string> = {}
+
+    if (workingDir) {
+      headers["X-Working-Dir"] = workingDir
+    }
+
+    const sessionId = getSessionId(context)
+    if (sessionId) {
+      headers["X-Session-Id"] = sessionId
+    }
+
+    if (includeTaskPath) {
+      const taskPath = getTaskPath(context)
+      if (taskPath) {
+        headers["X-Task-Path"] = taskPath
+      }
+    }
+
+    return headers
+  }
+
   return trpc.createClient({
     links: [
-      httpBatchLink({
-        url: "/api/trpc",
-        headers: (opts) => {
-          const workingDir = getWorkingDir()
-          const headers: Record<string, string> = {}
-
-          if (workingDir) {
-            headers["X-Working-Dir"] = workingDir
-          }
-
-          // Extract sessionId from query context
-          if (opts.opList.length > 0) {
-            const firstOp = opts.opList[0]
-            const sessionId = (firstOp.context as any)?.sessionId
-            if (sessionId) {
-              headers["X-Session-Id"] = sessionId
-            }
-          }
-
-          return headers
+      splitLink({
+        condition(op) {
+          return Boolean((op.context as { taskPath?: string })?.taskPath)
         },
+        true: httpLink({
+          url: "/api/trpc",
+          headers: (opts) => buildHeaders(opts.op.context, true),
+        }),
+        false: httpBatchLink({
+          url: "/api/trpc",
+          headers: (opts) => {
+            const firstOp = opts.opList[0]
+            return buildHeaders(firstOp?.context, false)
+          },
+        }),
       }),
     ],
   })

@@ -1,4 +1,4 @@
-# Ispo Code
+# ISPO Code
 
 A full-stack multi-agent control panel for spawning and managing AI coding agents (Claude CLI, Codex CLI, OpenCode, Cerebras GLM). Features real-time session monitoring, AI-powered task planning, and integrated git workflows.
 
@@ -6,7 +6,6 @@ A full-stack multi-agent control panel for spawning and managing AI coding agent
 
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.
 - At the end of each plan, give me a list of unresolved questions to answer, if any.
-
 - do not spawn processes on port 4200, use other ports for your 'tests'
 
 ## Codebase Overview
@@ -53,6 +52,7 @@ npm run start        # Preview production build
 ## Worktree Isolation
 
 Each agent session runs in an isolated git worktree on a unique branch (`ispo-code/session-{id}`). This prevents:
+
 - Concurrent agents conflicting on same files
 - Mixed commits across sessions
 - Cross-session contamination
@@ -62,37 +62,43 @@ Each agent session runs in an isolated git worktree on a unique branch (`ispo-co
 ### Architecture
 
 **Session Lifecycle**:
+
 1. **Spawn**: Creates `.ispo-code/worktrees/{sessionId}` on new branch
 2. **Execution**: All agent file operations scoped to worktree
 3. **Cleanup**: Deletes worktree and branch on session deletion
 
 **Path Isolation**:
+
 - All tools (read/write/edit) constrained to worktree via `validatePath()`
 - Shell commands (`exec_command`) execute in worktree `cwd`
 - Git operations automatically scoped to worktree context
 
 **UI Integration**:
+
 - Sidebar shows "WT" badge when session uses worktree
 - Git status displays worktree branch name
 - Commit operations scoped to session files
 
 **Session-specific git operations** (via tRPC):
+
 - Server automatically resolves `X-Session-Id` header to worktree path
 - Git status, diffs, commits scoped to session worktree
 
 ### Implementation
 
 **Key Files**:
+
 - `src/lib/agent/git-worktree.ts` - Worktree lifecycle management
 - `src/lib/agent/manager.ts` - Integrates worktree creation/cleanup
 - `src/lib/agent/path-validator.ts` - Enforces worktree boundaries
 - `src/routes/api/trpc/$.ts` - Resolves sessionId to worktree path
 
 **Session Model**:
+
 ```ts
 interface AgentSession {
-  worktreePath?: string       // .ispo-code/worktrees/{sessionId}
-  worktreeBranch?: string     // ispo-code/session-{sessionId}
+  worktreePath?: string; // .ispo-code/worktrees/{sessionId}
+  worktreeBranch?: string; // ispo-code/session-{sessionId}
   // ...
 }
 ```

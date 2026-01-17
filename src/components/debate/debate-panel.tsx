@@ -13,6 +13,7 @@ import { DEFAULT_DEBATE_CONFIG, PERSONA_LABELS, PERSONA_DESCRIPTIONS } from '@/l
 import { agentTypeLabel, getModelsForAgentType, getDefaultModelId, supportsModelSelection } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 
 interface DebatePanelProps {
   taskPath: string
@@ -41,6 +42,7 @@ export function DebatePanel({
   onClose,
   onAccept,
 }: DebatePanelProps) {
+  const taskTrpc = taskTrpcOptions(taskPath)
   // Determine initial state based on existing debate
   const getInitialStep = (): DebateStep => {
     if (!existingDebate) return 'config'
@@ -73,10 +75,10 @@ export function DebatePanel({
   )
 
   // tRPC mutations
-  const startMutation = trpc.debate.start.useMutation()
-  const nextRoundMutation = trpc.debate.nextRound.useMutation()
-  const acceptSpecMutation = trpc.debate.acceptSpec.useMutation()
-  const discardMutation = trpc.debate.discard.useMutation()
+  const startMutation = trpc.debate.start.useMutation({ ...taskTrpc })
+  const nextRoundMutation = trpc.debate.nextRound.useMutation({ ...taskTrpc })
+  const acceptSpecMutation = trpc.debate.acceptSpec.useMutation({ ...taskTrpc })
+  const discardMutation = trpc.debate.discard.useMutation({ ...taskTrpc })
 
   // Sync with existing debate when it changes (e.g., from polling)
   useEffect(() => {

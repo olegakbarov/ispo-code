@@ -31,8 +31,12 @@ interface TaskEditorProps {
   updatedAt?: string
   // Subtasks
   subtasks?: SubTask[]
+  subtasksCount?: number
   taskVersion?: number
   onSubtasksChange?: () => void
+  // Mode/tab navigation callbacks
+  onModeChange?: (mode: Mode) => void
+  onEditTabChange?: (tab: EditTab) => void
   // Archive state for review panel
   isArchived?: boolean
   isArchiving?: boolean
@@ -72,8 +76,11 @@ export function TaskEditor({
   createdAt,
   // updatedAt is available but not displayed currently
   subtasks = [],
+  subtasksCount = 0,
   taskVersion = 1,
   onSubtasksChange,
+  onModeChange,
+  onEditTabChange,
   isArchived,
   isArchiving,
   isRestoring,
@@ -118,6 +125,55 @@ export function TaskEditor({
             {createdAt && (
               <div className="text-[10px] text-text-muted font-mono" title={`Created: ${formatDateTime(createdAt)}`}>
                 {formatTimeAgo(createdAt)}
+              </div>
+            )}
+
+            {/* Mode/Tab Navigation */}
+            {onModeChange && onEditTabChange && (
+              <div className="flex border border-border rounded overflow-hidden">
+                <button
+                  onClick={() => {
+                    onModeChange('edit')
+                    onEditTabChange('draft')
+                  }}
+                  className={`px-2 py-1 text-[10px] font-vcr transition-colors ${
+                    mode === 'edit' && editTab === 'draft'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  }`}
+                >
+                  Plan
+                </button>
+                <button
+                  onClick={() => {
+                    onModeChange('edit')
+                    onEditTabChange('subtasks')
+                  }}
+                  className={`px-2 py-1 text-[10px] font-vcr transition-colors border-l border-border flex items-center gap-1 ${
+                    mode === 'edit' && editTab === 'subtasks'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  }`}
+                >
+                  Subtasks
+                  {subtasksCount > 0 && (
+                    <span className={`px-1 min-w-[14px] text-center rounded text-[9px] ${
+                      mode === 'edit' && editTab === 'subtasks' ? 'bg-accent-foreground/20' : 'bg-border/50'
+                    }`}>
+                      {subtasksCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => onModeChange('review')}
+                  className={`px-2 py-1 text-[10px] font-vcr transition-colors border-l border-border ${
+                    mode === 'review'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  }`}
+                >
+                  Review
+                </button>
               </div>
             )}
           </div>

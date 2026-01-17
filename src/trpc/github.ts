@@ -13,6 +13,9 @@ import {
   isRepoCloned,
 } from "@/lib/github/clone-service"
 import { TRPCError } from "@trpc/server"
+import { createLogger } from "@/lib/logger"
+
+const log = createLogger('GitHub')
 
 export const githubRouter = router({
   /**
@@ -79,12 +82,14 @@ export const githubRouter = router({
         })
       }
 
+      log.info('cloneRepo', `Cloning ${input.owner}/${input.repo}`, { user: ctx.username })
       const repoPath = await cloneRepo(
         ctx.workingDir,
         input.owner,
         input.repo,
         ctx.githubToken
       )
+      log.info('cloneRepo', `Clone completed`, { path: repoPath })
 
       return {
         success: true,
@@ -126,6 +131,7 @@ export const githubRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      log.warn('deleteClonedRepo', `Deleting cloned repo: ${input.owner}/${input.repo}`)
       await deleteClonedRepo(ctx.workingDir, input.owner, input.repo)
       return { success: true }
     }),

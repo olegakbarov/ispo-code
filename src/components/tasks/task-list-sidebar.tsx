@@ -445,7 +445,7 @@ export function TaskListSidebar() {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* Command palette - prominent with more space */}
-      <div className="px-3 pt-3 pb-2">
+      <div className="px-3 pt-3 pb-8">
         <TaskCommandPalette
           variant="inline"
           tasks={tasks}
@@ -459,7 +459,7 @@ export function TaskListSidebar() {
       </div>
 
       {/* Filters section */}
-      <div className="px-3 pb-2 space-y-2">
+      <div className="px-3 py-5 space-y-2">
         {/* Archive filter tabs */}
         <div className="flex items-center gap-1" role="tablist" aria-label="Task filter">
           <button
@@ -495,8 +495,7 @@ export function TaskListSidebar() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter tasks..."
-          variant="sm"
-          className="w-full bg-background"
+          className="w-full px-3 py-2.5 rounded-lg bg-background border-border/50 text-xs font-vcr"
           data-hotkey-target="task-filter"
         />
       </div>

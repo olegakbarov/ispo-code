@@ -7,7 +7,7 @@
 import { useState, useRef } from "react"
 import { MessageSquare, Paperclip, Send, X, Plus } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
-import { Textarea } from "@/components/ui/textarea"
+import { StyledTextarea } from "@/components/ui/styled-textarea"
 import { Button } from "@/components/ui/button"
 import { trpc } from "@/lib/trpc-client"
 import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
@@ -225,14 +225,15 @@ export function FileCommentInput({
         )}
       </div>
 
-      {/* Textarea - borderless, blends in */}
-      <Textarea
+      {/* Textarea - borderless, blends into container (uses StyledTextarea base styling) */}
+      <StyledTextarea
         id={`comment-${fileName}`}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Share your feedback..."
-        className="border-0 bg-transparent focus-visible:ring-0 resize-none min-h-[100px] px-4 py-3 text-sm"
+        className="border-0 focus:border-0 focus:ring-0 min-h-[100px] rounded-none"
+        variant="md"
         disabled={isSubmitting}
       />
 

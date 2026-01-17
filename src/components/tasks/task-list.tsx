@@ -50,7 +50,7 @@ export function TaskList({
   onTaskSelect,
 }: TaskListProps) {
   return (
-    <div className="w-80 shrink-0 min-h-0 flex flex-col bg-panel">
+    <div className="w-[400px] shrink-0 min-h-0 flex flex-col bg-panel">
       <div className="px-3 border-b border-border">
         <div className="h-12 flex items-center gap-2">
           <Input

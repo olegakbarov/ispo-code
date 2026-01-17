@@ -80,12 +80,20 @@ export interface UnarchiveState {
 }
 
 export interface OrchestratorState {
-  /** Debug run ID being orchestrated */
+  /** Run ID being orchestrated (debug or plan) */
   debugRunId: string | null
+  /** Plan run ID for multi-agent planning */
+  planRunId: string | null
   /** Session ID of the orchestrator (codex) */
   sessionId: string | null
-  /** Whether the orchestrator has been triggered for this debug run */
+  /** Whether the orchestrator has been triggered for this run */
   triggered: boolean
+  /** Type of orchestration run */
+  type: 'debug' | 'plan' | null
+  /** Plan file paths for plan runs (needed for orchestration) */
+  planPaths?: [string, string]
+  /** Parent task path for plan runs */
+  parentTaskPath?: string
 }
 
 export interface PendingCommitEntry {
@@ -185,6 +193,8 @@ export type TasksAction =
   | { type: 'SET_ORCHESTRATOR_MODAL_OPEN'; payload: boolean }
   | { type: 'SET_ORCHESTRATOR'; payload: { debugRunId: string; sessionId: string } }
   | { type: 'SET_ORCHESTRATOR_TRIGGERED'; payload: string }
+  | { type: 'SET_PLAN_ORCHESTRATOR_TRIGGERED'; payload: { planRunId: string; planPaths: [string, string]; parentTaskPath: string } }
+  | { type: 'SET_PLAN_ORCHESTRATOR'; payload: { planRunId: string; sessionId: string } }
   | { type: 'RESET_ORCHESTRATOR' }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,8 +255,10 @@ export const initialTasksState: TasksState = {
   },
   orchestrator: {
     debugRunId: null,
+    planRunId: null,
     sessionId: null,
     triggered: false,
+    type: null,
   },
 }
 
@@ -492,8 +504,10 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
       ...state,
       orchestrator: {
         debugRunId: payload.debugRunId,
+        planRunId: null,
         sessionId: payload.sessionId,
         triggered: true,
+        type: 'debug' as const,
       },
       modals: { ...state.modals, orchestratorOpen: true },
     }))
@@ -503,14 +517,39 @@ export function tasksReducer(state: TasksState, action: TasksAction): TasksState
         ...state.orchestrator,
         debugRunId: payload,
         triggered: true,
+        type: 'debug' as const,
       },
+    }))
+    .with({ type: 'SET_PLAN_ORCHESTRATOR_TRIGGERED' }, ({ payload }) => ({
+      ...state,
+      orchestrator: {
+        ...state.orchestrator,
+        planRunId: payload.planRunId,
+        planPaths: payload.planPaths,
+        parentTaskPath: payload.parentTaskPath,
+        triggered: true,
+        type: 'plan' as const,
+      },
+    }))
+    .with({ type: 'SET_PLAN_ORCHESTRATOR' }, ({ payload }) => ({
+      ...state,
+      orchestrator: {
+        ...state.orchestrator,
+        planRunId: payload.planRunId,
+        sessionId: payload.sessionId,
+        triggered: true,
+        type: 'plan' as const,
+      },
+      modals: { ...state.modals, orchestratorOpen: true },
     }))
     .with({ type: 'RESET_ORCHESTRATOR' }, () => ({
       ...state,
       orchestrator: {
         debugRunId: null,
+        planRunId: null,
         sessionId: null,
         triggered: false,
+        type: null,
       },
       modals: { ...state.modals, orchestratorOpen: false },
     }))

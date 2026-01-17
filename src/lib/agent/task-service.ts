@@ -10,6 +10,8 @@ import path from "path"
 import { globSync } from "glob"
 import { nanoid } from "nanoid"
 import { slugifyTitle, generateShortSlug as generateShortSlugUtil } from "@/lib/utils/slugify"
+import { getGitRoot } from "@/lib/agent/git-service"
+import { getTaskWorktreeForId } from "@/lib/agent/git-worktree"
 
 export type TaskSource = "kiro-spec" | "codemap-plan" | "tasks-dir"
 
@@ -48,6 +50,7 @@ export interface TaskSummary {
   hasSubtasks: boolean // Quick check if task has subtasks
   qaStatus?: QAStatus // QA status after merge
   hasMergeHistory?: boolean // Quick check if task has merged commits
+  taskId?: string
 }
 
 export interface TaskFile extends TaskSummary {
@@ -186,6 +189,15 @@ function parseVersion(content: string): number {
 }
 
 /**
+ * Extract taskId from markdown content.
+ * Looks for: <!-- taskId: abc123 -->
+ */
+export function parseTaskId(content: string): string | undefined {
+  const match = content.match(/<!--\s*taskId:\s*([a-zA-Z0-9_-]+)\s*-->/)
+  return match?.[1]
+}
+
+/**
  * Extract QA status from markdown content.
  * Looks for: <!-- qaStatus: pending|pass|fail -->
  * Returns undefined if not found.
@@ -236,6 +248,31 @@ export function updateAutoRunInContent(content: string, autoRun: boolean): strin
 
   // Add at start
   return autoRunComment + "\n\n" + content
+}
+
+/**
+ * Ensure taskId comment exists in content.
+ */
+export function ensureTaskIdInContent(
+  content: string,
+  taskId?: string
+): { content: string; taskId: string } {
+  const existing = parseTaskId(content)
+  if (existing) {
+    return { content, taskId: existing }
+  }
+
+  const nextId = taskId ?? nanoid(10)
+  const comment = `<!-- taskId: ${nextId} -->`
+  const lines = content.split("\n")
+  const titleIndex = lines.findIndex((line) => line.match(/^#\s+/))
+
+  if (titleIndex >= 0) {
+    lines.splice(titleIndex + 1, 0, "", comment)
+    return { content: lines.join("\n"), taskId: nextId }
+  }
+
+  return { content: `${comment}\n\n${content}`, taskId: nextId }
 }
 
 /**
@@ -579,15 +616,26 @@ function sourceForPath(relPath: string): TaskSource {
   return "tasks-dir"
 }
 
+/**
+ * Check if a task path is a child plan file (from multi-agent planning).
+ * Child plans have the pattern: tasks/{slug}/plan-agent-{1,2}.md
+ */
+function isChildPlanFile(relPath: string): boolean {
+  return /^tasks\/[^/]+\/plan-agent-[12]\.md$/.test(relPath)
+}
+
 export function listTasks(cwd: string): TaskSummary[] {
   const relPaths = new Set<string>()
   const sources = new Map<string, TaskSource>()
+  const repoRoot = getGitRoot(cwd)
 
   for (const { pattern, source } of TASK_GLOBS) {
     const matches = globSync(pattern, { cwd, nodir: true, dot: true })
     for (const match of matches) {
       const relPath = normalizeRelPath(match)
       if (!isAllowedTaskPath(relPath)) continue
+      // Filter out child plan files (plan-agent-1.md, plan-agent-2.md)
+      if (isChildPlanFile(relPath)) continue
       relPaths.add(relPath)
       sources.set(relPath, source)
     }
@@ -610,17 +658,32 @@ export function listTasks(cwd: string): TaskSummary[] {
       const stat = statSync(absPath)
       if (!stat.isFile()) continue
 
-      const content = readFileSync(absPath, "utf-8")
+      const baseContent = readFileSync(absPath, "utf-8")
+      const baseTaskId = parseTaskId(baseContent)
+      let content = baseContent
+      let effectiveStat = stat
+      const archived = relPath.startsWith("tasks/archive/")
+
+      if (repoRoot && baseTaskId && !archived) {
+        const worktreeInfo = getTaskWorktreeForId(baseTaskId, repoRoot)
+        if (worktreeInfo) {
+          const worktreePath = path.join(worktreeInfo.path, relPath)
+          if (existsSync(worktreePath)) {
+            content = readFileSync(worktreePath, "utf-8")
+            effectiveStat = statSync(worktreePath)
+          }
+        }
+      }
+
       const fallbackTitle = path.basename(relPath, ".md")
       const title = parseTitleFromMarkdown(content, fallbackTitle)
       const progress = parseProgressFromMarkdown(content)
 
       // Determine if task is archived based on path
-      const archived = relPath.startsWith("tasks/archive/")
-      const archivedAt = archived ? new Date(stat.mtimeMs).toISOString() : undefined
+      const archivedAt = archived ? new Date(effectiveStat.mtimeMs).toISOString() : undefined
 
       // Use birthtime if available, fall back to mtime
-      const createdAtMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs
+      const createdAtMs = effectiveStat.birthtimeMs > 0 ? effectiveStat.birthtimeMs : effectiveStat.mtimeMs
 
       // Parse subtasks (quick count for list view)
       const subtasks = parseSubtasks(content)
@@ -628,12 +691,13 @@ export function listTasks(cwd: string): TaskSummary[] {
       // Parse QA status and merge history for list view
       const qaStatus = parseQAStatus(content)
       const mergeHistory = parseMergeHistory(content)
+      const taskId = parseTaskId(content)
 
       tasks.push({
         path: relPath,
         title,
         createdAt: new Date(createdAtMs).toISOString(),
-        updatedAt: new Date(stat.mtimeMs).toISOString(),
+        updatedAt: new Date(effectiveStat.mtimeMs).toISOString(),
         source: sources.get(relPath) ?? sourceForPath(relPath),
         progress,
         archived,
@@ -642,6 +706,7 @@ export function listTasks(cwd: string): TaskSummary[] {
         hasSubtasks: subtasks.length > 0,
         qaStatus,
         hasMergeHistory: mergeHistory.length > 0,
+        taskId,
       })
     } catch {
       // Skip unreadable tasks
@@ -675,6 +740,7 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
   const subtasks = parseSubtasks(content)
   const qaStatus = parseQAStatus(content)
   const mergeHistory = parseMergeHistory(content)
+  const taskId = parseTaskId(content)
 
   // Determine if task is archived based on path
   const archived = relPath.startsWith("tasks/archive/")
@@ -696,6 +762,7 @@ export function getTask(cwd: string, taskPath: string): TaskFile {
     hasSubtasks: subtasks.length > 0,
     qaStatus,
     hasMergeHistory: mergeHistory.length > 0,
+    taskId,
     content,
     splitFrom,
     subtasks,
@@ -708,9 +775,28 @@ export function saveTask(cwd: string, taskPath: string, content: string): TaskFi
   const { relPath, absPath } = resolveTaskPath(cwd, taskPath)
 
   mkdirSync(path.dirname(absPath), { recursive: true })
-  writeFileSync(absPath, content, "utf-8")
+  const ensured = ensureTaskIdInContent(content)
+  writeFileSync(absPath, ensured.content, "utf-8")
 
   return getTask(cwd, relPath)
+}
+
+/**
+ * Ensure a task file has a taskId comment and return it.
+ */
+export function ensureTaskId(cwd: string, taskPath: string): string {
+  const { relPath, absPath } = resolveTaskPath(cwd, taskPath)
+
+  if (!existsSync(absPath)) {
+    throw new Error(`Task not found: ${relPath}`)
+  }
+
+  const content = readFileSync(absPath, "utf-8")
+  const ensured = ensureTaskIdInContent(content)
+  if (ensured.content !== content) {
+    writeFileSync(absPath, ensured.content, "utf-8")
+  }
+  return ensured.taskId
 }
 
 // Re-export for backward compatibility

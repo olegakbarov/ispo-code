@@ -35,6 +35,8 @@ export interface SpawnDaemonConfig {
   streamServerUrl?: string
   /** Image attachments for multimodal input */
   attachments?: ImageAttachment[]
+  /** Client-generated ID for resume messages */
+  clientMessageId?: string
   /** GitHub repository info if working in a cloned repo */
   githubRepo?: {
     owner: string

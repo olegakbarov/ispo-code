@@ -11,6 +11,7 @@ import { DEFAULT_DEBATE_CONFIG, PERSONA_LABELS, PERSONA_DESCRIPTIONS } from '@/l
 import { agentTypeLabel, getModelsForAgentType, getDefaultModelId, supportsModelSelection } from '@/lib/agent/config'
 import type { AgentType } from '@/lib/agent/types'
 import { trpc } from '@/lib/trpc-client'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 
 interface DebateModalProps {
   isOpen: boolean
@@ -33,6 +34,7 @@ export function DebateModal({
   onClose,
   onAccept,
 }: DebateModalProps) {
+  const taskTrpc = taskTrpcOptions(taskPath)
   const [step, setStep] = useState<DebateStep>('config')
   const [debateId, setDebateId] = useState<string | null>(null)
   const [session, setSession] = useState<DebateSession | null>(null)
@@ -48,10 +50,10 @@ export function DebateModal({
   const [maxRounds, setMaxRounds] = useState(DEFAULT_DEBATE_CONFIG.maxRounds)
 
   // tRPC mutations
-  const startMutation = trpc.debate.start.useMutation()
-  const nextRoundMutation = trpc.debate.nextRound.useMutation()
-  const acceptSpecMutation = trpc.debate.acceptSpec.useMutation()
-  const discardMutation = trpc.debate.discard.useMutation()
+  const startMutation = trpc.debate.start.useMutation({ ...taskTrpc })
+  const nextRoundMutation = trpc.debate.nextRound.useMutation({ ...taskTrpc })
+  const acceptSpecMutation = trpc.debate.acceptSpec.useMutation({ ...taskTrpc })
+  const discardMutation = trpc.debate.discard.useMutation({ ...taskTrpc })
 
   const handleAgentTypeChange = useCallback((newType: AgentType) => {
     setAgentType(newType)

@@ -67,6 +67,7 @@ interface UseTaskActionsParams {
   workingDir: string | null
   activeSessionId: string | null | undefined
   latestActiveMerge: MergeHistoryEntry | null | undefined
+  taskId?: string
   mode?: 'edit' | 'review' | 'debate'
   dispatch: React.Dispatch<TasksAction>
   editor: EditorState
@@ -117,6 +118,7 @@ export function useTaskActions({
   workingDir,
   activeSessionId,
   latestActiveMerge,
+  taskId,
   mode,
   dispatch,
   editor,
@@ -244,6 +246,7 @@ export function useTaskActions({
     selectedPath,
     workingDir,
     activeSessionId,
+    taskId,
     latestActiveMerge,
     dispatch,
     mergeBranchMutation,

@@ -10,6 +10,7 @@
 import { useEffect, useRef } from 'react'
 import { trpc } from '@/lib/trpc-client'
 import type { TasksAction, EditorState } from '@/lib/stores/tasks-reducer'
+import { useTaskTRPCClient } from '@/lib/hooks/use-task-client'
 
 interface UseTaskRefreshParams {
   selectedPath: string | null
@@ -27,6 +28,7 @@ export function useTaskRefresh({
   dispatch,
 }: UseTaskRefreshParams) {
   const utils = trpc.useUtils()
+  const taskClient = useTaskTRPCClient(selectedPath)
   const lastLoadedPathRef = useRef<string | null>(null)
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -48,7 +50,8 @@ export function useTaskRefresh({
     }
 
     // Otherwise fetch from server
-    utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
+    const client = taskClient ?? utils.client
+    client.tasks.get.query({ path: selectedPath }).then((task) => {
       dispatch({ type: 'SET_DRAFT', payload: task.content })
       dispatch({ type: 'SET_DIRTY', payload: false })
       lastLoadedPathRef.current = selectedPath
@@ -57,7 +60,7 @@ export function useTaskRefresh({
       dispatch({ type: 'SET_DRAFT', payload: `# Error\n\nFailed to load task content.` })
       lastLoadedPathRef.current = selectedPath
     })
-  }, [selectedPath, workingDir, utils.client.tasks.get, utils.tasks.get, dispatch])
+  }, [selectedPath, workingDir, taskClient, utils.client, utils.tasks.get, dispatch])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Live-refresh While Agent Active
@@ -69,7 +72,8 @@ export function useTaskRefresh({
     if (editor.dirty) return
 
     const interval = globalThis.setInterval(() => {
-      utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
+      const client = taskClient ?? utils.client
+      client.tasks.get.query({ path: selectedPath }).then((task) => {
         dispatch({ type: 'SET_DRAFT', payload: task.content })
         dispatch({ type: 'SET_DIRTY', payload: false })
       }).catch((err) => {
@@ -78,7 +82,7 @@ export function useTaskRefresh({
     }, 2000)
 
     return () => globalThis.clearInterval(interval)
-  }, [selectedPath, workingDir, activeSessionId, editor.dirty, utils.client.tasks.get, dispatch])
+  }, [selectedPath, workingDir, activeSessionId, editor.dirty, taskClient, utils.client, dispatch])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // One Last Refresh on Agent Completion
@@ -96,13 +100,14 @@ export function useTaskRefresh({
     if (!prev || current) return
     if (editor.dirty) return
 
-    utils.client.tasks.get.query({ path: selectedPath }).then((task) => {
+    const client = taskClient ?? utils.client
+    client.tasks.get.query({ path: selectedPath }).then((task) => {
       dispatch({ type: 'SET_DRAFT', payload: task.content })
       dispatch({ type: 'SET_DIRTY', payload: false })
     }).catch((err) => {
       console.error('Failed to refresh task after agent completion:', err)
     })
-  }, [selectedPath, workingDir, activeSessionId, editor.dirty, utils.client.tasks.get, dispatch])
+  }, [selectedPath, workingDir, activeSessionId, editor.dirty, taskClient, utils.client, dispatch])
 
   return {
     lastLoadedPathRef,

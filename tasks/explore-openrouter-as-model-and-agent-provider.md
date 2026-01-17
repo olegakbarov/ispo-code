@@ -1,5 +1,7 @@
 # explore openrouter as model and agent provider
 
+<!-- taskId: XtclcC8piu -->
+
 ## Problem Statement
 OpenRouter path chosen; integration missing.
 Need agent type, model registry, UI lists, env/docs wiring.

@@ -17,6 +17,7 @@ interface UseTaskQAActionsParams {
   selectedPath: string | null
   workingDir: string | null
   activeSessionId: string | null | undefined
+  taskId?: string
   latestActiveMerge: MergeHistoryEntry | null | undefined
   dispatch: React.Dispatch<TasksAction>
   mergeBranchMutation: ReturnType<typeof trpc.git.mergeBranch.useMutation>
@@ -30,6 +31,7 @@ export function useTaskQAActions({
   selectedPath,
   workingDir,
   activeSessionId,
+  taskId,
   latestActiveMerge,
   dispatch,
   mergeBranchMutation,
@@ -49,7 +51,9 @@ export function useTaskQAActions({
     utils.tasks.getLatestActiveMerge.invalidate()
   }, [utils])
 
-  const expectedWorktreeBranch = activeSessionId ? `ispo-code/session-${activeSessionId}` : undefined
+  const expectedWorktreeBranch = taskId
+    ? `ispo-code/task-${taskId}`
+    : (activeSessionId ? `ispo-code/session-${activeSessionId}` : undefined)
   const { data: branchData } = trpc.git.branches.useQuery(undefined, {
     enabled: !!workingDir && !!expectedWorktreeBranch,
   })

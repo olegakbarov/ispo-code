@@ -6,6 +6,8 @@
 
 import { z } from "zod"
 import { randomBytes } from "crypto"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import path from "path"
 import { router, procedure } from "./trpc"
 import { taskLogger } from "@/lib/logger"
 import { createTask, deleteTask, getTask, listTasks, saveTask, archiveTask, restoreTask, parseSections, searchArchivedTasks, addSubtasksToTask, updateSubtask, deleteSubtask as deleteSubtaskFromTask, getSubtask, MAX_SUBTASKS_PER_TASK, findSplitFromTasks, migrateAllSplitFromTasks, recordMerge, setQAStatus, recordRevert, getLatestActiveMerge, generateArchiveCommitMessage } from "@/lib/agent/task-service"
@@ -16,7 +18,8 @@ import { getProcessMonitor } from "@/daemon/process-monitor"
 import { getStreamServerUrl } from "@/streams/server"
 import { getStreamAPI } from "@/streams/client"
 import { getGitStatus, getGitRoot, commitScopedChanges } from "@/lib/agent/git-service"
-import { getWorktreeForSession, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
+import { getWorktreeForSession, getTaskWorktreeForId, deleteWorktree, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
+import { ensureTaskWorktreeForPath } from "@/lib/agent/task-worktree"
 import { agentTypeSchema, type SessionStatus, type AgentType, type EditedFileInfo, type AgentOutputChunk } from "@/lib/agent/types"
 import { supportsAskUserQuestion } from "@/lib/agent/config"
 import { checkCLIAvailable } from "@/lib/agent/cli-runner"
@@ -43,6 +46,14 @@ function validateCLIAvailability(agentType: AgentType): void {
         : agentType
       throw new Error(`${displayName} CLI is not installed. Please install it first.`)
     }
+  }
+}
+
+function ensureTaskWorktreeForTaskPath(workingDir: string, taskPath: string) {
+  try {
+    ensureTaskWorktreeForPath({ taskPath, baseWorkingDir: workingDir })
+  } catch (error) {
+    taskLogger.warn("worktree", `Failed to ensure task worktree for ${taskPath}`, error)
   }
 }
 
@@ -124,7 +135,7 @@ async function getEditedFilesForSession(
   if (!createdEvent || createdEvent.type !== "session_created") {
     return { files: [], workingDir: "" }
   }
-  const workingDir = createdEvent.workingDir
+  const workingDir = createdEvent.worktreePath ?? createdEvent.workingDir
 
   // Check for completed/failed events with metadata.editedFiles (fast path)
   const sessionRegistryEvents = registryEvents.filter((e) => e.sessionId === sessionId)
@@ -938,6 +949,7 @@ export const tasksRouter = router({
     .mutation(({ ctx, input }) => {
       taskLogger.info('create', `Creating task: ${input.title}`)
       const result = createTask(ctx.workingDir, { title: input.title, content: input.content })
+      ensureTaskWorktreeForTaskPath(ctx.workingDir, result.path)
       taskLogger.info('create', 'Task created', { path: result.path })
       return result
     }),
@@ -969,6 +981,7 @@ export const tasksRouter = router({
         title: input.title,
         content: initialContent,
       })
+      ensureTaskWorktreeForTaskPath(ctx.workingDir, taskPath)
 
       // Build the appropriate prompt based on task type
       // Gate includeQuestions: only pass true if agent supports AskUserQuestion
@@ -1074,6 +1087,11 @@ export const tasksRouter = router({
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
       const task = getTask(ctx.workingDir, input.path)
+      const repoRoot = getGitRoot(ctx.workingDir)
+      const taskWorktree = task.taskId && repoRoot
+        ? getTaskWorktreeForId(task.taskId, repoRoot)
+        : null
+      const statusWorkingDir = taskWorktree?.path ?? ctx.workingDir
 
       // Get active (non-deleted) sessions for this task
       const taskSessionIds = getActiveSessionIdsForTask(registryEvents, input.path, task.splitFrom)
@@ -1096,7 +1114,7 @@ export const tasksRouter = router({
         }
 
         if (changedFilePaths.size > 0) {
-          const gitStatus = getGitStatus(ctx.workingDir)
+          const gitStatus = getGitStatus(statusWorkingDir)
           const uncommittedInGit = new Set<string>()
           for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
           for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
@@ -1115,6 +1133,16 @@ export const tasksRouter = router({
         }
       }
 
+      if (taskWorktree && taskWorktree.path !== ctx.workingDir) {
+        const worktreeTaskPath = path.join(taskWorktree.path, input.path)
+        const baseTaskPath = path.join(ctx.workingDir, input.path)
+        if (existsSync(worktreeTaskPath)) {
+          mkdirSync(path.dirname(baseTaskPath), { recursive: true })
+          const content = readFileSync(worktreeTaskPath, "utf-8")
+          writeFileSync(baseTaskPath, content, "utf-8")
+        }
+      }
+
       // Check for unrelated staged files before archiving
       const gitStatus = getGitStatus(ctx.workingDir)
       if (gitStatus.staged.length > 0) {
@@ -1123,7 +1151,6 @@ export const tasksRouter = router({
 
       // Cleanup worktrees for all task sessions (best-effort, don't fail archive on cleanup errors)
       if (isWorktreeIsolationEnabled() && taskSessionIds.length > 0) {
-        const repoRoot = getGitRoot(ctx.workingDir)
         if (repoRoot) {
           for (const sessionId of taskSessionIds) {
             try {
@@ -2161,6 +2188,7 @@ Begin working on the task now.`
         title: input.title,
         content: initialContent,
       })
+      ensureTaskWorktreeForTaskPath(ctx.workingDir, taskPath)
 
       // Build the debug prompt (same for all agents)
       const prompt = buildTaskDebugPrompt({
@@ -2511,6 +2539,9 @@ _Generating plans with 2 agents..._
 `
       parentContent = updateAutoRunInContent(parentContent, input.autoRun)
       saveTask(ctx.workingDir, parentTaskPath, parentContent)
+      ensureTaskWorktreeForTaskPath(ctx.workingDir, parentTaskPath)
+      ensureTaskWorktreeForTaskPath(ctx.workingDir, plan1Path)
+      ensureTaskWorktreeForTaskPath(ctx.workingDir, plan2Path)
 
       // Generate plan run ID to group both sessions
       const planRunId = randomBytes(8).toString("hex")

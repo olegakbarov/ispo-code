@@ -1,6 +1,14 @@
-# Ispo Code
+# ISPO Code
 
 A full-stack multi-agent control panel for spawning and managing AI coding agents. Features real-time session monitoring, AI-powered task planning, and integrated git workflows with worktree isolation.
+
+## What ISPO can do
+
+- spawn different agents for planning or investigation
+- debate and find weaknesses in generated plans
+- pick different models for plan creation, plan implementation and code review
+- provide clean UI to review changes per task
+- use anwers from user to dynamically change the plan
 
 ## Overview
 

@@ -42,7 +42,7 @@ export function TaskList({
   onTaskSelect,
 }: TaskListProps) {
   return (
-    <div className="w-80 shrink-0 min-h-0 flex flex-col bg-card">
+    <div className="w-[400px] shrink-0 min-h-0 flex flex-col bg-card">
       <div className="p-2 border-b border-border">
         <Input
           value={filter}

@@ -181,6 +181,8 @@ function reconstructSessionFromStreams(
       ? latestEvent.timestamp
       : undefined,
     workingDir: createdEvent.workingDir,
+    worktreePath: createdEvent.worktreePath,
+    worktreeBranch: createdEvent.worktreeBranch,
     output,
     error,
     agentType: createdEvent.agentType,
@@ -310,7 +312,8 @@ export const agentRouter = router({
         .map((e) => e.chunk)
 
       // Otherwise, reconstruct from output chunks for runtime display
-      return reconstructEditedFilesFromChunks(outputChunks, createdEvent.workingDir)
+      const effectiveWorkingDir = createdEvent.worktreePath ?? createdEvent.workingDir
+      return reconstructEditedFilesFromChunks(outputChunks, effectiveWorkingDir)
     }),
 
   // === Mutations ===
@@ -454,6 +457,8 @@ export const agentRouter = router({
       message: z.string().min(1),
       /** Image attachments for multimodal input */
       attachments: z.array(imageAttachmentSchema).optional(),
+      /** Client-generated ID for optimistic resume messages */
+      clientMessageId: z.string().min(1).optional(),
     }))
     .mutation(async ({ input }) => {
       const streamAPI = getStreamAPI()
@@ -494,7 +499,10 @@ export const agentRouter = router({
         sessionId: input.sessionId,
         agentType: session.agentType ?? "cerebras",
         prompt: input.message,
+        clientMessageId: input.clientMessageId,
         workingDir: session.workingDir,
+        worktreePath: session.worktreePath,
+        worktreeBranch: session.worktreeBranch,
         model: session.model,
         cliSessionId: cliSessionIdEvent?.cliSessionId,
         isResume: true,

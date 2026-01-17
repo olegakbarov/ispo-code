@@ -1,6 +1,7 @@
 import { existsSync } from "fs"
 import type { DaemonConfig } from "./agent-daemon"
 import { createWorktree, getWorktreeForSession, isWorktreeIsolationEnabled } from "@/lib/agent/git-worktree"
+import { ensureTaskWorktreeForPath } from "@/lib/agent/task-worktree"
 import { getGitRoot } from "@/lib/agent/git-service"
 
 export interface DaemonWorktreeResult {
@@ -19,6 +20,20 @@ export function resolveDaemonWorktree(config: DaemonConfig): DaemonWorktreeResul
   const repoRoot = getGitRoot(baseWorkingDir)
   if (!repoRoot) {
     return { spawnWorkingDir: baseWorkingDir }
+  }
+
+  if (config.taskPath) {
+    const taskWorktree = ensureTaskWorktreeForPath({
+      taskPath: config.taskPath,
+      baseWorkingDir: repoRoot,
+    })
+    if (taskWorktree) {
+      return {
+        worktreePath: taskWorktree.path,
+        worktreeBranch: taskWorktree.branch,
+        spawnWorkingDir: taskWorktree.path,
+      }
+    }
   }
 
   if (config.worktreePath && existsSync(config.worktreePath)) {

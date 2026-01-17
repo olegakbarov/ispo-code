@@ -8,6 +8,7 @@
 import { startTransition } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { trpc } from '@/lib/trpc-client'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { generateOptimisticTaskPath } from '@/lib/utils/slugify'
 import type { TasksAction, EditorState } from '@/lib/stores/tasks-reducer'
@@ -19,22 +20,26 @@ interface UseTaskMutationsParams {
   buildSearchParams: (overrideReviewFile?: string | null) => {
     reviewFile?: string
   }
+  selectedPath: string | null
 }
 
 export function useTaskMutations({
   dispatch,
   editor,
   buildSearchParams,
+  selectedPath,
 }: UseTaskMutationsParams) {
   const navigate = useNavigate()
   const utils = trpc.useUtils()
   const { addCancelling, removeCancelling } = useCancellingSessionsStore()
+  const taskTrpc = taskTrpcOptions(selectedPath ?? undefined)
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Save Mutation
   // ─────────────────────────────────────────────────────────────────────────────
 
   const saveMutation = trpc.tasks.save.useMutation({
+    ...taskTrpc,
     onMutate: async ({ path, content }) => {
       await utils.tasks.get.cancel({ path })
       const previousTask = utils.tasks.get.getData({ path })
@@ -539,6 +544,7 @@ export function useTaskMutations({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const assignToAgentMutation = trpc.tasks.assignToAgent.useMutation({
+    ...taskTrpc,
     onMutate: async ({ path, agentType, model }) => {
       await utils.tasks.getActiveAgentSessions.cancel()
       await utils.tasks.getSessionsForTask.cancel({ path })
@@ -699,6 +705,7 @@ export function useTaskMutations({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const verifyWithAgentMutation = trpc.tasks.verifyWithAgent.useMutation({
+    ...taskTrpc,
     onMutate: async ({ path }) => {
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
@@ -736,6 +743,7 @@ export function useTaskMutations({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const rewriteWithAgentMutation = trpc.tasks.rewriteWithAgent.useMutation({
+    ...taskTrpc,
     onMutate: async ({ path }) => {
       await utils.tasks.getActiveAgentSessions.cancel()
       const previousSessions = utils.tasks.getActiveAgentSessions.getData()
@@ -773,6 +781,7 @@ export function useTaskMutations({
   // ─────────────────────────────────────────────────────────────────────────────
 
   const splitTaskMutation = trpc.tasks.splitTask.useMutation({
+    ...taskTrpc,
     onMutate: async ({ sourcePath, archiveOriginal }) => {
       await utils.tasks.list.cancel()
       const previousList = utils.tasks.list.getData()
@@ -836,6 +845,7 @@ export function useTaskMutations({
   })
 
   const recordMergeMutation = trpc.tasks.recordMerge.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate()
       utils.tasks.getLatestActiveMerge.invalidate()
@@ -846,6 +856,7 @@ export function useTaskMutations({
   })
 
   const setQAStatusMutation = trpc.tasks.setQAStatus.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate()
       utils.tasks.getLatestActiveMerge.invalidate()
@@ -862,6 +873,7 @@ export function useTaskMutations({
   })
 
   const recordRevertMutation = trpc.tasks.recordRevert.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate()
       utils.tasks.getLatestActiveMerge.invalidate()

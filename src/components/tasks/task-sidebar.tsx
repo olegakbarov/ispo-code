@@ -14,15 +14,10 @@ import { CommitActionPanel } from './commit-action-button'
 import type { GitDiffView } from '@/components/git/file-list'
 
 type Mode = 'edit' | 'review' | 'debate'
-type EditTab = 'draft' | 'subtasks'
 
 interface TaskSidebarProps {
-  // Mode and tab navigation
+  // Mode for conditional rendering
   mode: Mode
-  editTab: EditTab
-  onModeChange: (mode: Mode) => void
-  onEditTabChange: (tab: EditTab) => void
-  subtasksCount?: number
 
   // Control state
   isSaving: boolean
@@ -90,10 +85,6 @@ interface TaskSidebarProps {
 
 export function TaskSidebar({
   mode,
-  editTab,
-  onModeChange,
-  onEditTabChange,
-  subtasksCount = 0,
   isSaving,
   isDeleting,
   isAssigning,
@@ -138,7 +129,7 @@ export function TaskSidebar({
   const [showMergeHistory, setShowMergeHistory] = useState(false)
 
   // Determine if merge button should be shown
-  const canMerge = worktreeBranch && !latestActiveMerge && onMergeToMain
+  const canMerge = worktreeBranch && sessionId && !latestActiveMerge && onMergeToMain
   const showQAControls = qaStatus === 'pending' && latestActiveMerge
   const canRevert = qaStatus === 'fail' && latestActiveMerge && !latestActiveMerge.revertedAt
   const hasHistory = mergeHistory && mergeHistory.length > 0
@@ -146,58 +137,9 @@ export function TaskSidebar({
   return (
     <div className="w-full h-full bg-panel overflow-y-auto flex flex-col">
       <div className="p-3 flex-1 flex flex-col">
-        {/* Mode/Tab Navigation */}
-        <div className="mb-4">
-          <div className="flex border border-border rounded overflow-hidden">
-            <button
-              onClick={() => {
-                onModeChange('edit')
-                onEditTabChange('draft')
-              }}
-              className={`flex-1 px-2 py-1.5 text-xs font-vcr transition-colors ${
-                mode === 'edit' && editTab === 'draft'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-            >
-              Plan
-            </button>
-            <button
-              onClick={() => {
-                onModeChange('edit')
-                onEditTabChange('subtasks')
-              }}
-              className={`flex-1 px-2 py-1.5 text-xs font-vcr transition-colors border-l border-border flex items-center justify-center gap-1 ${
-                mode === 'edit' && editTab === 'subtasks'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-            >
-              Subtasks
-              {subtasksCount > 0 && (
-                <span className={`px-1 min-w-[16px] text-center rounded text-[10px] ${
-                  mode === 'edit' && editTab === 'subtasks' ? 'bg-accent-foreground/20' : 'bg-border/50'
-                }`}>
-                  {subtasksCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => onModeChange('review')}
-              className={`flex-1 px-2 py-1.5 text-xs font-vcr transition-colors border-l border-border ${
-                mode === 'review'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`}
-            >
-              Review
-            </button>
-          </div>
-        </div>
-
-        {/* Action Buttons Section - only show in edit mode */}
+        {/* Status indicators - only show in edit mode */}
         {mode === 'edit' && (
-          <div className="space-y-2 mb-4">
+          <div className="mb-2">
             {saveError && (
               <div className="p-2 bg-error/10 border border-error/30 rounded text-xs text-error">
                 {saveError}
@@ -208,40 +150,6 @@ export function TaskSidebar({
                 Saving...
               </span>
             )}
-
-            {/* Main action buttons - vertical stack */}
-            <Button
-              onClick={onReview}
-              disabled={!!agentSession}
-              variant={hasActiveDebate ? 'default' : 'outline'}
-              size="sm"
-              className="w-full text-[11px] uppercase tracking-wide"
-              title={hasActiveDebate ? "Resume active spec review" : "Review spec quality"}
-            >
-              Review
-            </Button>
-
-            <Button
-              onClick={onAssignToAgent}
-              disabled={isAssigning || !!agentSession}
-              variant="default"
-              size="sm"
-              className="w-full text-[11px] uppercase tracking-wide"
-              title="Assign to AI agent"
-            >
-              {isAssigning ? '...' : 'Implement'}
-            </Button>
-
-            <Button
-              onClick={onVerify}
-              disabled={!!agentSession}
-              variant="outline"
-              size="sm"
-              className="w-full text-[11px] uppercase tracking-wide"
-              title="Verify against codebase"
-            >
-              Verify
-            </Button>
 
             {/* Split From Badge */}
             {splitFrom && onNavigateToSplitFrom && (
@@ -373,10 +281,7 @@ export function TaskSidebar({
 
         {/* Sessions Section - only in edit mode */}
         {mode === 'edit' && (
-          <div className="space-y-2 pt-2 border-t border-border/50">
-            <h3 className="text-xs font-vcr text-text-muted uppercase tracking-wider">
-              Sessions
-            </h3>
+          <div className="flex-1 min-h-0 overflow-y-auto pb-4 border-b border-border/50">
             {taskSessions ? (
               <TaskSessions
                 planning={taskSessions.grouped.planning}
@@ -399,19 +304,57 @@ export function TaskSidebar({
           </div>
         )}
 
-        {/* Delete Button - only in edit mode, pushed to bottom */}
+        {/* Action Buttons + Delete - only in edit mode, pushed to bottom */}
         {mode === 'edit' && (
-          <div className="mt-auto pt-4 border-t border-border/50">
+          <div className="shrink-0 pt-4 space-y-2">
+            {/* Main action buttons */}
             <Button
-              onClick={onDelete}
-              disabled={isDeleting}
-              variant="ghost"
-              size="xs"
-              className="w-full text-error hover:text-error hover:bg-error/10"
-              title="Delete this task"
+              onClick={onReview}
+              disabled={!!agentSession}
+              variant={hasActiveDebate ? 'default' : 'outline'}
+              size="sm"
+              className="w-full text-[11px] uppercase tracking-wide"
+              title={hasActiveDebate ? "Resume active spec review" : "Review spec quality"}
             >
-              {isDeleting ? 'Deleting...' : 'Delete'}
+              Review
             </Button>
+
+            <Button
+              onClick={onAssignToAgent}
+              disabled={isAssigning || !!agentSession}
+              variant="default"
+              size="sm"
+              className="w-full text-[11px] uppercase tracking-wide"
+              title="Assign to AI agent"
+            >
+              {isAssigning ? '...' : 'Implement'}
+            </Button>
+
+            <Button
+              onClick={onVerify}
+              disabled={!!agentSession}
+              variant="outline"
+              size="sm"
+              className="w-full text-[11px] uppercase tracking-wide"
+              title="Verify against codebase"
+            >
+              Verify
+            </Button>
+
+            {/* Divider */}
+            <div className="pt-3 mt-3 border-t border-border/50">
+              {/* Delete button */}
+              <Button
+                onClick={onDelete}
+                disabled={isDeleting}
+                variant="destructive"
+                size="sm"
+                className="w-full text-[11px] uppercase tracking-wide"
+                title="Delete this task"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
           </div>
         )}
       </div>

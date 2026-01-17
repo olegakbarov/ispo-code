@@ -132,13 +132,12 @@ export function TaskCommandPalette({
         <button
           onClick={() => setOpen(true)}
           className={cn(
-            'flex items-center gap-2 w-full px-3 py-2 rounded bg-background border border-border/60 text-left text-xs font-vcr text-muted-foreground hover:border-border hover:text-foreground transition-colors',
+            'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg bg-background border border-border/50 text-left text-xs font-vcr text-muted-foreground hover:border-accent/50 hover:text-foreground hover:bg-accent/5 transition-all',
             className
           )}
         >
-          <Plus className="w-3.5 h-3.5 shrink-0" />
           <span className="flex-1">Type a command...</span>
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] bg-border/30 rounded">
+          <kbd className="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-border/40 rounded font-mono text-muted-foreground/80">
             <span>⌘</span>
             <span>K</span>
           </kbd>

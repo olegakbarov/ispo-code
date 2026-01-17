@@ -6,6 +6,7 @@ import { useState, useCallback, memo } from 'react'
 import { Plus, Check, Circle, Trash2, ChevronDown, ChevronRight, X, Pencil } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { trpc } from '@/lib/trpc-client'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import type { SubTask } from '@/lib/agent/task-service'
@@ -78,8 +79,10 @@ const SubtaskRow = memo(function SubtaskRow({
   const [newCheckboxText, setNewCheckboxText] = useState('')
 
   const utils = trpc.useUtils()
+  const taskTrpc = taskTrpcOptions(taskPath)
 
   const updateMutation = trpc.tasks.updateSubtask.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate({ path: taskPath })
       onRefresh()
@@ -87,6 +90,7 @@ const SubtaskRow = memo(function SubtaskRow({
   })
 
   const deleteMutation = trpc.tasks.deleteSubtask.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate({ path: taskPath })
       onRefresh()
@@ -293,8 +297,10 @@ export function SubtaskSection({ taskPath, subtasks, version, onRefresh }: Subta
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
 
   const utils = trpc.useUtils()
+  const taskTrpc = taskTrpcOptions(taskPath)
 
   const addSubtaskMutation = trpc.tasks.addSubtask.useMutation({
+    ...taskTrpc,
     onSuccess: () => {
       utils.tasks.get.invalidate({ path: taskPath })
       setNewSubtaskTitle('')

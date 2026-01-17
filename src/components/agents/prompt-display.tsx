@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, RefreshCw, Image, Github } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Image, Github } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { ImageAttachmentPreview } from '@/components/agents/image-attachment-input'
 import type { ImageAttachment } from '@/lib/agent/types'
@@ -12,8 +12,6 @@ import { encodeTaskPath } from '@/lib/utils/task-routing'
 interface PromptDisplayProps {
   prompt: string
   planPath?: string
-  taskPath?: string
-  isResumable?: boolean
   instructions?: string
   /** Image attachments for the initial prompt */
   attachments?: ImageAttachment[]
@@ -24,13 +22,9 @@ interface PromptDisplayProps {
   }
 }
 
-export function PromptDisplay({ prompt, planPath, taskPath, isResumable, instructions, attachments, githubRepo }: PromptDisplayProps) {
+export function PromptDisplay({ prompt, planPath, instructions, attachments, githubRepo }: PromptDisplayProps) {
   // Auto-expand if custom instructions are present or attachments exist
   const [expanded, setExpanded] = useState(!!instructions || (attachments && attachments.length > 0))
-
-  // Determine if we should show a link (either to plan or task)
-  const linkPath = planPath || taskPath
-  const linkLabel = planPath ? 'View Plan' : taskPath ? 'View Task' : null
 
   const maxCollapsedLength = 120
   const shouldCollapse = prompt.length > maxCollapsedLength
@@ -96,25 +90,16 @@ export function PromptDisplay({ prompt, planPath, taskPath, isResumable, instruc
           </a>
         )}
 
-        {/* Resumable badge */}
-        {isResumable && (
-          <div className="flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-[10px] font-vcr text-accent flex-shrink-0">
-            <RefreshCw className="w-3 h-3" />
-            <span>Resumable</span>
-          </div>
-        )}
-
-        {/* Plan/Task link */}
-        {linkPath && linkLabel && (
+        {/* Plan link (task links are in header now) */}
+        {planPath && (
           <Link
             to="/tasks/$"
-            params={{ _splat: encodeTaskPath(linkPath) }}
-            search={{ archiveFilter: 'active' }}
+            params={{ _splat: encodeTaskPath(planPath) }}
             className="flex items-center gap-1 px-2 py-1 bg-accent/10 border border-accent/30 rounded text-[10px] font-vcr text-accent hover:bg-accent/20 transition-colors flex-shrink-0 cursor-pointer"
-            title={`View ${planPath ? 'plan' : 'task'} file`}
+            title="View plan file"
           >
             <FileText className="w-3 h-3" />
-            <span>{linkLabel}</span>
+            <span>View Plan</span>
           </Link>
         )}
       </div>

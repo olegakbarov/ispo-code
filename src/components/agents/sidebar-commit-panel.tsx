@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react"
-import { Textarea } from "@/components/ui/textarea"
+import { StyledTextarea } from "@/components/ui/styled-textarea"
 import { trpc } from "@/lib/trpc-client"
 import { sessionTrpcOptions } from "@/lib/trpc-session"
 import { useTextareaDraft } from "@/lib/hooks/use-textarea-draft"
@@ -253,12 +253,12 @@ export function SidebarCommitPanel({ sessionId }: SidebarCommitPanelProps) {
 
               {/* Commit form */}
               <div className="space-y-2">
-                <Textarea
+                <StyledTextarea
                   value={commitMessage}
                   onChange={(e) => setCommitMessage(e.target.value)}
                   placeholder="Commit message..."
                   variant="sm"
-                  className="min-h-[60px] bg-background font-mono"
+                  className="min-h-[60px] font-mono"
                   disabled={commitMutation.isPending}
                 />
 

@@ -25,6 +25,7 @@ import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { tasksReducer, createInitialState } from '@/lib/stores/tasks-reducer'
 import { trpc } from '@/lib/trpc-client'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 
 // Custom hooks
 import { useTaskData } from '@/lib/hooks/use-task-data'
@@ -93,13 +94,16 @@ export function TasksPage({
   // Review Mode Data (for sidebar file list)
   // ═══════════════════════════════════════════════════════════════════════════════
 
+  const taskTrpc = taskTrpcOptions(selectedPath ?? undefined)
+
   const { data: reviewData, isLoading: reviewFilesLoading } = trpc.tasks.getReviewData.useQuery(
     { path: selectedPath! },
-    { enabled: !!selectedPath && mode === 'review' }
+    { enabled: !!selectedPath && mode === 'review', ...taskTrpc }
   )
 
   const { data: gitStatus } = trpc.git.status.useQuery(undefined, {
     enabled: !!workingDir && mode === 'review',
+    ...taskTrpc,
   })
 
   // Compute uncommitted files for review sidebar
@@ -222,7 +226,7 @@ export function TasksPage({
     setQAStatusMutation,
     revertMergeMutation,
     recordRevertMutation,
-  } = useTaskMutations({ dispatch, editor, buildSearchParams })
+  } = useTaskMutations({ dispatch, editor, buildSearchParams, selectedPath })
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // Agent Session Tracking (Phase 3: use-agent-session-tracking)
@@ -309,6 +313,7 @@ export function TasksPage({
     workingDir,
     activeSessionId,
     latestActiveMerge,
+    taskId: taskData?.taskId,
     mode,
     dispatch,
     editor,
@@ -522,8 +527,11 @@ export function TasksPage({
                   createdAt={taskData?.createdAt ?? selectedSummary?.createdAt}
                   updatedAt={taskData?.updatedAt ?? selectedSummary?.updatedAt}
                   subtasks={taskData?.subtasks ?? []}
+                  subtasksCount={taskData?.subtasks?.length ?? 0}
                   taskVersion={taskData?.version ?? 1}
                   onSubtasksChange={() => utils.tasks.get.invalidate({ path: selectedPath })}
+                  onModeChange={handleModeChange}
+                  onEditTabChange={setEditTab}
                   isArchived={selectedSummary?.archived ?? false}
                   isArchiving={archiveMutation.isPending}
                   isRestoring={restoreMutation.isPending}
@@ -589,10 +597,6 @@ export function TasksPage({
             >
               <TaskSidebar
                 mode={mode}
-                editTab={editTab}
-                onModeChange={handleModeChange}
-                onEditTabChange={setEditTab}
-                subtasksCount={taskData?.subtasks?.length ?? 0}
                 isSaving={save.saving}
                 isDeleting={deleteMutation.isPending}
                 isAssigning={assignToAgentMutation.isPending}

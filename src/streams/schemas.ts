@@ -41,6 +41,8 @@ export interface SessionCreatedEvent {
   sourceLine?: number
   /** Debug run ID for grouping multi-agent debug sessions */
   debugRunId?: string
+  /** Plan run ID for grouping multi-agent planning sessions */
+  planRunId?: string
   /** GitHub repository info if working in a cloned repo */
   githubRepo?: {
     owner: string

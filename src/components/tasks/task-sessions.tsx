@@ -6,6 +6,7 @@
 import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { match, P } from 'ts-pattern'
+import { Circle, CheckCircle2, XCircle, PauseCircle, MessageCircle, Moon, Ban } from 'lucide-react'
 import type { AgentType, SessionStatus } from '@/lib/agent/types'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -65,25 +66,25 @@ const STATUS_COLORS: Record<SessionStatus, string> = {
 
 /** Flow type labels and colors for active session display */
 const FLOW_TYPE_CONFIG: Record<TaskSession['sessionType'], { label: string; color: string }> = {
-  planning: { label: 'PLAN', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-  execution: { label: 'IMPL', color: 'bg-accent/20 text-accent border-accent/30' },
-  review: { label: 'REVIEW', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
-  verify: { label: 'VERIFY', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
-  rewrite: { label: 'REWRITE', color: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
-  comment: { label: 'COMMENT', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' },
-  orchestrator: { label: 'ORCH', color: 'bg-pink-500/20 text-pink-400 border-pink-500/30' },
+  orchestrator: { label: 'orch', color: 'bg-violet-500/15 text-violet-400 border-violet-500/25' },
+  planning: { label: 'plan', color: 'bg-sky-500/15 text-sky-400 border-sky-500/25' },
+  execution: { label: 'impl', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
+  review: { label: 'review', color: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/25' },
+  verify: { label: 'verify', color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
+  rewrite: { label: 'rewrite', color: 'bg-orange-500/15 text-orange-400 border-orange-500/25' },
+  comment: { label: 'comment', color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' },
 }
 
-const STATUS_ICONS: Record<SessionStatus, string | null> = {
-  pending: '⏳',
+const STATUS_ICONS: Record<SessionStatus, React.ComponentType<{ className?: string }> | null> = {
+  pending: Circle,
   running: null, // Use spinner
   working: null, // Use spinner
-  waiting_approval: '⏸',
-  waiting_input: '⌨',
-  idle: '💤',
-  completed: '✓',
-  failed: '✗',
-  cancelled: '⊘',
+  waiting_approval: PauseCircle,
+  waiting_input: MessageCircle,
+  idle: Moon,
+  completed: CheckCircle2,
+  failed: XCircle,
+  cancelled: Ban,
 }
 
 /** Statuses that indicate an active session */
@@ -120,6 +121,7 @@ function ActiveSessionCard({
   onCancel?: () => void
 }) {
   const statusColor = STATUS_COLORS[session.status]
+  const StatusIcon = STATUS_ICONS[session.status]
   const showSpinner = SPINNER_STATUSES.includes(session.status)
 
   // Count tool uses for progress indication
@@ -150,10 +152,10 @@ function ActiveSessionCard({
         <div className="flex items-center gap-2 mb-1">
           {showSpinner ? (
             <Spinner size="sm" className={statusColor} />
+          ) : StatusIcon ? (
+            <StatusIcon className={`w-4 h-4 ${statusColor}`} />
           ) : (
-            <span className={`text-sm ${statusColor}`}>
-              {STATUS_ICONS[session.status]}
-            </span>
+            <Circle className={`w-4 h-4 ${statusColor}`} />
           )}
           <span className={`text-xs font-vcr ${statusColor}`}>
             {getStatusLabel(session.status)}
@@ -196,8 +198,9 @@ function ActiveSessionCard({
 /** Compact session card for completed sessions */
 function SessionCard({ session }: { session: TaskSession }) {
   const statusColor = STATUS_COLORS[session.status]
-  const statusIcon = STATUS_ICONS[session.status]
+  const StatusIcon = STATUS_ICONS[session.status]
   const showSpinner = SPINNER_STATUSES.includes(session.status)
+  const flowConfig = FLOW_TYPE_CONFIG[session.sessionType]
 
   // Format timestamp to relative time
   const getRelativeTime = (timestamp: string) => {
@@ -225,47 +228,33 @@ function SessionCard({ session }: { session: TaskSession }) {
     <Link
       to="/agents/$sessionId"
       params={{ sessionId: session.sessionId }}
-      className="block w-full text-left px-2 py-1.5 rounded hover:bg-panel-hover transition-colors group"
+      className="block w-full text-left px-2 py-2 rounded hover:bg-panel-hover transition-colors group"
       title={session.title}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         {showSpinner ? (
-          <Spinner size="xs" className={`shrink-0 ${statusColor}`} />
+          <Spinner size="sm" className={`shrink-0 ${statusColor}`} />
+        ) : StatusIcon ? (
+          <StatusIcon className={`shrink-0 w-4 h-4 ${statusColor}`} />
         ) : (
-          <span className={`shrink-0 text-xs ${statusColor}`} title={session.status}>
-            {statusIcon}
-          </span>
+          <Circle className={`shrink-0 w-4 h-4 ${statusColor}`} />
         )}
-        <span className="flex-1 min-w-0 text-[11px] font-mono text-text-secondary truncate group-hover:text-text-primary">
+        <span className={`shrink-0 text-[10px] font-vcr px-1.5 py-0.5 rounded border ${flowConfig.color}`}>
+          {flowConfig.label}
+        </span>
+        <span className="flex-1 min-w-0 text-xs font-mono text-text-secondary truncate group-hover:text-text-primary">
           {session.model || session.agentType}
         </span>
-        <span className="shrink-0 text-[10px] text-text-muted tabular-nums">
+        <span className="shrink-0 text-xs text-text-muted tabular-nums">
           {getRelativeTime(session.timestamp)}
         </span>
       </div>
       {sourceLabel && (
-        <div className="ml-5 mt-0.5 text-[10px] text-accent truncate" title={session.sourceFile}>
+        <div className="ml-7 mt-1 text-[11px] text-accent truncate" title={session.sourceFile}>
           📄 {sourceLabel}
         </div>
       )}
     </Link>
-  )
-}
-
-function SessionGroup({ title, sessions }: { title: string; sessions: TaskSession[] }) {
-  if (sessions.length === 0) return null
-
-  return (
-    <div className="mb-2">
-      <h4 className="text-[10px] font-vcr text-text-muted mb-1 uppercase tracking-wider">
-        {title} ({sessions.length})
-      </h4>
-      <div className="space-y-0.5">
-        {sessions.map((session) => (
-          <SessionCard key={session.sessionId} session={session} />
-        ))}
-      </div>
-    </div>
   )
 }
 
@@ -284,18 +273,26 @@ export function TaskSessions({
   // Find active sessions
   const activeSessions = allSessions.filter(s => ACTIVE_STATUSES.includes(s.status))
 
-  // Get completed/inactive sessions by group
-  const completedPlanning = planning.filter(s => !ACTIVE_STATUSES.includes(s.status))
-  const completedReview = review.filter(s => !ACTIVE_STATUSES.includes(s.status))
-  const completedVerify = verify.filter(s => !ACTIVE_STATUSES.includes(s.status))
-  const completedExecution = execution.filter(s => !ACTIVE_STATUSES.includes(s.status))
-  const completedRewrite = rewrite.filter(s => !ACTIVE_STATUSES.includes(s.status))
-  const completedComment = comment.filter(s => !ACTIVE_STATUSES.includes(s.status))
-  const completedOrchestrator = orchestrator.filter(s => !ACTIVE_STATUSES.includes(s.status))
+  // Session type order: orchestrator, plans, impl, reviews, verify, rewrite, comments
+  const typeOrder: Record<TaskSession['sessionType'], number> = {
+    orchestrator: 0,
+    planning: 1,
+    execution: 2,
+    review: 3,
+    verify: 4,
+    rewrite: 5,
+    comment: 6,
+  }
 
-  const hasCompletedSessions = completedPlanning.length + completedReview.length +
-    completedVerify.length + completedExecution.length + completedRewrite.length +
-    completedComment.length + completedOrchestrator.length > 0
+  // Get completed/inactive sessions sorted by type order, then old to new within each type
+  const completedSessions = allSessions
+    .filter(s => !ACTIVE_STATUSES.includes(s.status))
+    .sort((a, b) => {
+      const typeCompare = typeOrder[a.sessionType] - typeOrder[b.sessionType]
+      if (typeCompare !== 0) return typeCompare
+      // Old to new within same type
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    })
 
   if (allSessions.length === 0) {
     return (
@@ -323,16 +320,12 @@ export function TaskSessions({
         </div>
       )}
 
-      {/* Completed Sessions - Grouped */}
-      {hasCompletedSessions && (
-        <div className="space-y-1">
-          <SessionGroup title="Orchestrator" sessions={completedOrchestrator} />
-          <SessionGroup title="Planning" sessions={completedPlanning} />
-          <SessionGroup title="Rewrite" sessions={completedRewrite} />
-          <SessionGroup title="Execution" sessions={completedExecution} />
-          <SessionGroup title="Review" sessions={completedReview} />
-          <SessionGroup title="Verify" sessions={completedVerify} />
-          <SessionGroup title="Comments" sessions={completedComment} />
+      {/* Completed Sessions - Flat list with badges */}
+      {completedSessions.length > 0 && (
+        <div className="space-y-0.5">
+          {completedSessions.map((session) => (
+            <SessionCard key={session.sessionId} session={session} />
+          ))}
         </div>
       )}
     </div>

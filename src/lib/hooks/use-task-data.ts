@@ -9,6 +9,7 @@ import { useMemo } from 'react'
 import { trpc } from '@/lib/trpc-client'
 import type { PlannerAgentType } from '@/lib/agent/config'
 import { useCancellingSessionsStore } from '@/lib/stores/cancelling-sessions'
+import { taskTrpcOptions } from '@/lib/trpc-task'
 
 type Mode = 'edit' | 'review' | 'debate'
 
@@ -18,6 +19,7 @@ interface UseTaskDataParams {
 }
 
 export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
+  const taskTrpc = taskTrpcOptions(selectedPath ?? undefined)
   // ─────────────────────────────────────────────────────────────────────────────
   // Core Queries
   // ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +62,7 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
       enabled: !!selectedPath && !!workingDir,
       // In review mode, session list is static, reduce polling significantly
       refetchInterval: mode === 'review' ? 30000 : 5000,
+      ...taskTrpc,
     }
   )
 
@@ -67,6 +70,7 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
     { path: selectedPath ?? '' },
     {
       enabled: !!selectedPath && !!workingDir,
+      ...taskTrpc,
     }
   )
 
@@ -74,6 +78,7 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
     { path: selectedPath ?? '' },
     {
       enabled: !!selectedPath && !!workingDir,
+      ...taskTrpc,
     }
   )
 
@@ -81,6 +86,7 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
     { path: selectedPath ?? '' },
     {
       enabled: !!selectedPath && !!workingDir,
+      ...taskTrpc,
     }
   )
 
@@ -89,6 +95,7 @@ export function useTaskData({ selectedPath, mode }: UseTaskDataParams) {
     {
       enabled: !!selectedPath && !!workingDir,
       refetchInterval: mode === 'debate' ? 2000 : false, // Poll faster while in debate mode
+      ...taskTrpc,
     }
   )
 

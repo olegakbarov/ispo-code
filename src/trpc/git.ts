@@ -4,6 +4,7 @@
 
 import { z } from "zod"
 import { router, procedure } from "./trpc"
+import { gitLogger } from "@/lib/logger"
 import {
   getGitStatus,
   getBranches,
@@ -32,7 +33,7 @@ import {
   revertMerge,
 } from "@/lib/agent/git-service"
 import { listWorktreesDetailed, cleanupOrphanedWorktrees } from "@/lib/agent/git-worktree"
-import { getSessionStore } from "@/lib/agent/session-store"
+import { getKnownSessionIds } from "@/lib/agent/session-index"
 import { generateCommitMessage } from "@/lib/agent/commit-message-generator"
 
 export const gitRouter = router({
@@ -127,7 +128,10 @@ export const gitRouter = router({
   commit: procedure
     .input(z.object({ message: z.string().min(1, "Commit message is required") }))
     .mutation(({ ctx, input }) => {
-      return commitChanges(ctx.workingDir, input.message)
+      gitLogger.info('commit', 'Creating commit', { message: input.message.slice(0, 72), cwd: ctx.workingDir })
+      const result = commitChanges(ctx.workingDir, input.message)
+      gitLogger.info('commit', 'Commit created', { hash: result.hash })
+      return result
     }),
 
   /** Commit specific files (scoped commit) */
@@ -137,18 +141,27 @@ export const gitRouter = router({
       message: z.string().min(1, "Commit message is required"),
     }))
     .mutation(({ ctx, input }) => {
-      return commitScopedChanges(ctx.workingDir, input.files, input.message)
+      gitLogger.info('commitScoped', 'Creating scoped commit', {
+        fileCount: input.files.length,
+        files: input.files.slice(0, 5),
+        message: input.message.slice(0, 72),
+      })
+      const result = commitScopedChanges(ctx.workingDir, input.files, input.message)
+      gitLogger.info('commitScoped', 'Scoped commit created', { hash: result.hash })
+      return result
     }),
 
   checkout: procedure
     .input(z.object({ branch: z.string().min(1) }))
     .mutation(({ ctx, input }) => {
+      gitLogger.info('checkout', `Switching to branch: ${input.branch}`)
       return checkoutBranch(ctx.workingDir, input.branch)
     }),
 
   discard: procedure
     .input(z.object({ files: z.array(z.string()).min(1) }))
     .mutation(({ ctx, input }) => {
+      gitLogger.warn('discard', 'Discarding changes', { fileCount: input.files.length, files: input.files })
       return discardChanges(ctx.workingDir, input.files)
     }),
 
@@ -165,6 +178,11 @@ export const gitRouter = router({
       setUpstream: z.boolean().optional(),
     }))
     .mutation(({ ctx, input }) => {
+      gitLogger.info('push', 'Pushing to remote', {
+        remote: input.remote ?? 'origin',
+        branch: input.branch,
+        setUpstream: input.setUpstream,
+      })
       return pushToRemote(ctx.workingDir, {
         remote: input.remote,
         branch: input.branch,
@@ -191,6 +209,11 @@ export const gitRouter = router({
       rebase: z.boolean().optional(),
     }))
     .mutation(({ ctx, input }) => {
+      gitLogger.info('pull', 'Pulling from remote', {
+        remote: input.remote ?? 'origin',
+        branch: input.branch,
+        rebase: input.rebase ?? false,
+      })
       return pullFromRemote(ctx.workingDir, {
         remote: input.remote,
         branch: input.branch,
@@ -204,6 +227,7 @@ export const gitRouter = router({
       force: z.boolean().optional(),
     }))
     .mutation(({ ctx, input }) => {
+      gitLogger.warn('deleteBranch', `Deleting branch: ${input.branch}`, { force: input.force ?? false })
       return deleteBranch(ctx.workingDir, input.branch, {
         force: input.force,
       })
@@ -255,7 +279,10 @@ export const gitRouter = router({
       sourceBranch: z.string().min(1, "Source branch is required"),
     }))
     .mutation(({ ctx, input }) => {
-      return mergeBranch(ctx.workingDir, input.targetBranch, input.sourceBranch)
+      gitLogger.info('mergeBranch', `Merging ${input.sourceBranch} into ${input.targetBranch}`)
+      const result = mergeBranch(ctx.workingDir, input.targetBranch, input.sourceBranch)
+      gitLogger.info('mergeBranch', 'Merge completed', { success: result.success, hash: result.mergeCommitHash })
+      return result
     }),
 
   /** Get the most recent merge commit on a branch */
@@ -273,19 +300,23 @@ export const gitRouter = router({
       mergeCommitHash: z.string().min(1, "Merge commit hash is required"),
     }))
     .mutation(({ ctx, input }) => {
+      gitLogger.warn('revertMerge', `Reverting merge commit: ${input.mergeCommitHash}`)
       return revertMerge(ctx.workingDir, input.mergeCommitHash)
     }),
 
   /** Cleanup orphaned worktrees that don't have active sessions */
-  cleanupWorktrees: procedure.mutation(({ ctx }) => {
+  cleanupWorktrees: procedure.mutation(async ({ ctx }) => {
+    gitLogger.info('cleanupWorktrees', 'Starting worktree cleanup')
     const repoRoot = getGitRoot(ctx.workingDir)
     if (!repoRoot) {
+      gitLogger.warn('cleanupWorktrees', 'Not a git repository, skipping cleanup')
       return { cleanedCount: 0, error: "Not a git repository" }
     }
 
-    const store = getSessionStore()
-    const activeSessionIds = new Set(store.getAllSessions().map((s) => s.id))
+    const activeSessionIds = await getKnownSessionIds()
+    gitLogger.debug('cleanupWorktrees', 'Active sessions', { count: activeSessionIds.size })
     const cleanedCount = cleanupOrphanedWorktrees(repoRoot, activeSessionIds)
+    gitLogger.info('cleanupWorktrees', `Cleaned ${cleanedCount} orphaned worktrees`)
 
     return { cleanedCount }
   }),
