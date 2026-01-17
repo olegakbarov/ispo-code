@@ -5,6 +5,15 @@ import { TaskListSidebar } from '@/components/tasks/task-list-sidebar'
 import { UserMenu } from '@/components/auth/user-menu'
 import { GitHubLoginButton } from '@/components/auth/github-login-button'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
+import {
+  InfoCard,
+  InfoCardContent,
+  InfoCardTitle,
+  InfoCardDescription,
+  InfoCardFooter,
+  InfoCardAction,
+  InfoCardDismiss,
+} from '@/components/ui/info-card'
 
 export function Sidebar() {
   const { data: session } = trpc.github.getSession.useQuery()
@@ -32,14 +41,31 @@ export function Sidebar() {
       </div>
 
       <footer className="border-t border-border shrink-0">
-        {/* FAQ Link */}
-        <Link
-          to="/docs/faq"
-          className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors [&.active]:text-foreground [&.active]:bg-secondary/50"
-        >
-          <HelpCircle className="w-4 h-4" />
-          <span>FAQ</span>
-        </Link>
+        {/* FAQ InfoCard */}
+        <div className="p-3">
+          <InfoCard dismissType="once">
+            <InfoCardContent>
+              <InfoCardTitle className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4" />
+                FAQ
+              </InfoCardTitle>
+              <InfoCardDescription>
+                Common questions answered
+              </InfoCardDescription>
+            </InfoCardContent>
+            <InfoCardFooter>
+              <InfoCardAction>
+                <Link
+                  to="/docs/faq"
+                  className="text-primary hover:underline"
+                >
+                  View FAQ →
+                </Link>
+              </InfoCardAction>
+              <InfoCardDismiss>Dismiss</InfoCardDismiss>
+            </InfoCardFooter>
+          </InfoCard>
+        </div>
         {/* GitHub Auth */}
         <div className="px-3 py-2">
           {session?.authenticated ? (
