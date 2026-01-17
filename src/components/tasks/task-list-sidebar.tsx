@@ -80,7 +80,7 @@ const TaskItem = memo(function TaskItem({
         }`}
       >
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-vcr truncate">{task.title}</div>
+          <div className="text-xs font-mono truncate">{task.title}</div>
         </div>
         <div className="shrink-0">
           {isRestoring ? (
@@ -151,13 +151,7 @@ const TaskItem = memo(function TaskItem({
       {/* Title and progress bar */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          {/* Error indicator for failed sessions */}
-          {hasFailedSession && (
-            <span title="Session failed">
-              <AlertCircle className="shrink-0 w-3.5 h-3.5 text-destructive" />
-            </span>
-          )}
-          <div className="text-xs font-vcr truncate">{task.title}</div>
+          <div className="text-xs font-mono truncate">{task.title}</div>
           {/* Subtask count badge */}
           {task.hasSubtasks && (
             <div className="shrink-0 flex items-center gap-0.5 text-[9px] text-muted-foreground bg-border/30 px-1 py-0.5 rounded">
@@ -184,11 +178,15 @@ const TaskItem = memo(function TaskItem({
         )}
       </div>
 
-      {/* Single action button - shows spinner when agent running */}
+      {/* Single action button - shows spinner when agent running, error when failed */}
       <div className="shrink-0">
         {hasActiveAgent ? (
           <div className="p-1">
             <Spinner size="sm" className="text-accent" />
+          </div>
+        ) : hasFailedSession ? (
+          <div className="p-1" title="Session failed">
+            <AlertCircle className="w-3.5 h-3.5 text-destructive" />
           </div>
         ) : (
           <button

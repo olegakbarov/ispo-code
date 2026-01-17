@@ -98,7 +98,6 @@ interface UseTaskActionsParams {
   restoreMutation: ReturnType<typeof trpc.tasks.restore.useMutation>
   unarchiveWithContextMutation: ReturnType<typeof trpc.tasks.unarchiveWithContext.useMutation>
   assignToAgentMutation: ReturnType<typeof trpc.tasks.assignToAgent.useMutation>
-  cancelAgentMutation: ReturnType<typeof trpc.agent.cancel.useMutation>
   verifyWithAgentMutation: ReturnType<typeof trpc.tasks.verifyWithAgent.useMutation>
   rewriteWithAgentMutation: ReturnType<typeof trpc.tasks.rewriteWithAgent.useMutation>
   splitTaskMutation: ReturnType<typeof trpc.tasks.splitTask.useMutation>
@@ -143,7 +142,6 @@ export function useTaskActions({
   restoreMutation,
   unarchiveWithContextMutation,
   assignToAgentMutation,
-  cancelAgentMutation,
   verifyWithAgentMutation,
   rewriteWithAgentMutation,
   splitTaskMutation,
@@ -221,7 +219,6 @@ export function useTaskActions({
     buildSearchParams,
     saveMutation,
     assignToAgentMutation,
-    cancelAgentMutation,
     verifyWithAgentMutation,
     rewriteWithAgentMutation,
     clearRewriteDraft,
@@ -291,7 +288,6 @@ export function useTaskActions({
     handleAssignToAgent: agentActions.handleAssignToAgent,
     handleCloseImplementModal: agentActions.handleCloseImplementModal,
     handleStartImplement: agentActions.handleStartImplement,
-    handleCancelAgent: agentActions.handleCancelAgent,
     handleReview: agentActions.handleReview,
     handleVerify: agentActions.handleVerify,
     handleCloseDebatePanel: agentActions.handleCloseDebatePanel,

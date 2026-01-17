@@ -14,6 +14,16 @@ if (typeof window === "undefined" && !installed) {
   const SERVER_LOG_FILE =
     process.env.SERVER_LOG_FILE || join(process.cwd(), "logs", "server.log")
   const MAX_SERVER_LOG_LINES = Number(process.env.SERVER_LOG_MAX_LINES || "5000")
+  const LOG_TO_FILE = process.env.SERVER_LOG_ENABLED !== "false"
+  const DEFAULT_SUPPRESS = ["better auth", "better-auth"]
+  const rawSuppress = process.env.SERVER_LOG_SUPPRESS
+  const suppressSource =
+    rawSuppress === undefined ? DEFAULT_SUPPRESS : rawSuppress.split(",")
+  const SUPPRESS_PATTERNS = Array.from(
+    new Set(
+      suppressSource.map((value) => value.trim().toLowerCase()).filter(Boolean)
+    )
+  )
 
   const ensureLogDirExists = (filePath: string) => {
     const dir = dirname(filePath)
@@ -32,6 +42,12 @@ if (typeof window === "undefined" && !installed) {
     } catch {
       return String(arg)
     }
+  }
+
+  const shouldSuppress = (args: unknown[]) => {
+    if (SUPPRESS_PATTERNS.length === 0) return false
+    const message = stripAnsi(args.map(serializeArg).join(" ")).toLowerCase()
+    return SUPPRESS_PATTERNS.some((pattern) => message.includes(pattern))
   }
 
   const countLines = (value: string): number => {
@@ -92,42 +108,61 @@ if (typeof window === "undefined" && !installed) {
   }
 
   console.log = (...args: unknown[]) => {
-    appendLog("INFO", args)
+    if (LOG_TO_FILE && !shouldSuppress(args)) {
+      appendLog("INFO", args)
+    }
     originalConsole.log(...args)
   }
 
   console.info = (...args: unknown[]) => {
-    appendLog("INFO", args)
+    if (LOG_TO_FILE && !shouldSuppress(args)) {
+      appendLog("INFO", args)
+    }
     originalConsole.info(...args)
   }
 
   console.warn = (...args: unknown[]) => {
-    appendLog("WARN", args)
+    if (LOG_TO_FILE && !shouldSuppress(args)) {
+      appendLog("WARN", args)
+    }
     originalConsole.warn(...args)
   }
 
   console.error = (...args: unknown[]) => {
-    appendLog("ERROR", args)
+    if (LOG_TO_FILE && !shouldSuppress(args)) {
+      appendLog("ERROR", args)
+    }
     originalConsole.error(...args)
   }
 
   console.debug = (...args: unknown[]) => {
-    appendLog("DEBUG", args)
+    if (LOG_TO_FILE && !shouldSuppress(args)) {
+      appendLog("DEBUG", args)
+    }
     originalConsole.debug(...args)
   }
 
   process.on("uncaughtException", (err) => {
-    appendLog("ERROR", ["Uncaught exception", err instanceof Error ? err.stack ?? err.message : err])
+    if (LOG_TO_FILE) {
+      appendLog("ERROR", [
+        "Uncaught exception",
+        err instanceof Error ? err.stack ?? err.message : err,
+      ])
+    }
     originalConsole.error(err)
   })
 
   process.on("unhandledRejection", (reason) => {
-    appendLog("ERROR", ["Unhandled rejection", reason])
+    if (LOG_TO_FILE) {
+      appendLog("ERROR", ["Unhandled rejection", reason])
+    }
     originalConsole.error(reason)
   })
 
-  appendLog("INFO", [
-    "Server logging installed",
-    { nodeEnv: process.env.NODE_ENV, cwd: process.cwd() },
-  ])
+  if (LOG_TO_FILE) {
+    appendLog("INFO", [
+      "Server logging installed",
+      { nodeEnv: process.env.NODE_ENV, cwd: process.cwd() },
+    ])
+  }
 }

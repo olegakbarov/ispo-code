@@ -625,12 +625,23 @@ function isChildPlanFile(relPath: string): boolean {
 }
 
 export function listTasks(cwd: string): TaskSummary[] {
+  const perfDebug = process.env.TASK_PERF_DEBUG === "true"
+  const start = perfDebug ? performance.now() : 0
+  let globMs = 0
+  let globMatches = 0
+  let worktreeOverrides = 0
+  let archivedCount = 0
   const relPaths = new Set<string>()
   const sources = new Map<string, TaskSource>()
   const repoRoot = getGitRoot(cwd)
 
   for (const { pattern, source } of TASK_GLOBS) {
+    const globStart = perfDebug ? performance.now() : 0
     const matches = globSync(pattern, { cwd, nodir: true, dot: true })
+    if (perfDebug) {
+      globMs += performance.now() - globStart
+      globMatches += matches.length
+    }
     for (const match of matches) {
       const relPath = normalizeRelPath(match)
       if (!isAllowedTaskPath(relPath)) continue
@@ -652,6 +663,7 @@ export function listTasks(cwd: string): TaskSummary[] {
 
   const tasks: TaskSummary[] = []
 
+  const processStart = perfDebug ? performance.now() : 0
   for (const relPath of relPaths) {
     try {
       const absPath = path.join(cwd, relPath)
@@ -663,6 +675,9 @@ export function listTasks(cwd: string): TaskSummary[] {
       let content = baseContent
       let effectiveStat = stat
       const archived = relPath.startsWith("tasks/archive/")
+      if (archived) {
+        archivedCount += 1
+      }
 
       if (repoRoot && baseTaskId && !archived) {
         const worktreeInfo = getTaskWorktreeForId(baseTaskId, repoRoot)
@@ -671,6 +686,7 @@ export function listTasks(cwd: string): TaskSummary[] {
           if (existsSync(worktreePath)) {
             content = readFileSync(worktreePath, "utf-8")
             effectiveStat = statSync(worktreePath)
+            worktreeOverrides += 1
           }
         }
       }
@@ -712,6 +728,7 @@ export function listTasks(cwd: string): TaskSummary[] {
       // Skip unreadable tasks
     }
   }
+  const processMs = perfDebug ? performance.now() - processStart : 0
 
   tasks.sort((a, b) => {
     const at = new Date(a.updatedAt).getTime()
@@ -719,6 +736,19 @@ export function listTasks(cwd: string): TaskSummary[] {
     if (bt !== at) return bt - at
     return a.path.localeCompare(b.path)
   })
+
+  if (perfDebug) {
+    console.log("[task-perf] listTasks", {
+      cwd,
+      totalMs: Math.round(performance.now() - start),
+      globMs: Math.round(globMs),
+      globMatches,
+      processMs: Math.round(processMs),
+      taskCount: tasks.length,
+      archivedCount,
+      worktreeOverrides,
+    })
+  }
 
   return tasks
 }

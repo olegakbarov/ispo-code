@@ -12,7 +12,6 @@ import { taskTrpcOptions } from '@/lib/trpc-task'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 import { generateOptimisticTaskPath } from '@/lib/utils/slugify'
 import type { TasksAction, EditorState } from '@/lib/stores/tasks-reducer'
-import { useCancellingSessionsStore } from '@/lib/stores/cancelling-sessions'
 
 interface UseTaskMutationsParams {
   dispatch: React.Dispatch<TasksAction>
@@ -31,7 +30,6 @@ export function useTaskMutations({
 }: UseTaskMutationsParams) {
   const navigate = useNavigate()
   const utils = trpc.useUtils()
-  const { addCancelling, removeCancelling } = useCancellingSessionsStore()
   const taskTrpc = taskTrpcOptions(selectedPath ?? undefined)
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -649,58 +647,6 @@ export function useTaskMutations({
   })
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Cancel Agent Mutation
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  const cancelAgentMutation = trpc.agent.cancel.useMutation({
-    onMutate: async ({ id }) => {
-      console.log('[cancelAgentMutation] onMutate: Cancelling session', id)
-
-      // Add to cancelling store to prevent polling from re-adding this session
-      addCancelling(id)
-
-      await utils.tasks.getActiveAgentSessions.cancel()
-      const previousSessions = utils.tasks.getActiveAgentSessions.getData()
-      console.log('[cancelAgentMutation] onMutate: Previous sessions count:', Object.keys(previousSessions ?? {}).length)
-
-      if (previousSessions !== undefined) {
-        const updatedSessions = { ...previousSessions }
-        for (const [taskPath, session] of Object.entries(previousSessions)) {
-          if (session.sessionId === id) {
-            console.log('[cancelAgentMutation] onMutate: Removing session from taskPath:', taskPath)
-            delete updatedSessions[taskPath]
-            break
-          }
-        }
-        utils.tasks.getActiveAgentSessions.setData(undefined, updatedSessions)
-        console.log('[cancelAgentMutation] onMutate: Updated sessions count:', Object.keys(updatedSessions).length)
-      }
-
-      return { previousSessions }
-    },
-    onSuccess: (data, variables, _context) => {
-      console.log('[cancelAgentMutation] onSuccess:', data)
-      // Keep session in cancelling store until settled to prevent race condition
-      utils.tasks.list.invalidate()
-    },
-    onError: (error, variables, context) => {
-      console.error('[cancelAgentMutation] onError:', error)
-      // Remove from cancelling store on error
-      removeCancelling(variables.id)
-      if (context?.previousSessions !== undefined) {
-        utils.tasks.getActiveAgentSessions.setData(undefined, context.previousSessions)
-      }
-    },
-    onSettled: (_data, _error, variables) => {
-      console.log('[cancelAgentMutation] onSettled: Invalidating queries and removing from cancelling store')
-      // Remove from cancelling store after server confirms cancellation
-      removeCancelling(variables.id)
-      utils.tasks.getActiveAgentSessions.invalidate()
-      utils.tasks.getSessionsForTask.invalidate()
-    },
-  })
-
-  // ─────────────────────────────────────────────────────────────────────────────
   // Verify with Agent Mutation
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -905,7 +851,6 @@ export function useTaskMutations({
     restoreMutation,
     unarchiveWithContextMutation,
     assignToAgentMutation,
-    cancelAgentMutation,
     verifyWithAgentMutation,
     rewriteWithAgentMutation,
     splitTaskMutation,

@@ -64,7 +64,6 @@ interface TaskSidebarProps {
   onReview: () => void
   onVerify: () => void
   onAssignToAgent: () => void
-  onCancelAgent?: (sessionId: string) => void
 
   // Review mode - file list and commit
   reviewFiles?: ChangedFile[]
@@ -109,7 +108,6 @@ export function TaskSidebar({
   onReview,
   onVerify,
   onAssignToAgent,
-  onCancelAgent,
   // Review mode props
   reviewFiles,
   reviewActiveFile,
@@ -291,7 +289,6 @@ export function TaskSidebar({
                 rewrite={taskSessions.grouped.rewrite}
                 comment={taskSessions.grouped.comment}
                 orchestrator={taskSessions.grouped.orchestrator}
-                onCancelSession={onCancelAgent}
               />
             ) : (
               <div className="p-4 border border-border/40 rounded text-center">

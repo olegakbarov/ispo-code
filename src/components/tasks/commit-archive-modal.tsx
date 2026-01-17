@@ -352,7 +352,7 @@ export function CommitArchiveModal({
               disabled={isProcessing}
               placeholder={generateMutation.isPending ? 'Generating...' : 'Enter commit message...'}
               variant="sm"
-              className="min-h-[80px]"
+              className="min-h-[240px]"
             />
           </div>
 

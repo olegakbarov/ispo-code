@@ -1,11 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { LogBatchSchema, LogLineSchema } from "@/lib/shared/log-schemas"
+import { getSession } from "@/lib/auth/session-store"
 import * as fs from "fs"
 import * as path from "path"
 import { z } from "zod"
 
 const BROWSER_LOG_FILE =
   process.env.BROWSER_LOG_FILE || path.join(process.cwd(), "logs", "browser.log")
+const REQUIRE_AUTH =
+  process.env.BROWSER_LOG_REQUIRE_AUTH !== undefined
+    ? process.env.BROWSER_LOG_REQUIRE_AUTH === "true"
+    : process.env.NODE_ENV === "production"
 
 const jsonHeaders: Record<string, string> = {
   "Content-Type": "application/json",
@@ -73,6 +78,21 @@ const serve = async (request: Request) => {
         status: 403,
         headers: jsonHeaders,
       })
+    }
+
+    if (REQUIRE_AUTH) {
+      let session: Awaited<ReturnType<typeof getSession>> | null = null
+      try {
+        session = await getSession(request)
+      } catch {
+        session = null
+      }
+      if (!session?.userId) {
+        return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+          status: 401,
+          headers: jsonHeaders,
+        })
+      }
     }
 
     const rawText = await request.text()

@@ -69,7 +69,6 @@ interface UseTaskAgentActionsParams {
   }
   saveMutation: any
   assignToAgentMutation: any
-  cancelAgentMutation: ReturnType<typeof trpc.agent.cancel.useMutation>
   verifyWithAgentMutation: any
   rewriteWithAgentMutation: any
   clearRewriteDraft: () => void
@@ -87,7 +86,6 @@ export function useTaskAgentActions({
   buildSearchParams,
   saveMutation,
   assignToAgentMutation,
-  cancelAgentMutation,
   verifyWithAgentMutation,
   rewriteWithAgentMutation,
   clearRewriteDraft,
@@ -134,11 +132,6 @@ export function useTaskAgentActions({
       throw err
     }
   }, [selectedPath, editor.dirty, editor.draft, saveMutation, assignToAgentMutation, dispatch])
-
-  const handleCancelAgent = useCallback((sessionId: string) => {
-    console.log('[handleCancelAgent] Cancelling session:', sessionId)
-    cancelAgentMutation.mutate({ id: sessionId })
-  }, [cancelAgentMutation])
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Review/Verify Handlers
@@ -343,7 +336,6 @@ export function useTaskAgentActions({
     handleAssignToAgent,
     handleCloseImplementModal,
     handleStartImplement,
-    handleCancelAgent,
     handleReview,
     handleVerify,
     handleCloseDebatePanel,

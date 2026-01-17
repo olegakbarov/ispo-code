@@ -216,7 +216,6 @@ export function TasksPage({
     restoreMutation,
     unarchiveWithContextMutation,
     assignToAgentMutation,
-    cancelAgentMutation,
     verifyWithAgentMutation,
     rewriteWithAgentMutation,
     splitTaskMutation,
@@ -289,7 +288,6 @@ export function TasksPage({
     handleAssignToAgent,
     handleCloseImplementModal,
     handleStartImplement,
-    handleCancelAgent,
     handleReview,
     handleVerify,
     handleCloseDebatePanel,
@@ -338,7 +336,6 @@ export function TasksPage({
     restoreMutation,
     unarchiveWithContextMutation,
     assignToAgentMutation,
-    cancelAgentMutation,
     verifyWithAgentMutation,
     rewriteWithAgentMutation,
     splitTaskMutation,
@@ -623,7 +620,6 @@ export function TasksPage({
                 onReview={handleReview}
                 onVerify={handleVerify}
                 onAssignToAgent={handleAssignToAgent}
-                onCancelAgent={handleCancelAgent}
                 // Review mode props
                 reviewFiles={reviewFiles}
                 reviewActiveFile={reviewActiveFile}

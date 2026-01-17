@@ -1999,14 +1999,25 @@ Begin working on the task now.`
       path: z.string().min(1),
     }))
     .query(async ({ ctx, input }) => {
+      const timer = taskLogger.startTimer('getReviewData')
+      const t0 = performance.now()
+
       const streamAPI = getStreamAPI()
       const registryEvents = await streamAPI.readRegistry()
+      const t1 = performance.now()
+      console.log(`[getReviewData] readRegistry: ${Math.round(t1 - t0)}ms`)
+
       const task = getTask(ctx.workingDir, input.path)
+      const t2 = performance.now()
+      console.log(`[getReviewData] getTask: ${Math.round(t2 - t1)}ms`)
 
       // Find all active (non-deleted) session IDs for this task
       const taskSessionIds = getActiveSessionIdsForTask(registryEvents, input.path, task.splitFrom)
+      const t3 = performance.now()
+      console.log(`[getReviewData] getActiveSessionIds: ${Math.round(t3 - t2)}ms, found ${taskSessionIds.length} sessions`)
 
       if (taskSessionIds.length === 0) {
+        timer.end('no sessions')
         return {
           changedFiles: [],
           hasUncommitted: false,
@@ -2047,6 +2058,8 @@ Begin working on the task now.`
           }
         })
       )
+      const t4 = performance.now()
+      console.log(`[getReviewData] sessionResults: ${Math.round(t4 - t3)}ms`)
 
       // Build changed files map and collect per-session file sets
       // Key by gitPath (repoRelativePath) to dedupe files across worktrees
@@ -2106,6 +2119,8 @@ Begin working on the task now.`
       // Build changed files array
       const changedFiles = Array.from(allFiles.values())
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      const t5 = performance.now()
+      console.log(`[getReviewData] buildChangedFiles: ${Math.round(t5 - t4)}ms, ${changedFiles.length} files`)
 
       // Calculate uncommitted status using cached git status per workingDir
       const uncommittedFiles = new Set<string>()
@@ -2114,7 +2129,9 @@ Begin working on the task now.`
       for (const [, { gitPaths, workingDir }] of sessionFileSets) {
         let uncommittedInGit = gitStatusCache.get(workingDir)
         if (!uncommittedInGit) {
+          const gitStatusStart = performance.now()
           const gitStatus = getGitStatus(workingDir)
+          console.log(`[getReviewData] getGitStatus(${workingDir.split('/').pop()}): ${Math.round(performance.now() - gitStatusStart)}ms`)
           uncommittedInGit = new Set<string>()
           for (const f of gitStatus.staged) uncommittedInGit.add(f.file)
           for (const f of gitStatus.modified) uncommittedInGit.add(f.file)
@@ -2128,6 +2145,10 @@ Begin working on the task now.`
           }
         }
       }
+
+      const t6 = performance.now()
+      console.log(`[getReviewData] total: ${Math.round(t6 - t0)}ms`)
+      timer.end(`${changedFiles.length} files`)
 
       return {
         changedFiles,

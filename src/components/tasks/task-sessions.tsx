@@ -49,7 +49,6 @@ interface TaskSessionsProps {
   rewrite: TaskSession[]
   comment: TaskSession[]
   orchestrator: TaskSession[]
-  onCancelSession?: (sessionId: string) => void
 }
 
 const STATUS_COLORS: Record<SessionStatus, string> = {
@@ -115,10 +114,8 @@ function getStatusLabel(status: SessionStatus): string {
 /** Active Session Card - prominent display for running sessions */
 function ActiveSessionCard({
   session,
-  onCancel
 }: {
   session: TaskSession
-  onCancel?: () => void
 }) {
   const statusColor = STATUS_COLORS[session.status]
   const StatusIcon = STATUS_ICONS[session.status]
@@ -178,19 +175,6 @@ function ActiveSessionCard({
           </div>
         )}
       </Link>
-      {onCancel && SPINNER_STATUSES.includes(session.status) && (
-        <div className="border-t border-current/20 px-3 py-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onCancel()
-            }}
-            className={`w-full px-2 py-1 rounded text-[10px] font-vcr border border-current/30 hover:bg-current/10 cursor-pointer transition-colors ${statusColor}`}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
     </div>
   )
 }
@@ -266,7 +250,6 @@ export function TaskSessions({
   rewrite,
   comment,
   orchestrator,
-  onCancelSession
 }: TaskSessionsProps) {
   const allSessions = [...planning, ...review, ...verify, ...execution, ...rewrite, ...comment, ...orchestrator]
 
@@ -314,7 +297,6 @@ export function TaskSessions({
             <ActiveSessionCard
               key={session.sessionId}
               session={session}
-              onCancel={onCancelSession ? () => onCancelSession(session.sessionId) : undefined}
             />
           ))}
         </div>

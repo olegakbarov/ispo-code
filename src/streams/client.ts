@@ -48,8 +48,22 @@ export function createStreamHandle(streamPath: string): DurableStream {
 export class StreamAPI {
   private baseUrl: string
 
+  // Registry cache with TTL to reduce HTTP overhead
+  private registryCache: {
+    data: RegistryEvent[] | null
+    timestamp: number
+  } = { data: null, timestamp: 0 }
+  private static REGISTRY_CACHE_TTL_MS = 1000 // 1 second TTL
+
   constructor(serverUrl?: string) {
     this.baseUrl = serverUrl || getStreamServerUrl()
+  }
+
+  /**
+   * Invalidate the registry cache (call after writes)
+   */
+  invalidateRegistryCache(): void {
+    this.registryCache = { data: null, timestamp: 0 }
   }
 
   /**
@@ -94,6 +108,8 @@ export class StreamAPI {
       await this.ensureStreamExists(REGISTRY_STREAM)
       const handle = this.getHandle(REGISTRY_STREAM)
       await handle.append([JSON.stringify(event)])
+      // Invalidate cache after write
+      this.invalidateRegistryCache()
       console.log(`[StreamAPI] appendToRegistry: success`)
     } catch (err) {
       console.error(`[StreamAPI] appendToRegistry failed:`, err)
@@ -129,9 +145,18 @@ export class StreamAPI {
   }
 
   /**
-   * Read all events from the registry stream
+   * Read all events from the registry stream (with caching)
    */
   async readRegistry(): Promise<RegistryEvent[]> {
+    // Check cache first
+    const now = Date.now()
+    if (
+      this.registryCache.data !== null &&
+      now - this.registryCache.timestamp < StreamAPI.REGISTRY_CACHE_TTL_MS
+    ) {
+      return this.registryCache.data
+    }
+
     try {
       const handle = this.getHandle(REGISTRY_STREAM)
       const response = await handle.stream({ live: false })
@@ -147,6 +172,8 @@ export class StreamAPI {
       fullText += decoder.decode()
 
       if (!fullText.trim()) {
+        // Cache empty result
+        this.registryCache = { data: [], timestamp: now }
         return []
       }
 
@@ -163,6 +190,8 @@ export class StreamAPI {
               events.push(eventData as RegistryEvent)
             }
           }
+          // Cache the result
+          this.registryCache = { data: events, timestamp: now }
           return events
         }
       } catch {
@@ -179,15 +208,21 @@ export class StreamAPI {
         }
       }
 
+      // Cache the result
+      this.registryCache = { data: events, timestamp: now }
       return events
     } catch (error: unknown) {
       // Stream doesn't exist yet - handle both NOT_FOUND code and HTTP 404
       if (error && typeof error === "object") {
         if ("code" in error && error.code === "NOT_FOUND") {
+          // Cache empty result
+          this.registryCache = { data: [], timestamp: now }
           return []
         }
         // Handle HTTP 404 from FetchError
         if ("message" in error && typeof error.message === "string" && error.message.includes("404")) {
+          // Cache empty result
+          this.registryCache = { data: [], timestamp: now }
           return []
         }
       }

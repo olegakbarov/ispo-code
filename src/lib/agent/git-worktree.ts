@@ -41,6 +41,17 @@ export interface TaskWorktreeInfo {
   taskId: string
 }
 
+const TASK_PERF_DEBUG = process.env.TASK_PERF_DEBUG === "true"
+
+const logTaskPerf = (message: string, data?: Record<string, unknown>) => {
+  if (!TASK_PERF_DEBUG) return
+  if (data) {
+    console.log(`[task-perf] ${message}`, data)
+  } else {
+    console.log(`[task-perf] ${message}`)
+  }
+}
+
 /**
  * Execute a git command and return result
  */
@@ -183,6 +194,7 @@ export function createWorktree(options: WorktreeOptions): WorktreeInfo | null {
  * Reuses existing worktree/branch if present.
  */
 export function ensureTaskWorktree(options: TaskWorktreeOptions): TaskWorktreeInfo | null {
+  const start = TASK_PERF_DEBUG ? performance.now() : 0
   const { taskId, baseBranch, repoRoot: providedRepoRoot } = options
 
   const repoRoot = providedRepoRoot ?? getGitRoot(process.cwd())
@@ -199,8 +211,16 @@ export function ensureTaskWorktree(options: TaskWorktreeOptions): TaskWorktreeIn
 
   let baseBranchResolved = baseBranch
   if (!baseBranchResolved) {
+    const branchStart = TASK_PERF_DEBUG ? performance.now() : 0
     const currentBranchResult = runGit(["branch", "--show-current"], repoRoot)
     baseBranchResolved = currentBranchResult.stdout.trim() || "HEAD"
+    if (TASK_PERF_DEBUG) {
+      logTaskPerf("resolve base branch", {
+        taskId,
+        branch: baseBranchResolved,
+        ms: Math.round(performance.now() - branchStart),
+      })
+    }
   }
 
   const worktreesDir = join(repoRoot, ".ispo-code", "worktrees", "tasks")
@@ -214,6 +234,12 @@ export function ensureTaskWorktree(options: TaskWorktreeOptions): TaskWorktreeIn
   }
 
   if (existsSync(worktreePath)) {
+    logTaskPerf("reuse task worktree", {
+      taskId,
+      branch,
+      path: worktreePath,
+      totalMs: TASK_PERF_DEBUG ? Math.round(performance.now() - start) : undefined,
+    })
     return {
       path: worktreePath,
       branch,
@@ -221,18 +247,40 @@ export function ensureTaskWorktree(options: TaskWorktreeOptions): TaskWorktreeIn
     }
   }
 
+  const branchCheckStart = TASK_PERF_DEBUG ? performance.now() : 0
   const branchExistsResult = runGit(["rev-parse", "--verify", branch], repoRoot)
+  const branchCheckMs = TASK_PERF_DEBUG ? performance.now() - branchCheckStart : 0
   const args = branchExistsResult.ok
     ? ["worktree", "add", worktreePath, branch]
     : ["worktree", "add", "-b", branch, worktreePath, baseBranchResolved]
 
+  const createStart = TASK_PERF_DEBUG ? performance.now() : 0
   const createResult = runGit(args, repoRoot)
+  const createMs = TASK_PERF_DEBUG ? performance.now() - createStart : 0
   if (!createResult.ok) {
+    logTaskPerf("create task worktree failed", {
+      taskId,
+      branch,
+      path: worktreePath,
+      branchExists: branchExistsResult.ok,
+      branchCheckMs: Math.round(branchCheckMs),
+      createMs: Math.round(createMs),
+      totalMs: TASK_PERF_DEBUG ? Math.round(performance.now() - start) : undefined,
+    })
     console.error(`[git-worktree] Failed to create task worktree: ${createResult.stderr}`)
     return null
   }
 
   console.log(`[git-worktree] Created task worktree at ${worktreePath} on branch ${branch}`)
+  logTaskPerf("create task worktree", {
+    taskId,
+    branch,
+    path: worktreePath,
+    branchExists: branchExistsResult.ok,
+    branchCheckMs: Math.round(branchCheckMs),
+    createMs: Math.round(createMs),
+    totalMs: TASK_PERF_DEBUG ? Math.round(performance.now() - start) : undefined,
+  })
 
   return {
     path: worktreePath,
@@ -502,6 +550,8 @@ export function cleanupOrphanedWorktrees(
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
+        // Skip the tasks/ subdirectory - it contains task worktrees, not a session worktree
+        if (entry.name === "tasks") continue
 
         const sessionId = entry.name
         if (activeSessions.has(sessionId)) {

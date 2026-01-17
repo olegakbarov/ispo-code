@@ -25,8 +25,8 @@ import { AgentProgressBanner } from '@/components/agents/progress-banner'
 import { OutputRenderer } from '@/components/agents/output-renderer'
 import { ThreadSidebar } from '@/components/agents/thread-sidebar'
 import { ImageAttachmentInput } from '@/components/agents/image-attachment-input'
+import { TaskInput } from '@/components/tasks/task-input'
 import { Spinner } from '@/components/ui/spinner'
-import { StyledTextarea } from '@/components/ui/styled-textarea'
 import type { ImageAttachment } from '@/lib/agent/types'
 import { encodeTaskPath } from '@/lib/utils/task-routing'
 
@@ -191,13 +191,6 @@ function AgentSessionPage() {
     })
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      handleResume()
-    }
-  }
-
   // Loading state
   if (isLoading) {
     return (
@@ -253,7 +246,7 @@ function AgentSessionPage() {
   return (
     <div className="flex h-full">
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
           <Link
@@ -336,7 +329,7 @@ function AgentSessionPage() {
         {/* Output */}
         <div
           ref={outputContainerRef}
-          className="flex-1 overflow-y-auto p-4 space-y-2"
+          className="flex-1 overflow-y-auto p-4 pb-48 space-y-2"
         >
           {outputChunks.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -354,45 +347,46 @@ function AgentSessionPage() {
           )}
         </div>
 
-        {/* Resume input (for completed/resumable sessions or waiting_input) */}
-        {(canResume || isWaitingInput) && (
-          <div className="border-t border-border p-4 bg-card/50">
-            <div className="space-y-2">
+        {/* Floating message input - always visible */}
+        <div className="absolute bottom-0 left-0 right-0 z-10">
+          <TaskInput
+            value={resumeMessage}
+            onChange={setResumeMessage}
+            placeholder={
+              isRunning ? "Agent is working..." :
+              isWaitingApproval ? "Waiting for approval..." :
+              isWaitingInput ? "Respond to agent..." :
+              "Send follow-up message..."
+            }
+            disabled={isRunning || isWaitingApproval || resumeMutation.isPending}
+            rows={3}
+            onSubmit={handleResume}
+            canSubmit={Boolean(resumeMessage.trim()) && !resumeMutation.isPending && (canResume || isWaitingInput)}
+            submitLabel={isWaitingInput ? "Respond" : "Send"}
+            submitIcon={resumeMutation.isPending ? <Spinner size="xs" /> : <Send className="w-4 h-4" />}
+            isSubmitting={resumeMutation.isPending}
+            toolbarLeft={
               <ImageAttachmentInput
                 attachments={attachments}
                 onChange={setAttachments}
+                disabled={isRunning || isWaitingApproval || resumeMutation.isPending}
+                compact
               />
-              <div className="flex items-end gap-2">
-                <StyledTextarea
-                  value={resumeMessage}
-                  onChange={(e) => setResumeMessage(e.target.value)}
-                  autoGrowValue={resumeMessage}
-                  onKeyDown={handleKeyDown}
-                  placeholder={isWaitingInput ? "Respond to agent..." : "Send follow-up message..."}
-                  variant="sm"
-                  containerClassName="flex-1"
-                  className="min-h-[60px] max-h-[200px]"
-                  disabled={resumeMutation.isPending}
-                />
-                <button
-                  onClick={handleResume}
-                  disabled={!resumeMessage.trim() || resumeMutation.isPending}
-                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-vcr rounded-lg bg-accent text-background hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {resumeMutation.isPending ? (
-                    <Spinner size="xs" />
-                  ) : (
-                    <Send className="w-3.5 h-3.5" />
-                  )}
-                  Send
-                </button>
-              </div>
-              <div className="text-[10px] text-muted-foreground">
-                Press ⌘+Enter to send
-              </div>
-            </div>
-          </div>
-        )}
+            }
+            attachmentsSlot={
+              attachments.length > 0 ? (
+                <div className="px-4 pt-3">
+                  <ImageAttachmentInput
+                    attachments={attachments}
+                    onChange={setAttachments}
+                    disabled={resumeMutation.isPending}
+                  />
+                </div>
+              ) : undefined
+            }
+            containerClassName="p-4 flex justify-center"
+          />
+        </div>
       </div>
 
       {/* Sidebar */}
