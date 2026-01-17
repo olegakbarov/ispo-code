@@ -2062,21 +2062,31 @@ Begin working on the task now.`
       }>()
       const sessionFileSets = new Map<string, { gitPaths: Set<string>; workingDir: string }>()
 
+      // Helper to normalize paths that may have ../ prefixes from worktree calculations
+      const normalizePath = (p: string | undefined): string | undefined => {
+        if (!p) return p
+        // Remove leading ../ segments that escape worktree back to main repo
+        // e.g., "../../../../src/foo.tsx" -> "src/foo.tsx"
+        const normalized = p.replace(/^(\.\.\/)+/, '')
+        return normalized || p
+      }
+
       for (const result of sessionResults) {
         if (!result) continue
         const { sessionId, changedFiles, sessionWorkingDir } = result
 
         const gitPaths = new Set<string>()
         for (const file of changedFiles) {
-          // Compute git-relative path for deduplication
-          const gitPath = file.repoRelativePath || file.relativePath || file.path
+          // Compute git-relative path for deduplication, normalizing any ../ prefixes
+          const rawGitPath = file.repoRelativePath || file.relativePath || file.path
+          const gitPath = normalizePath(rawGitPath) || rawGitPath
           // Aggregate for changed files output - dedupe by gitPath to avoid duplicates across worktrees
           const existing = allFiles.get(gitPath)
           if (!existing || new Date(file.timestamp) > new Date(existing.timestamp)) {
             allFiles.set(gitPath, {
               path: file.path,
-              relativePath: file.relativePath,
-              repoRelativePath: file.repoRelativePath,
+              relativePath: normalizePath(file.relativePath),
+              repoRelativePath: normalizePath(file.repoRelativePath),
               operation: file.operation,
               timestamp: file.timestamp,
               toolUsed: file.toolUsed,
